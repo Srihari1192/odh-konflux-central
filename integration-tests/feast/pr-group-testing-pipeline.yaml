@@ -202,8 +202,14 @@ spec:
               - name: credentials
                 value: credentials
           - name: deploy-and-e2e
-            image: quay.io/rhoai/rhoai-task-toolset:go-its
-            onError: continue
+            image: quay.io/svenkata1/feast-go-its:test-1
+            computeResources:
+              requests:
+                memory: "4Gi"
+                cpu: "2"
+              limits:
+                memory: "8Gi"
+                cpu: "4"
             env:
               - name: KUBECONFIG
                 value: "/credentials/$(steps.get-kubeconfig.results.kubeconfig)"
@@ -214,6 +220,14 @@ spec:
               - name: credentials
                 mountPath: /credentials
             script: |
+              # Configure KUBECONFIG for Registry REST API tests
+              export KUBECONFIG
+              echo "KUBECONFIG=${KUBECONFIG}"
+              export HOME="${HOME:-/tmp}"
+              mkdir -p "$HOME/.kube"
+              cp "${KUBECONFIG%%:*}" "$HOME/.kube/config"
+              echo "Kubeconfig copied to $HOME/.kube/config"
+
               oc get pods
               oc whoami
 
@@ -244,10 +258,18 @@ spec:
               git checkout ${REVISION}
 
               export RUN_ON_OPENSHIFT_CI=true
+              echo "Feature Store Operator E2E test run"
               cd infra/feast-operator
               make install && make deploy IMG=${FEAST_OPERATOR_CONTROLLER_IMAGE} FS_IMG=${FEAST_FEATURE_SERVER_IMAGE}
               oc wait --for condition=Available -n feast-operator-system deployment feast-operator-controller-manager
               make test-e2e
+            
+              cd ../..
+              echo "Registry REST API test run"
+              make install-pysthon-dependencies-cis
+              uv run pytest -c sdk/python/pytest.ini sdk/python/tests/integration/rest_api/test_registry_rest_api.py --integration -s --timeout=600
+
+              cd infra/feast-operator
               make undeploy IMG=${FEAST_OPERATOR_CONTROLLER_IMAGE} FS_IMG=${FEAST_FEATURE_SERVER_IMAGE}
 
               make test-previous-version
