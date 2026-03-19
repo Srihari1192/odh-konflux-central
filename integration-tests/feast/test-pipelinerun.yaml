@@ -1,0 +1,29 @@
+---
+# Test PipelineRun for Feast Nightly Pipeline
+# This can be used to manually test the pipeline before the scheduled cron runs
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: test-feast-nightly-run
+  namespace: odh-integration-tests
+  annotations:
+    description: "Manual test run of the nightly pipeline before merge"
+spec:
+  pipelineRef:
+    name: odh-nightly-test-feast
+  params:
+    - name: SNAPSHOT
+      value: ""
+    - name: oci-artifacts-repo
+      value: quay.io/opendatahub/odh-ci-artifacts
+    - name: artifact-browser-url
+      value: https://app-artifact-browser.apps.rosa.konflux-qe.zmr9.p3.openshiftapps.com
+    - name: git-url
+      value: https://github.com/feast-dev/feast.git
+    - name: git-revision
+      value: master
+  workspaces:
+    - name: git-auth
+      emptyDir: {}
+  timeouts:
+    pipeline: "2h"  # 2 hour timeout for the entire pipeline
