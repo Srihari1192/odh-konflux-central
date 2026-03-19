@@ -1,0 +1,32 @@
+---
+apiVersion: pipelinesascode.tekton.dev/v1alpha1
+kind: Repository
+metadata:
+  name: feast-nightly-tests
+  namespace: odh-integration-tests
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  url: "https://github.com/opendatahub-io/odh-konflux-central"
+  branch: "main"
+  event_type: "cron"
+  settings:
+    cron: "30 2 * * *"  # 2:30 AM UTC = 8:00 AM IST
+    timezone: "UTC"
+  params:
+    - name: SNAPSHOT
+      value: ""
+    - name: git-url
+      value: "https://github.com/feast-dev/feast.git"
+    - name: git-revision
+      value: "master"
+  pipelineRef:
+    name: odh-nightly-test-feast
+    resolver: git
+    params:
+      - name: url
+        value: https://github.com/opendatahub-io/odh-konflux-central.git
+      - name: revision
+        value: main
+      - name: pathInRepo
+        value: integration-tests/feast/feast-nightly-pipeline.yaml
