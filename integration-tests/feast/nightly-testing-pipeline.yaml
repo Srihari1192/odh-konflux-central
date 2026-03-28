@@ -18,6 +18,12 @@ spec:
     - name: artifact-browser-url
       default: 'https://app-artifact-browser.apps.rosa.konflux-qe.zmr9.p3.openshiftapps.com'
       description: The OCI container used to store all test artifacts.
+    - name: git-repo
+      default: 'opendatahub-io/feast'
+      description: GitHub repo (owner/name) for commit status reporting.
+    - name: git-branch
+      default: 'master'
+      description: Branch to report status against.
   tasks:
     - name: resolve-images
       description: Resolve latest stable image digests for feast-operator and feature-server
@@ -326,6 +332,144 @@ spec:
               echo "All nightly tests passed"
 
   finally:
+  - name: report-nightly-status
+    params:
+      - name: pipeline-status
+        value: $(tasks.status)
+      - name: git-repo
+        value: $(params.git-repo)
+      - name: git-branch
+        value: $(params.git-branch)
+      - name: git-revision
+        value: $(tasks.resolve-images.results.git-revision)
+      - name: oci-artifacts-repo
+        value: $(params.oci-artifacts-repo)
+      - name: artifact-browser-url
+        value: $(params.artifact-browser-url)
+    workspaces:
+    - name: basic-auth
+      workspace: git-auth
+    taskSpec:
+      params:
+        - name: pipeline-status
+          type: string
+        - name: git-repo
+          type: string
+        - name: git-branch
+          type: string
+        - name: git-revision
+          type: string
+        - name: oci-artifacts-repo
+          type: string
+        - name: artifact-browser-url
+          type: string
+      workspaces:
+        - name: basic-auth
+          optional: true
+      steps:
+        - name: set-commit-status
+          image: quay.io/konflux-ci/konflux-test:stable
+          env:
+            - name: PIPELINE_STATUS
+              value: $(params.pipeline-status)
+            - name: GIT_REPO
+              value: $(params.git-repo)
+            - name: GIT_BRANCH
+              value: $(params.git-branch)
+            - name: GIT_REVISION
+              value: $(params.git-revision)
+            - name: PIPELINERUN_NAME
+              value: $(context.pipelineRun.name)
+            - name: OCI_REPO
+              value: $(params.oci-artifacts-repo)
+            - name: ARTIFACT_BROWSER_URL
+              value: $(params.artifact-browser-url)
+          script: |
+            #!/bin/bash
+            set -e
+
+            # Extract GitHub token from workspace git credentials
+            GITHUB_TOKEN=""
+            if [ -f "$(workspaces.basic-auth.path)/.git-credentials" ]; then
+              GITHUB_TOKEN=$(grep github.com "$(workspaces.basic-auth.path)/.git-credentials" | sed 's|.*://||;s|@.*||;s|.*:||')
+            elif [ -f "$(workspaces.basic-auth.path)/token" ]; then
+              GITHUB_TOKEN=$(cat "$(workspaces.basic-auth.path)/token")
+            fi
+
+            if [ -z "$GITHUB_TOKEN" ]; then
+              echo "WARNING: No GitHub token found, skipping commit status"
+              exit 0
+            fi
+
+            # Resolve branch HEAD SHA
+            SHA=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+              "https://api.github.com/repos/${GIT_REPO}/git/ref/heads/${GIT_BRANCH}" \
+              | jq -r '.object.sha // empty')
+
+            if [ -z "$SHA" ]; then
+              echo "WARNING: Could not resolve SHA for ${GIT_REPO}@${GIT_BRANCH}, using git-revision"
+              SHA="${GIT_REVISION}"
+            fi
+
+            echo "Reporting status for ${GIT_REPO}@${SHA}"
+
+            # Determine state
+            if [ "$PIPELINE_STATUS" == "Succeeded" ]; then
+              STATE="success"
+              DESCRIPTION="Nightly tests passed"
+            else
+              STATE="failure"
+              DESCRIPTION="Nightly tests failed"
+            fi
+
+            ARTIFACT_URL="${ARTIFACT_BROWSER_URL}/?image=${OCI_REPO}:${PIPELINERUN_NAME}"
+
+            # Set commit status on the branch HEAD
+            curl -s -X POST \
+              -H "Authorization: token ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${GIT_REPO}/statuses/${SHA}" \
+              -d "$(jq -n \
+                --arg state "$STATE" \
+                --arg url "$ARTIFACT_URL" \
+                --arg desc "$DESCRIPTION" \
+                --arg ctx "feast-nightly-test" \
+                '{state: $state, target_url: $url, description: $desc, context: $ctx}')" \
+              | jq '{state, target_url, context}'
+
+            echo "Commit status set: ${STATE}"
+
+            # On failure, create a GitHub issue for visibility
+            if [ "$STATE" == "failure" ]; then
+              DATE=$(date -u +"%Y-%m-%d")
+              ISSUE_TITLE="Nightly test failure: ${DATE}"
+
+              # Check if issue already exists today
+              EXISTING=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+                "https://api.github.com/repos/${GIT_REPO}/issues?labels=nightly-failure&state=open&per_page=5" \
+                | jq -r --arg title "$ISSUE_TITLE" '.[] | select(.title == $title) | .number')
+
+              if [ -n "$EXISTING" ]; then
+                echo "Issue #${EXISTING} already exists for today, adding comment"
+                curl -s -X POST \
+                  -H "Authorization: token ${GITHUB_TOKEN}" \
+                  "https://api.github.com/repos/${GIT_REPO}/issues/${EXISTING}/comments" \
+                  -d "$(jq -n --arg body "Re-run also failed: [Artifacts](${ARTIFACT_URL}) | PipelineRun: \`${PIPELINERUN_NAME}\`" '{body: $body}')" \
+                  | jq '{id, created_at}'
+              else
+                echo "Creating new issue for nightly failure"
+                curl -s -X POST \
+                  -H "Authorization: token ${GITHUB_TOKEN}" \
+                  "https://api.github.com/repos/${GIT_REPO}/issues" \
+                  -d "$(jq -n \
+                    --arg title "$ISSUE_TITLE" \
+                    --arg body "## Nightly Test Failure\n\n**Date:** ${DATE}\n**Branch:** ${GIT_BRANCH}\n**Commit:** ${SHA}\n**PipelineRun:** \`${PIPELINERUN_NAME}\`\n\n**Artifacts:** [View test artifacts](${ARTIFACT_URL})\n\nThe scheduled nightly integration test failed. Check the artifacts link above for must-gather and test logs.\n\ncc @${GIT_REPO%%/*}" \
+                    --argjson labels '["nightly-failure","ci"]' \
+                    '{title: $title, body: $body, labels: $labels}')" \
+                  | jq '{number, html_url}'
+              fi
+            fi
+
   - name: push-ci-artifacts
     params:
       - name: oci-artifacts-repo
