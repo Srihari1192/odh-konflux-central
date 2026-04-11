@@ -339,6 +339,17 @@ spec:
                   value: 'test-artifacts/$(context.pipelineRun.name)'
                 - name: pipelinerun-name
                   value: $(context.pipelineRun.name)
+            - name: check-test-exit-code
+              image: quay.io/konflux-ci/konflux-test:stable
+              script: |
+                #!/bin/bash
+                set -euo pipefail
+                EXIT_CODE=$(cat $(steps.step-e2e-maas-api-openshift.exitCode.path))
+                if [ "${EXIT_CODE}" != "0" ]; then
+                  echo "e2e tests failed with exit code ${EXIT_CODE}"
+                  exit "${EXIT_CODE}"
+                fi
+                echo "e2e tests passed"
         when:
           - input: "$(tasks.check-prerequisites.results.event-type)"
             operator: notin
