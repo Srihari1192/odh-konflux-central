@@ -129,12 +129,22 @@ spec:
               echo ".[minimal]" > sdk/python/feast/infra/feature_servers/multicloud/requirements.txt
               cat sdk/python/feast/infra/feature_servers/multicloud/requirements.txt
 
+              # Patch the Dockerfile COPY paths to work with repo root as build context
+              # (needed so .[minimal] in requirements.txt can find pyproject.toml)
+              FS_DIR=sdk/python/feast/infra/feature_servers/multicloud
+              sed -i \
+                -e "s|COPY prebuild-power-base.sh|COPY ${FS_DIR}/prebuild-power-base.sh|" \
+                -e "s|COPY requirements.txt|COPY ${FS_DIR}/requirements.txt|" \
+                "${FS_DIR}/Dockerfile"
+              echo "=== Patched Dockerfile COPY paths ==="
+              grep "^COPY" "${FS_DIR}/Dockerfile"
+
               echo "=== Build feature-server → ${SERVER_REF} ==="
               buildah build --isolation chroot \
                 --platform linux/amd64 \
                 -f sdk/python/feast/infra/feature_servers/multicloud/Dockerfile \
                 -t "${SERVER_REF}" \
-                sdk/python/feast/infra/feature_servers/multicloud
+                .
 
               echo "=== Build feast-operator → ${OPERATOR_REF} ==="
               buildah build --isolation chroot \
