@@ -148,8 +148,11 @@ spec:
               # requirements.txt COPY line so uv can resolve .[minimal]
               sed -i "/COPY.*requirements.txt requirements.txt/a COPY pyproject.toml README.md /opt/app-root/src/\nCOPY sdk/python /opt/app-root/src/sdk/python\nWORKDIR /opt/app-root/src\nENV SETUPTOOLS_SCM_PRETEND_VERSION=${FEAST_VERSION}" \
                 "${FS_DIR}/Dockerfile"
+              # When installing from source, the pre-built UI assets (build/projects-list.json)
+              # are not included. Replace the chmod with a version that creates the file first.
+              python3 -c "import pathlib; p=pathlib.Path('${FS_DIR}/Dockerfile'); t=p.read_text(); p.write_text(t.replace('RUN chmod g+w', 'RUN FEAST_UI_DIR=\$(python -c \"import feast.ui as ui; print(ui.__path__)\" | tr -d \"[\\x27]\") && mkdir -p \"\${FEAST_UI_DIR}/build\" && echo \"[]\" > \"\${FEAST_UI_DIR}/build/projects-list.json\" && chmod g+w'))"
               echo "=== Patched Dockerfile ==="
-              grep -E "^(COPY|WORKDIR|ENV SETUP)" "${FS_DIR}/Dockerfile"
+              cat -n "${FS_DIR}/Dockerfile"
 
               echo "=== Build feature-server → ${SERVER_REF} ==="
               buildah build --isolation chroot \
