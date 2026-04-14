@@ -129,15 +129,22 @@ spec:
               echo ".[minimal]" > sdk/python/feast/infra/feature_servers/multicloud/requirements.txt
               cat sdk/python/feast/infra/feature_servers/multicloud/requirements.txt
 
-              # Patch the Dockerfile COPY paths to work with repo root as build context
-              # (needed so .[minimal] in requirements.txt can find pyproject.toml)
+              # Patch the Dockerfile so the nightly build installs from local source
+              # instead of PyPI. Three changes are needed:
+              #   1. Rewrite existing COPY paths for the wider build context (repo root)
+              #   2. Add COPY instructions for pyproject.toml and sdk/python source
+              #   3. Set WORKDIR so .[minimal] resolves to the feast project root
               FS_DIR=sdk/python/feast/infra/feature_servers/multicloud
               sed -i \
                 -e "s|COPY prebuild-power-base.sh|COPY ${FS_DIR}/prebuild-power-base.sh|" \
                 -e "s|COPY requirements.txt|COPY ${FS_DIR}/requirements.txt|" \
+                -e "/COPY.*requirements.txt/a\\
+COPY pyproject.toml README.md /opt/app-root/src/\\
+COPY sdk/python /opt/app-root/src/sdk/python\\
+WORKDIR /opt/app-root/src" \
                 "${FS_DIR}/Dockerfile"
               echo "=== Patched Dockerfile COPY paths ==="
-              grep "^COPY" "${FS_DIR}/Dockerfile"
+              grep -E "^(COPY|WORKDIR)" "${FS_DIR}/Dockerfile"
 
               echo "=== Build feature-server → ${SERVER_REF} ==="
               buildah build --isolation chroot \
