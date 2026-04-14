@@ -132,6 +132,10 @@ spec:
               echo ".[minimal]" > "${FS_DIR}/requirements.txt"
               cat "${FS_DIR}/requirements.txt"
 
+              # Add git to the image — needed when a FeatureStore CR uses
+              # feastProjectDir.git to clone a feature repo at init time.
+              sed -i 's|microdnf install -y gcc|microdnf install -y git gcc|' "${FS_DIR}/Dockerfile"
+
               # Patch the Dockerfile so the nightly build installs from local source
               # instead of PyPI. Changes needed:
               #   1. Rewrite existing COPY paths for the wider build context (repo root)
