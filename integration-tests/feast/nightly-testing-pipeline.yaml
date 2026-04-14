@@ -126,25 +126,30 @@ spec:
               # instead of the released PyPI version, so the nightly image contains
               # the latest code from the branch (not just the last published release).
               echo "=== Patching feature-server requirements.txt to use local source ==="
-              echo ".[minimal]" > sdk/python/feast/infra/feature_servers/multicloud/requirements.txt
-              cat sdk/python/feast/infra/feature_servers/multicloud/requirements.txt
+              # Extract the pinned version before overwriting (used for setuptools_scm)
+              FS_DIR=sdk/python/feast/infra/feature_servers/multicloud
+              FEAST_VERSION=$(grep -oP 'feast\[minimal\]\s*==\s*\K[0-9.]+' "${FS_DIR}/requirements.txt" || echo "0.0.0.dev0")
+              echo ".[minimal]" > "${FS_DIR}/requirements.txt"
+              cat "${FS_DIR}/requirements.txt"
 
               # Patch the Dockerfile so the nightly build installs from local source
-              # instead of PyPI. Three changes are needed:
+              # instead of PyPI. Changes needed:
               #   1. Rewrite existing COPY paths for the wider build context (repo root)
               #   2. Add COPY instructions for pyproject.toml and sdk/python source
               #   3. Set WORKDIR so .[minimal] resolves to the feast project root
-              FS_DIR=sdk/python/feast/infra/feature_servers/multicloud
+              #   4. Set SETUPTOOLS_SCM_PRETEND_VERSION so setuptools_scm doesn't
+              #      need .git to determine the package version
+              echo "Using FEAST_VERSION=${FEAST_VERSION} for setuptools_scm"
               sed -i \
                 -e "s|COPY prebuild-power-base.sh|COPY ${FS_DIR}/prebuild-power-base.sh|" \
                 -e "s|COPY requirements.txt|COPY ${FS_DIR}/requirements.txt|" \
-                -e "/COPY.*requirements.txt/a\\
-COPY pyproject.toml README.md /opt/app-root/src/\\
-COPY sdk/python /opt/app-root/src/sdk/python\\
-WORKDIR /opt/app-root/src" \
                 "${FS_DIR}/Dockerfile"
-              echo "=== Patched Dockerfile COPY paths ==="
-              grep -E "^(COPY|WORKDIR)" "${FS_DIR}/Dockerfile"
+              # Insert source COPY + WORKDIR + setuptools_scm env after the
+              # requirements.txt COPY line so uv can resolve .[minimal]
+              sed -i "/COPY.*requirements.txt requirements.txt/a COPY pyproject.toml README.md /opt/app-root/src/\nCOPY sdk/python /opt/app-root/src/sdk/python\nWORKDIR /opt/app-root/src\nENV SETUPTOOLS_SCM_PRETEND_VERSION=${FEAST_VERSION}" \
+                "${FS_DIR}/Dockerfile"
+              echo "=== Patched Dockerfile ==="
+              grep -E "^(COPY|WORKDIR|ENV SETUP)" "${FS_DIR}/Dockerfile"
 
               echo "=== Build feature-server → ${SERVER_REF} ==="
               buildah build --isolation chroot \
