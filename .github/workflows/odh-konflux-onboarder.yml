@@ -242,7 +242,7 @@ jobs:
 
             echo "Release build → ensuring release-push file exists"
 
-            find "$repo_folder" -type f -name "*-push.yaml" | while read src_file; do
+            find "$repo_folder" -type f -name "*-push.yaml" ! -name "*release*" | while read src_file; do
 
               base_name=$(basename "$src_file")
               release_name="${base_name%-push.yaml}-release-push.yaml"
