@@ -51,6 +51,13 @@ spec:
       type: string
       default: "m5.2xlarge"
 
+    - name: OCP_VERSION_PREFIX
+      description: |
+        OpenShift version prefix for the ephemeral cluster (e.g. 4.20. or 4.19.). Latest patch is resolved via EaaS.
+        Leave empty to use the newest supported major.minor from the environment.
+      type: string
+      default: ""
+
     - name: SCRIPTS_REPO_URL
       description: Git repo containing the pipeline step scripts
       type: string
@@ -167,6 +174,28 @@ spec:
             params:
               - name: eaasSpaceSecretRef
                 value: $(tasks.provision-eaas-space.results.secretRef)
+          - name: resolve-ocp-prefix
+            image: quay.io/konflux-ci/task-runner:1.5.0@sha256:200019314a50be5b6dd06f362c794c92a700583a522c5eee9a41e3eab7f706c5
+            results:
+              - name: prefix
+                type: string
+            env:
+              - name: OVERRIDE
+                value: $(params.OCP_VERSION_PREFIX)
+              - name: DEFAULT_MINOR
+                value: $(steps.get-supported-versions.results.versions[0])
+            script: |
+              #!/bin/bash
+              set -euo pipefail
+              if [[ -z "${OVERRIDE// }" ]]; then
+                echo -n "${DEFAULT_MINOR}." > "$(step.results.prefix.path)"
+              else
+                P="${OVERRIDE// /}"
+                case "$P" in *.) ;;
+                  *) P="${P}." ;;
+                esac
+                echo -n "$P" > "$(step.results.prefix.path)"
+              fi
           - name: pick-version
             ref:
               resolver: git
@@ -179,7 +208,7 @@ spec:
                   value: stepactions/eaas-get-latest-openshift-version-by-prefix/0.1/eaas-get-latest-openshift-version-by-prefix.yaml
             params:
               - name: prefix
-                value: "$(steps.get-supported-versions.results.versions[0])."
+                value: "$(steps.resolve-ocp-prefix.results.prefix)"
           - name: create-cluster
             image: quay.io/konflux-ci/task-runner:1.5.0@sha256:200019314a50be5b6dd06f362c794c92a700583a522c5eee9a41e3eab7f706c5
             results:
@@ -280,6 +309,8 @@ spec:
           value: $(params.SCRIPTS_REPO_URL)
         - name: SCRIPTS_REPO_REVISION
           value: $(params.SCRIPTS_REPO_REVISION)
+        - name: QUAY_PULL_SECRET_NAME
+          value: $(params.QUAY_PULL_SECRET_NAME)
       taskSpec:
         params:
           - name: FBCF_IMAGE
@@ -299,6 +330,8 @@ spec:
           - name: SCRIPTS_REPO_URL
             type: string
           - name: SCRIPTS_REPO_REVISION
+            type: string
+          - name: QUAY_PULL_SECRET_NAME
             type: string
         results:
           - name: INSTALL_STATUS
@@ -407,7 +440,7 @@ spec:
                 value: /credentials/$(steps.get-kubeconfig.results.kubeconfig)
             script: |
               #!/bin/bash
-              exec /workspace/repo/integration-tests/olminstall/scripts/patch-cluster-pull-secret.sh
+              exec python3 /workspace/repo/integration-tests/olminstall/helpers/patch_cluster_pull_secret.py
 
           - name: install-and-verify
             image: quay.io/rhoai/rhoai-task-toolset:its@sha256:18b1af9b64d766478792849e49eed156464f678ef53b567a641a28444cacbfc9
@@ -437,7 +470,7 @@ spec:
                 value: $(results.OPERATOR_VERSION.path)
             script: |
               #!/bin/bash
-              exec /workspace/repo/integration-tests/olminstall/scripts/install-and-verify.sh
+              exec python3 /workspace/repo/integration-tests/olminstall/helpers/install_and_verify.py
 
   finally:
     - name: collect-diagnostics
@@ -536,6 +569,9 @@ spec:
             default: "(unknown)"
           - name: PIPELINE_RUN_NAME
             type: string
+          - name: OPERATOR_NAME
+            type: string
+            default: "rhods-operator"
         steps:
           - name: send-notification
             image: quay.io/konflux-ci/konflux-test:stable@sha256:09328e5f47da168ffe951ec9c4242cd6761e61e0a235df1bba3f5158e757446d
@@ -560,7 +596,12 @@ spec:
                 STATUS_TEXT="FAILED (task status: $(params.TEST_STATUS))"
               fi
 
-              MSG="${EMOJI} ODH olminstall smoke test ${STATUS_TEXT}"
+              case "$(params.OPERATOR_NAME)" in
+                opendatahub-operator) PRODUCT_LABEL="ODH" ;;
+                rhods-operator) PRODUCT_LABEL="RHOAI" ;;
+                *) PRODUCT_LABEL="ODH/RHOAI" ;;
+              esac
+              MSG="${EMOJI} ${PRODUCT_LABEL} olminstall smoke test ${STATUS_TEXT}"
               MSG="${MSG}"$'\n'"Operator : $(params.OPERATOR_VERSION)"
               MSG="${MSG}"$'\n'"FBCF     : $(params.FBCF_IMAGE)"
               MSG="${MSG}"$'\n'"Run      : $(params.PIPELINE_RUN_NAME)"
@@ -598,3 +639,5 @@ spec:
           value: "(see pipeline run logs)"
         - name: PIPELINE_RUN_NAME
           value: $(context.pipelineRun.name)
+        - name: OPERATOR_NAME
+          value: "$(params.OPERATOR_NAME)"
