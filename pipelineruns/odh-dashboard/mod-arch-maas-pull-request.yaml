@@ -9,7 +9,7 @@ metadata:
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-cel-expression: event == "pull_request" && target_branch
-      == "main"
+      == "$$TARGET_BRANCH$$"
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: opendatahub-builds
@@ -24,7 +24,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/mod-arch-maas:odh-pr
+    value: quay.io/opendatahub/mod-arch-maas:$$OUTPUT_IMAGE_TAG$$
   - name: dockerfile
     value: packages/maas/Dockerfile.workspace
   - name: path-context
