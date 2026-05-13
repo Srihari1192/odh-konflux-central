@@ -73,9 +73,6 @@
   "kuberay": {
     "odh-kuberay-operator-controller-ci": "opendatahub/kuberay-operator"
   },
-  "llama-stack-distribution": {
-    "odh-llama-stack-core-ci": "opendatahub/llama-stack"
-  },
   "llama-stack-k8s-operator": {
     "llama-stack-k8s-operator-ci": "opendatahub/llama-stack-k8s-operator"
   },
