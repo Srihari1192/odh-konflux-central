@@ -55,7 +55,8 @@
     "kserve-storage-initializer-ci": "opendatahub/kserve-storage-initializer",
     "odh-kserve-llmisvc-controller-ci": "opendatahub/odh-kserve-llmisvc-controller",
     "odh-kserve-localmodel-controller-ci": "opendatahub/odh-kserve-localmodel-controller",
-    "odh-kserve-localmodelnode-agent-ci": "opendatahub/odh-kserve-localmodelnode-agent"
+    "odh-kserve-localmodelnode-agent-ci": "opendatahub/odh-kserve-localmodelnode-agent",
+    "odh-kserve-module-operator": "opendatahub/odh-kserve-module-operator"
   },
   "kserve-autogluon-server": {
     "odh-kserve-autogluon-server-ci": "opendatahub/odh-kserve-autogluon-server"
