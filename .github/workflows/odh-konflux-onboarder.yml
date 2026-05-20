@@ -9,6 +9,7 @@ on:
         type: choice
         options:
           # Add all valid components here in alphabetical order
+          - agents-operator
           - ai-gateway-payload-processing
           - batch-gateway
           - caikit-nlp
