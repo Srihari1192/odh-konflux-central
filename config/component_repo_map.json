@@ -2,6 +2,9 @@
   "NeMo-Guardrails": {
     "odh-trustyai-nemo-guardrails-serve-ci": "opendatahub/odh-trustyai-nemo-guardrails-server"
   },
+  "agents-operator": {
+    "odh-agents-operator-ci": "opendatahub/odh-agents-operator"
+  },
   "ai-gateway-payload-processing": {
     "ai-gateway-payload-processing-e2e-ci": "opendatahub/ai-gateway-payload-processing-e2e",
     "odh-ai-gateway-payload-processing-ci": "opendatahub/odh-ai-gateway-payload-processing"
@@ -28,8 +31,7 @@
   "distributed-workloads": {
     "odh-th06-cpu-torch210-py312-ci": "opendatahub/odh-th06-cpu-torch210-py312",
     "odh-th06-cuda130-torch210-py312-ci": "opendatahub/odh-th06-cuda130-torch210-py312",
-    "odh-th06-rocm64-torch291-py312-ci": "opendatahub/odh-th06-rocm64-torch291-py312",
-    "odh-training-cuda130-torch210-py312-openmpi41-ci": "opendatahub/odh-training-cuda130-torch210-py312-openmpi41"
+    "odh-th06-rocm64-torch291-py312-ci": "opendatahub/odh-th06-rocm64-torch291-py312"
   },
   "eval-hub": {
     "eval-hub": "opendatahub/odh-eval-hub"
@@ -56,7 +58,7 @@
     "odh-kserve-llmisvc-controller-ci": "opendatahub/odh-kserve-llmisvc-controller",
     "odh-kserve-localmodel-controller-ci": "opendatahub/odh-kserve-localmodel-controller",
     "odh-kserve-localmodelnode-agent-ci": "opendatahub/odh-kserve-localmodelnode-agent",
-    "odh-kserve-module-operator": "opendatahub/odh-kserve-module-operator"
+    "odh-kserve-module-operator-ci": "opendatahub/odh-kserve-module-operator"
   },
   "kserve-autogluon-server": {
     "odh-kserve-autogluon-server-ci": "opendatahub/odh-kserve-autogluon-server"
@@ -113,26 +115,6 @@
     "odh-maas-api-ci": "opendatahub/maas-api",
     "odh-maas-controller-ci": "opendatahub/maas-controller"
   },
-  "notebooks": {
-    "odh-pipeline-runtime-datascience-cpu-py312-ubi9-ci": "opendatahub/odh-pipeline-runtime-datascience-cpu-py312-ubi9",
-    "odh-pipeline-runtime-minimal-cpu-py312-ubi9-ci": "opendatahub/odh-pipeline-runtime-minimal-cpu-py312-ubi9",
-    "odh-pipeline-runtime-pytorch-cuda-py312-ubi9-ci": "opendatahub/odh-pipeline-runtime-pytorch-cuda-py312-ubi9",
-    "odh-pipeline-runtime-pytorch-llmcompressor-cuda-py312-ci": "opendatahub/odh-pipeline-runtime-pytorch-llmcompressor-cuda-py312-ubi9",
-    "odh-pipeline-runtime-pytorch-rocm-py312-ubi9-ci": "opendatahub/odh-pipeline-runtime-pytorch-rocm-py312-ubi9",
-    "odh-pipeline-runtime-tensorflow-cuda-py312-ubi9-ci": "opendatahub/odh-pipeline-runtime-tensorflow-cuda-py312-ubi9",
-    "odh-pipeline-runtime-tensorflow-rocm-py312-ubi9-ci": "opendatahub/odh-pipeline-runtime-tensorflow-rocm-py312-ubi9",
-    "odh-workbench-codeserver-datascience-cpu-py312-ubi9-ci": "opendatahub/odh-workbench-codeserver-datascience-cpu-py312-ubi9",
-    "odh-workbench-jupyter-datascience-cpu-py312-ubi9-ci": "opendatahub/odh-workbench-jupyter-datascience-cpu-py312-ubi9",
-    "odh-workbench-jupyter-minimal-cpu-py312-ubi9-ci": "opendatahub/odh-workbench-jupyter-minimal-cpu-py312-ubi9",
-    "odh-workbench-jupyter-minimal-cuda-py312-ubi9-ci": "opendatahub/odh-workbench-jupyter-minimal-cuda-py312-ubi9",
-    "odh-workbench-jupyter-minimal-rocm-py312-ubi9-ci": "opendatahub/odh-workbench-jupyter-minimal-rocm-py312-ubi9",
-    "odh-workbench-jupyter-pytorch-cuda-py312-ubi9-ci": "opendatahub/odh-workbench-jupyter-pytorch-cuda-py312-ubi9",
-    "odh-workbench-jupyter-pytorch-llmcompressor-cuda-ci": "opendatahub/odh-workbench-jupyter-pytorch-llmcompressor-cuda-py312-ubi9",
-    "odh-workbench-jupyter-pytorch-rocm-py312-ubi9-ci": "opendatahub/odh-workbench-jupyter-pytorch-rocm-py312-ubi9",
-    "odh-workbench-jupyter-tensorflow-cuda-py312-ubi9-ci": "opendatahub/odh-workbench-jupyter-tensorflow-cuda-py312-ubi9",
-    "odh-workbench-jupyter-tensorflow-rocm-py312-ci": "opendatahub/odh-workbench-jupyter-tensorflow-rocm-py312-ubi9",
-    "odh-workbench-jupyter-trustyai-cpu-py312-ubi9-ci": "opendatahub/odh-workbench-jupyter-trustyai-cpu-py312-ubi9"
-  },
   "odh-dashboard": {
     "mod-arch-maas": "opendatahub/mod-arch-maas",
     "odh-dashboard-ci": "opendatahub/odh-dashboard",
@@ -149,6 +131,9 @@
   },
   "odh-model-registry-operator": {
     "odh-model-registry-operator-ci": "opendatahub/model-registry-operator"
+  },
+  "odh-observability": {
+    "odh-observability-ci": "opendatahub/odh-observability"
   },
   "ogx-distribution": {
     "odh-ogx-core-ci": "opendatahub/odh-ogx-core"

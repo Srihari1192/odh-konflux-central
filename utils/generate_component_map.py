@@ -7,10 +7,11 @@ from urllib.parse import urlparse
 
 import yaml
 
-PIPELINERUNS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pipelineruns")
+PIPELINERUNS_DIR = os.path.join(os.getcwd(), "pipelineruns")
 EXCLUDED_DIRS = {"template"}
+PUSH_SUFFIX = "-push.yaml"
 SUFFIX_OVERRIDES = {"notebooks": "-ci-push.yaml"}
-OUTPUT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "component_quay_map.json")
+OUTPUT_FILE = os.path.join(os.getcwd(), "config", "component_repo_map.json")
 
 
 def extract_repo_name(annotation_value):
@@ -59,7 +60,7 @@ def collect_subdirs():
         subdirs.append((entry, full_path))
         for nested in sorted(os.listdir(full_path)):
             nested_path = os.path.join(full_path, nested)
-            if os.path.isdir(nested_path):
+            if os.path.isdir(nested_path) and "release" not in nested:
                 subdirs.append((f"{entry}/{nested}", nested_path))
     return subdirs
 
@@ -69,10 +70,10 @@ def main():
 
     for dir_key, dir_path in collect_subdirs():
         top_level_dir = dir_key.split("/")[0]
-        suffix = SUFFIX_OVERRIDES.get(top_level_dir, "-push.yaml")
+        suffix = SUFFIX_OVERRIDES.get(top_level_dir, PUSH_SUFFIX)
         push_files = sorted(
             f for f in os.listdir(dir_path)
-            if f.endswith(suffix) and os.path.isfile(os.path.join(dir_path, f))
+            if f.endswith(suffix) and "release" not in f and os.path.isfile(os.path.join(dir_path, f))
         )
         if not push_files:
             continue
@@ -107,6 +108,7 @@ def main():
 
     with open(OUTPUT_FILE, "w") as f:
         json.dump(result, f, indent=2, sort_keys=True)
+        f.write("\n")
 
     print(json.dumps(result, indent=2, sort_keys=True))
 
