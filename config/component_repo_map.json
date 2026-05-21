@@ -138,6 +138,7 @@
   "odh-dashboard": {
     "mod-arch-maas": "opendatahub/mod-arch-maas",
     "odh-dashboard-ci": "opendatahub/odh-dashboard",
+    "odh-mod-arch-agent-ops-ci": "opendatahub/odh-mod-arch-agent-ops",
     "odh-mod-arch-automl-ci": "opendatahub/odh-mod-arch-automl",
     "odh-mod-arch-autorag-ci": "opendatahub/odh-mod-arch-autorag",
     "odh-mod-arch-eval-hub": "opendatahub/odh-mod-arch-eval-hub",
