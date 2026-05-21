@@ -1,7 +1,7 @@
 config:
   default-branches-allowlist:
     - main
-    - stable
+    - master
   repositories:
     kserve:
       early-gate-enabled: true
