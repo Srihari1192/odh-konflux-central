@@ -1,0 +1,7 @@
+config:
+  default-branches-allowlist: ["main", "master"]
+  repositories:
+    kserve:
+      early-gate-enabled: true
+      additional-branches: []
+#      early-gate-required-on-default-branches: false
