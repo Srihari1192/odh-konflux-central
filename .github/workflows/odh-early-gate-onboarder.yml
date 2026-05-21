@@ -3,86 +3,16 @@ name: ODH Early Gate Onboarder
 on:
   workflow_dispatch:
     inputs:
-      component:
+      repository:
         description: 'Repository name to onboard to early-gate'
         required: true
-        type: choice
-        options:
-          # Add all valid components here in alphabetical order
-          - agents-operator
-          - ai-gateway-payload-processing
-          - batch-gateway
-          - caikit-nlp
-          - caikit-tgis-serving
-          - codeflare-operator
-          - data-science-pipelines
-          - data-science-pipelines-operator
-          - distributed-workloads
-          - eval-hub
-          - feast
-          - fms-guardrails-orchestrator
-          - guardrails-detectors
-          - guardrails-regex-detector
-          - ilab-on-ocp
-          - kserve
-          - kserve-autogluon-server
-          - kube-auth-proxy
-          - kube-rbac-proxy
-          - kubeflow
-          - kuberay
-          - llama-stack-k8s-operator
-          - llama-stack-provider-ragas
-          - llama-stack-provider-trustyai-garak
-          - llm-d-inference-scheduler
-          - llm-d-kv-cache
-          - llm-d-routing-sidecar
-          - lm-evaluation-harness
-          - ml-metadata
-          - mlflow
-          - mlflow-operator
-          - mlserver
-          - model-registry
-          - model-registry-operator
-          - modelmesh
-          - modelmesh-runtime-adapter
-          - modelmesh-serving
-          - models-as-a-service
-          - NeMo-Guardrails
-          - notebooks
-          - odh-dashboard
-          - odh-data-science-pipelines-argo-argoexec
-          - odh-data-science-pipelines-argo-workflowcontroller
-          - odh-kserve-llmisvc-controller
-          - odh-model-controller
-          - odh-model-metadata-collection
-          - ogx-distribution
-          - ogx-k8s-operator
-          - opendatahub-operator
-          - openvino_model_server
-          - pipelines-components
-          - rest-proxy
-          - spark-operator
-          - text-generation-inference
-          - trainer
-          - training-operator
-          - trustyai-explainability
-          - trustyai-service-operator
-          - vllm-orchestrator-gateway
-          - workload-variant-autoscaler
-          - rhaii-cluster-validation
-          - odh-observability
+        type: string
 
       pr_target_branch:
         description: 'Target branch for the PR in the component repo (e.g. main)'
         required: true
         type: string
         default: 'main'
-
-      early_gate_enabled:
-        description: 'Enable early-gate for this repository'
-        required: true
-        type: boolean
-        default: true
 
       additional_branches:
         description: 'Additional branches for early-gate (comma-separated, leave empty if none)'
@@ -91,7 +21,7 @@ on:
         default: ''
 
       early_gate_required_on_default_branches:
-        description: 'Require early-gate on default branches (leave empty to use default behavior)'
+        description: 'Require early-gate on default branches (only processed if additional_branches is set)'
         required: false
         type: boolean
 
@@ -120,14 +50,14 @@ jobs:
 
       - name: Set environment variables
         run: |
-          echo "REPOSITORY=opendatahub-io/${{ inputs.component }}" >> $GITHUB_ENV
-          echo "COMPONENT=${{ inputs.component }}" >> $GITHUB_ENV
+          echo "REPOSITORY=opendatahub-io/${{ inputs.repository }}" >> $GITHUB_ENV
+          echo "COMPONENT=${{ inputs.repository }}" >> $GITHUB_ENV
 
       - name: Prepare early-gate pipeline files
         run: |
           set -e
 
-          COMPONENT="${{ inputs.component }}"
+          COMPONENT="${{ inputs.repository }}"
 
           echo "Preparing early-gate pipeline files for $COMPONENT"
 
@@ -252,7 +182,7 @@ jobs:
           cd okc-repo
 
           CONFIG_FILE="config/early-gate-config.yaml"
-          COMPONENT="${{ inputs.component }}"
+          COMPONENT="${{ inputs.repository }}"
 
           echo "Updating $CONFIG_FILE with $COMPONENT"
 
@@ -263,8 +193,8 @@ jobs:
             exit 0
           fi
 
-          # Prepare the repository entry
-          REPO_ENTRY="  $COMPONENT:\n    early-gate-enabled: ${{ inputs.early_gate_enabled }}"
+          # Prepare the repository entry - always enable early-gate
+          REPO_ENTRY="  $COMPONENT:\n    early-gate-enabled: true"
 
           # Add additional-branches if provided
           if [ -n "${{ inputs.additional_branches }}" ]; then
@@ -280,13 +210,13 @@ jobs:
             # Remove trailing comma and space
             BRANCH_LIST=$(echo "$BRANCH_LIST" | sed 's/, $//')
             REPO_ENTRY="${REPO_ENTRY}\n    additional-branches: [$BRANCH_LIST]"
-          fi
 
-          # Add early-gate-required-on-default-branches if explicitly set
-          if [ "${{ inputs.early_gate_required_on_default_branches }}" = "true" ]; then
-            REPO_ENTRY="${REPO_ENTRY}\n    early-gate-required-on-default-branches: true"
-          elif [ "${{ inputs.early_gate_required_on_default_branches }}" = "false" ]; then
-            REPO_ENTRY="${REPO_ENTRY}\n    early-gate-required-on-default-branches: false"
+            # Only add early-gate-required-on-default-branches if additional_branches is set
+            if [ "${{ inputs.early_gate_required_on_default_branches }}" = "true" ]; then
+              REPO_ENTRY="${REPO_ENTRY}\n    early-gate-required-on-default-branches: true"
+            elif [ "${{ inputs.early_gate_required_on_default_branches }}" = "false" ]; then
+              REPO_ENTRY="${REPO_ENTRY}\n    early-gate-required-on-default-branches: false"
+            fi
           fi
 
           # Append to config file under repositories section
