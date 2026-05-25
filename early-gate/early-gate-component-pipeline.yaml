@@ -587,6 +587,8 @@ spec:
       value: $(params.operator-revision)
     - name: built-operator-digest
       value: $(tasks.build-operator-container.results.IMAGE_DIGEST)
+    - name: unique-tag
+      value: $(tasks.rhoai-init.results.unique-tag)
     taskSpec:
       params:
       - name: SNAPSHOT_ARTIFACT
@@ -595,6 +597,7 @@ spec:
       - name: operator-git-url
       - name: operator-revision
       - name: built-operator-digest
+      - name: unique-tag
       results:
       - name: OPERATOR_IMAGE_URL
         description: Resolved operator image URL
@@ -640,6 +643,8 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.labels['pipelinesascode.tekton.dev/url-repository']
+        - name: UNIQUE_TAG
+          value: $(params.unique-tag)
         script: |
           #!/bin/bash
           set -eo pipefail
@@ -649,14 +654,15 @@ spec:
             echo "Operator image found in snapshot, extracting..."
             IMAGE=$(echo "${SNAPSHOT}" | jq -r '.["odh-operator-ci"].image')
             RESOLVED_REPO="${IMAGE%%@*}"
-            RESOLVED_TAG="odh-pr-${PR_NUMBER}-${REPO_NAME}"
+            RESOLVED_TAG="odh-pr-${PR_NUMBER}"
             RESOLVED_URL="${RESOLVED_REPO}:${RESOLVED_TAG}"
             RESOLVED_DIGEST="${IMAGE##*@}"
             RESOLVED_GIT_URL=$(echo "${SNAPSHOT}" | jq -r '.["odh-operator-ci"]["git.url"] // empty')
             RESOLVED_GIT_COMMIT=$(echo "${SNAPSHOT}" | jq -r '.["odh-operator-ci"]["git.commit"] // empty')
           else
             echo "Operator was built in this pipeline, using build task results..."
-            RESOLVED_URL="${OPERATOR_OUTPUT_IMAGE}"
+            RESOLVED_REPO="${OPERATOR_OUTPUT_IMAGE%%:*}"
+            RESOLVED_URL="${RESOLVED_REPO}:${UNIQUE_TAG}"
             RESOLVED_DIGEST="${BUILT_OPERATOR_DIGEST}"
             RESOLVED_GIT_URL="${OPERATOR_GIT_URL}"
             RESOLVED_GIT_COMMIT="${OPERATOR_REVISION}"
