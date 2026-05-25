@@ -330,11 +330,29 @@ If you run the onboarder workflow for a repository that's already configured:
 
 ### Initial Onboarding Period
 
-> **Note:** During the initial rollout phase (first few weeks), the DevOps team will handle repository onboarding to ensure proper setup and validate the automated workflow. If you need to onboard a new repository, please reach out to the DevOps team.
+> **Note:** During the initial rollout phase (first few weeks), the DevTestOps team will handle repository onboarding to ensure proper setup and validate the automated workflow. If you need to onboard a new repository, please reach out to the DevTestOps team.
 
 ---
 
-## 8. Limitations
+## 8. Pros and Cons
+
+### Pros
+
+- **Early Detection of Integration Issues** — Catches breaking changes before merge, reducing the risk of broken main branches and preventing downstream failures
+- **Faster Feedback Loop** — Developers get test results within their PR review cycle, eliminating the need to wait for post-merge CI to discover issues
+- **Increased Confidence in Merges** — PRs that pass early gate testing have been validated against the full operator and component stack, reducing merge anxiety
+- **Reduced Debugging Time** — Issues are caught in the context of the specific PR that caused them, making root cause analysis faster and easier
+
+### Cons
+
+- **Cloud Infrastructure Costs** — Each early gate run provisions a dedicated ROSA HCP cluster for testing, which incurs AWS infrastructure costs that scale with PR volume
+- **Jenkins Infrastructure Scaling** — Increased test load requires scaling Jenkins executors and managing queue times during peak PR activity
+- **Longer PR Feedback Time** — Full early gate test cycles can take 30-45 minutes, which is slower than standard unit/integration tests
+- **Resource Contention** — High PR volume can lead to queued test runs and resource contention, potentially delaying feedback for some PRs
+
+---
+
+## 9. Limitations
 
 - **ODH repos only** — early gate testing currently supports only ODH repository builds. RHDS and RHOAI builds are not supported yet.
 - **Single architecture only** — early gate testing currently supports x86 architecture only.
