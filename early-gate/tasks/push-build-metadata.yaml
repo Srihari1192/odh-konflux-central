@@ -99,4 +99,5 @@ spec:
 
       git add --sparse components/odh-operator/${OUTPUT_IMAGE_DIGEST}
       git commit -m "build-meta for operator image ${OUTPUT_IMAGE_DIGEST}"
+      git pull origin main --depth 1
       git push
