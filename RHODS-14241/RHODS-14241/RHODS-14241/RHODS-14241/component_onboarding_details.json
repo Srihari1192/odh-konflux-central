@@ -1,0 +1,1093 @@
+{
+  "id": "5893187",
+  "key": "RHODS-14241",
+  "self": "https://redhat.atlassian.net/rest/api/2/issue/5893187",
+  "fields": {
+    "statuscategorychangedate": "2026-05-09T16:19:02.635+0000",
+    "customfield_10470": null,
+    "customfield_10472": null,
+    "fixVersions": [],
+    "customfield_10473": null,
+    "statusCategory": {
+      "raw": {
+        "self": "https://redhat.atlassian.net/rest/api/2/statuscategory/2",
+        "id": 2,
+        "key": "new",
+        "colorName": "blue-gray",
+        "name": "To Do"
+      },
+      "self": "https://redhat.atlassian.net/rest/api/2/statuscategory/2",
+      "id": 2,
+      "key": "new",
+      "colorName": "blue-gray",
+      "name": "To Do"
+    },
+    "customfield_11046": null,
+    "customfield_10595": null,
+    "customfield_11047": null,
+    "resolution": null,
+    "customfield_11048": null,
+    "customfield_11049": null,
+    "customfield_10623": null,
+    "customfield_10744": null,
+    "customfield_10986": "FjFI4vRDXIGtYHewzEzZdaPH9V2fVxqQyVjaS1sekg29EjebK182eW+9Dn5gfdb9vhoPLig9PvnhJYwjWIkR7g==",
+    "customfield_10348": null,
+    "customfield_10503": null,
+    "customfield_10868": null,
+    "lastViewed": "2026-05-25T02:50:20.735+0000",
+    "customfield_10980": null,
+    "priority": {
+      "raw": {
+        "self": "https://redhat.atlassian.net/rest/api/2/priority/10005",
+        "iconUrl": "https://redhat.atlassian.net/images/icons/priorities/trivial.svg",
+        "name": "Undefined",
+        "id": "10005"
+      },
+      "self": "https://redhat.atlassian.net/rest/api/2/priority/10005",
+      "iconUrl": "https://redhat.atlassian.net/images/icons/priorities/trivial.svg",
+      "name": "Undefined",
+      "id": "10005"
+    },
+    "customfield_10981": null,
+    "labels": [
+      "component-onboarding",
+      "yaml-attached"
+    ],
+    "customfield_10466": null,
+    "customfield_10578": null,
+    "customfield_10977": null,
+    "aggregatetimeoriginalestimate": null,
+    "timeestimate": null,
+    "customfield_10978": null,
+    "versions": [],
+    "customfield_10979": null,
+    "customfield_10618": null,
+    "issuelinks": [
+      {
+        "raw": {
+          "id": "1921302",
+          "self": "https://redhat.atlassian.net/rest/api/2/issueLink/1921302",
+          "type": {
+            "id": "10001",
+            "name": "Cloners",
+            "inward": "is cloned by",
+            "outward": "clones",
+            "self": "https://redhat.atlassian.net/rest/api/2/issueLinkType/10001"
+          },
+          "outwardIssue": {
+            "id": "5798060",
+            "key": "RHODS-14227",
+            "self": "https://redhat.atlassian.net/rest/api/2/issue/5798060",
+            "fields": {
+              "summary": "RHOAI Konflux CI Build Onboarding odh-ai-sixth-demo",
+              "status": {
+                "self": "https://redhat.atlassian.net/rest/api/2/status/5",
+                "description": "A resolution has been taken, and it's awaiting verification by the reporter. From here work items are either reopened, or are closed.",
+                "iconUrl": "https://redhat.atlassian.net/images/icons/statuses/resolved.png",
+                "name": "Resolved",
+                "id": "5",
+                "statusCategory": {
+                  "self": "https://redhat.atlassian.net/rest/api/2/statuscategory/3",
+                  "id": 3,
+                  "key": "done",
+                  "colorName": "green",
+                  "name": "Done"
+                }
+              },
+              "priority": {
+                "self": "https://redhat.atlassian.net/rest/api/2/priority/10005",
+                "iconUrl": "https://redhat.atlassian.net/images/icons/priorities/trivial.svg",
+                "name": "Undefined",
+                "id": "10005"
+              },
+              "issuetype": {
+                "self": "https://redhat.atlassian.net/rest/api/2/issuetype/10014",
+                "id": "10014",
+                "description": "A small, distinct piece of work.",
+                "iconUrl": "https://redhat.atlassian.net/rest/api/2/universal_avatar/view/type/issuetype/avatar/10318?size=medium",
+                "name": "Task",
+                "subtask": false,
+                "avatarId": 10318,
+                "hierarchyLevel": 0
+              }
+            }
+          }
+        },
+        "id": "1921302",
+        "self": "https://redhat.atlassian.net/rest/api/2/issueLink/1921302",
+        "type": {
+          "raw": {
+            "id": "10001",
+            "name": "Cloners",
+            "inward": "is cloned by",
+            "outward": "clones",
+            "self": "https://redhat.atlassian.net/rest/api/2/issueLinkType/10001"
+          },
+          "id": "10001",
+          "name": "Cloners",
+          "inward": "is cloned by",
+          "outward": "clones",
+          "self": "https://redhat.atlassian.net/rest/api/2/issueLinkType/10001"
+        },
+        "outwardIssue": {
+          "raw": {
+            "id": "5798060",
+            "key": "RHODS-14227",
+            "self": "https://redhat.atlassian.net/rest/api/2/issue/5798060",
+            "fields": {
+              "summary": "RHOAI Konflux CI Build Onboarding odh-ai-sixth-demo",
+              "status": {
+                "self": "https://redhat.atlassian.net/rest/api/2/status/5",
+                "description": "A resolution has been taken, and it's awaiting verification by the reporter. From here work items are either reopened, or are closed.",
+                "iconUrl": "https://redhat.atlassian.net/images/icons/statuses/resolved.png",
+                "name": "Resolved",
+                "id": "5",
+                "statusCategory": {
+                  "self": "https://redhat.atlassian.net/rest/api/2/statuscategory/3",
+                  "id": 3,
+                  "key": "done",
+                  "colorName": "green",
+                  "name": "Done"
+                }
+              },
+              "priority": {
+                "self": "https://redhat.atlassian.net/rest/api/2/priority/10005",
+                "iconUrl": "https://redhat.atlassian.net/images/icons/priorities/trivial.svg",
+                "name": "Undefined",
+                "id": "10005"
+              },
+              "issuetype": {
+                "self": "https://redhat.atlassian.net/rest/api/2/issuetype/10014",
+                "id": "10014",
+                "description": "A small, distinct piece of work.",
+                "iconUrl": "https://redhat.atlassian.net/rest/api/2/universal_avatar/view/type/issuetype/avatar/10318?size=medium",
+                "name": "Task",
+                "subtask": false,
+                "avatarId": 10318,
+                "hierarchyLevel": 0
+              }
+            }
+          },
+          "id": "5798060",
+          "key": "RHODS-14227",
+          "self": "https://redhat.atlassian.net/rest/api/2/issue/5798060",
+          "fields": {
+            "summary": "RHOAI Konflux CI Build Onboarding odh-ai-sixth-demo",
+            "status": {
+              "raw": {
+                "self": "https://redhat.atlassian.net/rest/api/2/status/5",
+                "description": "A resolution has been taken, and it's awaiting verification by the reporter. From here work items are either reopened, or are closed.",
+                "iconUrl": "https://redhat.atlassian.net/images/icons/statuses/resolved.png",
+                "name": "Resolved",
+                "id": "5",
+                "statusCategory": {
+                  "self": "https://redhat.atlassian.net/rest/api/2/statuscategory/3",
+                  "id": 3,
+                  "key": "done",
+                  "colorName": "green",
+                  "name": "Done"
+                }
+              },
+              "self": "https://redhat.atlassian.net/rest/api/2/status/5",
+              "description": "A resolution has been taken, and it's awaiting verification by the reporter. From here work items are either reopened, or are closed.",
+              "iconUrl": "https://redhat.atlassian.net/images/icons/statuses/resolved.png",
+              "name": "Resolved",
+              "id": "5",
+              "statusCategory": {
+                "raw": {
+                  "self": "https://redhat.atlassian.net/rest/api/2/statuscategory/3",
+                  "id": 3,
+                  "key": "done",
+                  "colorName": "green",
+                  "name": "Done"
+                },
+                "self": "https://redhat.atlassian.net/rest/api/2/statuscategory/3",
+                "id": 3,
+                "key": "done",
+                "colorName": "green",
+                "name": "Done"
+              }
+            },
+            "priority": {
+              "raw": {
+                "self": "https://redhat.atlassian.net/rest/api/2/priority/10005",
+                "iconUrl": "https://redhat.atlassian.net/images/icons/priorities/trivial.svg",
+                "name": "Undefined",
+                "id": "10005"
+              },
+              "self": "https://redhat.atlassian.net/rest/api/2/priority/10005",
+              "iconUrl": "https://redhat.atlassian.net/images/icons/priorities/trivial.svg",
+              "name": "Undefined",
+              "id": "10005"
+            },
+            "issuetype": {
+              "raw": {
+                "self": "https://redhat.atlassian.net/rest/api/2/issuetype/10014",
+                "id": "10014",
+                "description": "A small, distinct piece of work.",
+                "iconUrl": "https://redhat.atlassian.net/rest/api/2/universal_avatar/view/type/issuetype/avatar/10318?size=medium",
+                "name": "Task",
+                "subtask": false,
+                "avatarId": 10318,
+                "hierarchyLevel": 0
+              },
+              "self": "https://redhat.atlassian.net/rest/api/2/issuetype/10014",
+              "id": "10014",
+              "description": "A small, distinct piece of work.",
+              "iconUrl": "https://redhat.atlassian.net/rest/api/2/universal_avatar/view/type/issuetype/avatar/10318?size=medium",
+              "name": "Task",
+              "subtask": false,
+              "avatarId": 10318,
+              "hierarchyLevel": 0
+            }
+          }
+        }
+      },
+      {
+        "raw": {
+          "id": "1921304",
+          "self": "https://redhat.atlassian.net/rest/api/2/issueLink/1921304",
+          "type": {
+            "id": "10077",
+            "name": "Related",
+            "inward": "is related to",
+            "outward": "relates to",
+            "self": "https://redhat.atlassian.net/rest/api/2/issueLinkType/10077"
+          },
+          "outwardIssue": {
+            "id": "5798060",
+            "key": "RHODS-14227",
+            "self": "https://redhat.atlassian.net/rest/api/2/issue/5798060",
+            "fields": {
+              "summary": "RHOAI Konflux CI Build Onboarding odh-ai-sixth-demo",
+              "status": {
+                "self": "https://redhat.atlassian.net/rest/api/2/status/5",
+                "description": "A resolution has been taken, and it's awaiting verification by the reporter. From here work items are either reopened, or are closed.",
+                "iconUrl": "https://redhat.atlassian.net/images/icons/statuses/resolved.png",
+                "name": "Resolved",
+                "id": "5",
+                "statusCategory": {
+                  "self": "https://redhat.atlassian.net/rest/api/2/statuscategory/3",
+                  "id": 3,
+                  "key": "done",
+                  "colorName": "green",
+                  "name": "Done"
+                }
+              },
+              "priority": {
+                "self": "https://redhat.atlassian.net/rest/api/2/priority/10005",
+                "iconUrl": "https://redhat.atlassian.net/images/icons/priorities/trivial.svg",
+                "name": "Undefined",
+                "id": "10005"
+              },
+              "issuetype": {
+                "self": "https://redhat.atlassian.net/rest/api/2/issuetype/10014",
+                "id": "10014",
+                "description": "A small, distinct piece of work.",
+                "iconUrl": "https://redhat.atlassian.net/rest/api/2/universal_avatar/view/type/issuetype/avatar/10318?size=medium",
+                "name": "Task",
+                "subtask": false,
+                "avatarId": 10318,
+                "hierarchyLevel": 0
+              }
+            }
+          }
+        },
+        "id": "1921304",
+        "self": "https://redhat.atlassian.net/rest/api/2/issueLink/1921304",
+        "type": {
+          "raw": {
+            "id": "10077",
+            "name": "Related",
+            "inward": "is related to",
+            "outward": "relates to",
+            "self": "https://redhat.atlassian.net/rest/api/2/issueLinkType/10077"
+          },
+          "id": "10077",
+          "name": "Related",
+          "inward": "is related to",
+          "outward": "relates to",
+          "self": "https://redhat.atlassian.net/rest/api/2/issueLinkType/10077"
+        },
+        "outwardIssue": {
+          "raw": {
+            "id": "5798060",
+            "key": "RHODS-14227",
+            "self": "https://redhat.atlassian.net/rest/api/2/issue/5798060",
+            "fields": {
+              "summary": "RHOAI Konflux CI Build Onboarding odh-ai-sixth-demo",
+              "status": {
+                "self": "https://redhat.atlassian.net/rest/api/2/status/5",
+                "description": "A resolution has been taken, and it's awaiting verification by the reporter. From here work items are either reopened, or are closed.",
+                "iconUrl": "https://redhat.atlassian.net/images/icons/statuses/resolved.png",
+                "name": "Resolved",
+                "id": "5",
+                "statusCategory": {
+                  "self": "https://redhat.atlassian.net/rest/api/2/statuscategory/3",
+                  "id": 3,
+                  "key": "done",
+                  "colorName": "green",
+                  "name": "Done"
+                }
+              },
+              "priority": {
+                "self": "https://redhat.atlassian.net/rest/api/2/priority/10005",
+                "iconUrl": "https://redhat.atlassian.net/images/icons/priorities/trivial.svg",
+                "name": "Undefined",
+                "id": "10005"
+              },
+              "issuetype": {
+                "self": "https://redhat.atlassian.net/rest/api/2/issuetype/10014",
+                "id": "10014",
+                "description": "A small, distinct piece of work.",
+                "iconUrl": "https://redhat.atlassian.net/rest/api/2/universal_avatar/view/type/issuetype/avatar/10318?size=medium",
+                "name": "Task",
+                "subtask": false,
+                "avatarId": 10318,
+                "hierarchyLevel": 0
+              }
+            }
+          },
+          "id": "5798060",
+          "key": "RHODS-14227",
+          "self": "https://redhat.atlassian.net/rest/api/2/issue/5798060",
+          "fields": {
+            "summary": "RHOAI Konflux CI Build Onboarding odh-ai-sixth-demo",
+            "status": {
+              "raw": {
+                "self": "https://redhat.atlassian.net/rest/api/2/status/5",
+                "description": "A resolution has been taken, and it's awaiting verification by the reporter. From here work items are either reopened, or are closed.",
+                "iconUrl": "https://redhat.atlassian.net/images/icons/statuses/resolved.png",
+                "name": "Resolved",
+                "id": "5",
+                "statusCategory": {
+                  "self": "https://redhat.atlassian.net/rest/api/2/statuscategory/3",
+                  "id": 3,
+                  "key": "done",
+                  "colorName": "green",
+                  "name": "Done"
+                }
+              },
+              "self": "https://redhat.atlassian.net/rest/api/2/status/5",
+              "description": "A resolution has been taken, and it's awaiting verification by the reporter. From here work items are either reopened, or are closed.",
+              "iconUrl": "https://redhat.atlassian.net/images/icons/statuses/resolved.png",
+              "name": "Resolved",
+              "id": "5",
+              "statusCategory": {
+                "raw": {
+                  "self": "https://redhat.atlassian.net/rest/api/2/statuscategory/3",
+                  "id": 3,
+                  "key": "done",
+                  "colorName": "green",
+                  "name": "Done"
+                },
+                "self": "https://redhat.atlassian.net/rest/api/2/statuscategory/3",
+                "id": 3,
+                "key": "done",
+                "colorName": "green",
+                "name": "Done"
+              }
+            },
+            "priority": {
+              "raw": {
+                "self": "https://redhat.atlassian.net/rest/api/2/priority/10005",
+                "iconUrl": "https://redhat.atlassian.net/images/icons/priorities/trivial.svg",
+                "name": "Undefined",
+                "id": "10005"
+              },
+              "self": "https://redhat.atlassian.net/rest/api/2/priority/10005",
+              "iconUrl": "https://redhat.atlassian.net/images/icons/priorities/trivial.svg",
+              "name": "Undefined",
+              "id": "10005"
+            },
+            "issuetype": {
+              "raw": {
+                "self": "https://redhat.atlassian.net/rest/api/2/issuetype/10014",
+                "id": "10014",
+                "description": "A small, distinct piece of work.",
+                "iconUrl": "https://redhat.atlassian.net/rest/api/2/universal_avatar/view/type/issuetype/avatar/10318?size=medium",
+                "name": "Task",
+                "subtask": false,
+                "avatarId": 10318,
+                "hierarchyLevel": 0
+              },
+              "self": "https://redhat.atlassian.net/rest/api/2/issuetype/10014",
+              "id": "10014",
+              "description": "A small, distinct piece of work.",
+              "iconUrl": "https://redhat.atlassian.net/rest/api/2/universal_avatar/view/type/issuetype/avatar/10318?size=medium",
+              "name": "Task",
+              "subtask": false,
+              "avatarId": 10318,
+              "hierarchyLevel": 0
+            }
+          }
+        }
+      }
+    ],
+    "assignee": {
+      "raw": {
+        "self": "https://redhat.atlassian.net/rest/api/2/user?accountId=712020%3A395040de-1e7a-4630-a23b-c43f216d8baa",
+        "accountId": "712020:395040de-1e7a-4630-a23b-c43f216d8baa",
+        "emailAddress": "dchouras@redhat.com",
+        "avatarUrls": {
+          "48x48": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+          "24x24": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+          "16x16": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+          "32x32": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png"
+        },
+        "displayName": "Deepak Chourasia",
+        "active": true,
+        "timeZone": "Etc/GMT",
+        "accountType": "atlassian"
+      },
+      "self": "https://redhat.atlassian.net/rest/api/2/user?accountId=712020%3A395040de-1e7a-4630-a23b-c43f216d8baa",
+      "accountId": "712020:395040de-1e7a-4630-a23b-c43f216d8baa",
+      "emailAddress": "dchouras@redhat.com",
+      "avatarUrls": {
+        "48x48": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+        "24x24": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+        "16x16": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+        "32x32": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png"
+      },
+      "displayName": "Deepak Chourasia",
+      "active": true,
+      "timeZone": "Etc/GMT",
+      "accountType": "atlassian"
+    },
+    "status": {
+      "raw": {
+        "self": "https://redhat.atlassian.net/rest/api/2/status/10142",
+        "description": "Initial creation status. Implies nothing yet and should be very short lived; also can be a Bugzilla status.",
+        "iconUrl": "https://redhat.atlassian.net/images/icons/statuses/generic.png",
+        "name": "New",
+        "id": "10142",
+        "statusCategory": {
+          "self": "https://redhat.atlassian.net/rest/api/2/statuscategory/2",
+          "id": 2,
+          "key": "new",
+          "colorName": "blue-gray",
+          "name": "To Do"
+        }
+      },
+      "self": "https://redhat.atlassian.net/rest/api/2/status/10142",
+      "description": "Initial creation status. Implies nothing yet and should be very short lived; also can be a Bugzilla status.",
+      "iconUrl": "https://redhat.atlassian.net/images/icons/statuses/generic.png",
+      "name": "New",
+      "id": "10142",
+      "statusCategory": {
+        "raw": {
+          "self": "https://redhat.atlassian.net/rest/api/2/statuscategory/2",
+          "id": 2,
+          "key": "new",
+          "colorName": "blue-gray",
+          "name": "To Do"
+        },
+        "self": "https://redhat.atlassian.net/rest/api/2/statuscategory/2",
+        "id": 2,
+        "key": "new",
+        "colorName": "blue-gray",
+        "name": "To Do"
+      }
+    },
+    "components": [],
+    "customfield_10290": null,
+    "customfield_10291": null,
+    "customfield_10692": {
+      "raw": {
+        "self": "https://redhat.atlassian.net/rest/api/2/customFieldOption/10948",
+        "value": "No",
+        "id": "10948"
+      },
+      "self": "https://redhat.atlassian.net/rest/api/2/customFieldOption/10948",
+      "value": "No",
+      "id": "10948"
+    },
+    "dataclassification": {},
+    "customfield_10962": null,
+    "customfield_10324": null,
+    "customfield_10963": null,
+    "customfield_10689": null,
+    "customfield_10602": null,
+    "aggregatetimeestimate": null,
+    "customfield_10847": null,
+    "customfield_10849": null,
+    "creator": {
+      "raw": {
+        "self": "https://redhat.atlassian.net/rest/api/2/user?accountId=712020%3A395040de-1e7a-4630-a23b-c43f216d8baa",
+        "accountId": "712020:395040de-1e7a-4630-a23b-c43f216d8baa",
+        "emailAddress": "dchouras@redhat.com",
+        "avatarUrls": {
+          "48x48": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+          "24x24": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+          "16x16": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+          "32x32": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png"
+        },
+        "displayName": "Deepak Chourasia",
+        "active": true,
+        "timeZone": "Etc/GMT",
+        "accountType": "atlassian"
+      },
+      "self": "https://redhat.atlassian.net/rest/api/2/user?accountId=712020%3A395040de-1e7a-4630-a23b-c43f216d8baa",
+      "accountId": "712020:395040de-1e7a-4630-a23b-c43f216d8baa",
+      "emailAddress": "dchouras@redhat.com",
+      "avatarUrls": {
+        "48x48": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+        "24x24": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+        "16x16": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+        "32x32": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png"
+      },
+      "displayName": "Deepak Chourasia",
+      "active": true,
+      "timeZone": "Etc/GMT",
+      "accountType": "atlassian"
+    },
+    "customfield_10280": null,
+    "subtasks": [],
+    "customfield_10281": null,
+    "customfield_10282": null,
+    "customfield_10283": null,
+    "customfield_10284": null,
+    "reporter": {
+      "raw": {
+        "self": "https://redhat.atlassian.net/rest/api/2/user?accountId=712020%3A395040de-1e7a-4630-a23b-c43f216d8baa",
+        "accountId": "712020:395040de-1e7a-4630-a23b-c43f216d8baa",
+        "emailAddress": "dchouras@redhat.com",
+        "avatarUrls": {
+          "48x48": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+          "24x24": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+          "16x16": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+          "32x32": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png"
+        },
+        "displayName": "Deepak Chourasia",
+        "active": true,
+        "timeZone": "Etc/GMT",
+        "accountType": "atlassian"
+      },
+      "self": "https://redhat.atlassian.net/rest/api/2/user?accountId=712020%3A395040de-1e7a-4630-a23b-c43f216d8baa",
+      "accountId": "712020:395040de-1e7a-4630-a23b-c43f216d8baa",
+      "emailAddress": "dchouras@redhat.com",
+      "avatarUrls": {
+        "48x48": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+        "24x24": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+        "16x16": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+        "32x32": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png"
+      },
+      "displayName": "Deepak Chourasia",
+      "active": true,
+      "timeZone": "Etc/GMT",
+      "accountType": "atlassian"
+    },
+    "customfield_10285": null,
+    "customfield_10286": null,
+    "aggregateprogress": {
+      "progress": 0,
+      "total": 0
+    },
+    "customfield_10287": null,
+    "customfield_10320": null,
+    "customfield_10288": null,
+    "customfield_10321": null,
+    "customfield_10289": null,
+    "customfield_10322": null,
+    "customfield_10961": null,
+    "customfield_10840": null,
+    "customfield_10323": null,
+    "customfield_10951": null,
+    "customfield_10952": null,
+    "customfield_10315": null,
+    "customfield_10678": null,
+    "customfield_10799": null,
+    "customfield_10316": null,
+    "customfield_10955": null,
+    "customfield_10317": [],
+    "customfield_10956": null,
+    "customfield_10318": null,
+    "customfield_10319": null,
+    "progress": {
+      "progress": 0,
+      "total": 0
+    },
+    "customfield_10718": null,
+    "customfield_10839": "None",
+    "votes": {
+      "raw": {
+        "self": "https://redhat.atlassian.net/rest/api/2/issue/RHODS-14241/votes",
+        "votes": 0,
+        "hasVoted": false
+      },
+      "self": "https://redhat.atlassian.net/rest/api/2/issue/RHODS-14241/votes",
+      "votes": 0,
+      "hasVoted": false
+    },
+    "worklog": {
+      "startAt": 0,
+      "maxResults": 20,
+      "total": 0,
+      "worklogs": []
+    },
+    "issuetype": {
+      "raw": {
+        "self": "https://redhat.atlassian.net/rest/api/2/issuetype/10014",
+        "id": "10014",
+        "description": "A small, distinct piece of work.",
+        "iconUrl": "https://redhat.atlassian.net/rest/api/2/universal_avatar/view/type/issuetype/avatar/10318?size=medium",
+        "name": "Task",
+        "subtask": false,
+        "avatarId": 10318,
+        "hierarchyLevel": 0
+      },
+      "self": "https://redhat.atlassian.net/rest/api/2/issuetype/10014",
+      "id": "10014",
+      "description": "A small, distinct piece of work.",
+      "iconUrl": "https://redhat.atlassian.net/rest/api/2/universal_avatar/view/type/issuetype/avatar/10318?size=medium",
+      "name": "Task",
+      "subtask": false,
+      "avatarId": 10318,
+      "hierarchyLevel": 0
+    },
+    "customfield_11083": [
+      "FjFI4vRDXIGtYHewzEzZdYXWY6xFXtu7gdqwi4jwotp0jcF9dQ8J7oaYqY+GVn2Es5tVs38SkVKTf8NaifU8Ng=="
+    ],
+    "timespent": null,
+    "customfield_10030": null,
+    "project": {
+      "raw": {
+        "self": "https://redhat.atlassian.net/rest/api/2/project/10688",
+        "id": "10688",
+        "key": "RHODS",
+        "name": "Red Hat OpenShift Data Science",
+        "projectTypeKey": "software",
+        "simplified": false,
+        "avatarUrls": {
+          "48x48": "https://redhat.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10412",
+          "24x24": "https://redhat.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10412?size=small",
+          "16x16": "https://redhat.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10412?size=xsmall",
+          "32x32": "https://redhat.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10412?size=medium"
+        },
+        "projectCategory": {
+          "self": "https://redhat.atlassian.net/rest/api/2/projectCategory/10076",
+          "id": "10076",
+          "description": "These are projects which will be migrated to Red hat Jira (issues.redhat.com)",
+          "name": "Product Development-RHEL"
+        }
+      },
+      "self": "https://redhat.atlassian.net/rest/api/2/project/10688",
+      "id": "10688",
+      "key": "RHODS",
+      "name": "Red Hat OpenShift Data Science",
+      "projectTypeKey": "software",
+      "simplified": false,
+      "avatarUrls": {
+        "48x48": "https://redhat.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10412",
+        "24x24": "https://redhat.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10412?size=small",
+        "16x16": "https://redhat.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10412?size=xsmall",
+        "32x32": "https://redhat.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10412?size=medium"
+      },
+      "projectCategory": {
+        "raw": {
+          "self": "https://redhat.atlassian.net/rest/api/2/projectCategory/10076",
+          "id": "10076",
+          "description": "These are projects which will be migrated to Red hat Jira (issues.redhat.com)",
+          "name": "Product Development-RHEL"
+        },
+        "self": "https://redhat.atlassian.net/rest/api/2/projectCategory/10076",
+        "id": "10076",
+        "description": "These are projects which will be migrated to Red hat Jira (issues.redhat.com)",
+        "name": "Product Development-RHEL"
+      }
+    },
+    "customfield_10031": null,
+    "customfield_10032": null,
+    "customfield_10033": null,
+    "customfield_11089": null,
+    "aggregatetimespent": null,
+    "customfield_10430": 1.0,
+    "customfield_10035": null,
+    "customfield_10673": null,
+    "customfield_10431": 1.0,
+    "customfield_10036": null,
+    "customfield_10940": null,
+    "customfield_10423": null,
+    "customfield_10028": null,
+    "customfield_10424": null,
+    "customfield_10942": null,
+    "customfield_10029": null,
+    "customfield_10425": null,
+    "customfield_10822": {
+      "raw": {
+        "self": "https://redhat.atlassian.net/rest/api/2/customFieldOption/19222",
+        "value": "No",
+        "id": "19222"
+      },
+      "self": "https://redhat.atlassian.net/rest/api/2/customFieldOption/19222",
+      "value": "No",
+      "id": "19222"
+    },
+    "customfield_10426": null,
+    "customfield_10427": 1.0,
+    "customfield_10428": 2.0,
+    "resolutiondate": null,
+    "customfield_10429": 0.0,
+    "customfield_10947": null,
+    "workratio": -1,
+    "watches": {
+      "raw": {
+        "self": "https://redhat.atlassian.net/rest/api/2/issue/RHODS-14241/watchers",
+        "watchCount": 1,
+        "isWatching": true
+      },
+      "self": "https://redhat.atlassian.net/rest/api/2/issue/RHODS-14241/watchers",
+      "watchCount": 1,
+      "isWatching": true
+    },
+    "created": "2026-05-09T16:19:00.590+0000",
+    "customfield_10381": [],
+    "customfield_10020": null,
+    "customfield_10021": null,
+    "customfield_10022": null,
+    "customfield_10023": null,
+    "customfield_10024": null,
+    "customfield_10783": null,
+    "customfield_10420": null,
+    "customfield_10025": null,
+    "customfield_10421": null,
+    "customfield_10785": null,
+    "customfield_10422": null,
+    "customfield_10016": null,
+    "customfield_10017": null,
+    "customfield_10656": null,
+    "customfield_10414": 0.0,
+    "customfield_10932": null,
+    "customfield_10019": "0|irc0zz:",
+    "customfield_10415": null,
+    "customfield_10933": null,
+    "customfield_10416": null,
+    "customfield_10934": null,
+    "customfield_10417": null,
+    "customfield_10659": null,
+    "customfield_10814": null,
+    "customfield_10418": null,
+    "customfield_10419": null,
+    "customfield_10817": null,
+    "updated": "2026-05-25T04:57:53.594+0000",
+    "timeoriginalestimate": null,
+    "description": "h1. Prerequisites by component team:\n\n* Clone this issue\n* Update component name in title\n* Link to parent feature\n* Remove `template` label and [template-header]\n* Update reporter to yourself\n* Component source code available\n* Dockerfile follows ODH/Konflux standards - [Scrum teams' guide to the ODH-Release-Builds Konflux Infra|https://docs.google.com/document/d/1w2h69yCHaHRMxP_893G0eCCT9zrCdMPoMjY_tLXc5jU/edit?tab=t.0#heading=h.aksex0cuj0kh]\n* Lead time requirements are met (2+ weeks)\n\nh2. +DevTestOps will ensure that+\n\n* Build context properly configured\n* Konflux build configuration prepared\n\nRef: [https://docs.google.com/document/d/1SJtQ8bXL4C72mllipEHHtc_Xs21XHXNLGBt3aJoPqeY/edit?tab=t.0|https://docs.google.com/document/d/1SJtQ8bXL4C72mllipEHHtc_Xs21XHXNLGBt3aJoPqeY/edit?tab=t.0|smart-link] \u00a0\n\n*ODH Validation Requirements:*\n\n* Component successfully builds in ODH Konflux (shared responsibility devops + component team)\n* All relevant ODH tests pass (Component team)\n* Component is validated and incubating in ODH (Component team)\n* Component is stable and production-ready in ODH environment\n\nNote: Only after successful completion of all ODH validation requirements can a component be considered for future RHOAI onboarding requests.\n\n||*Upstream Git Repo*||*Image / Quay Repo Name*||*Build Context*||*Dockerfile Link\u00a0or Path*||*Build triggers*||\n| https://github.com/rhoai-rhtap/odh-ai-sixth-demo | quay.io/rhoai/odh-ai-seventh-demo-rhel9 | maas-controller | [Dockerfile.konflux|https://github.com/rhoai-rhtap/odh-ai-sixth-demo/blob/rhoai-3.5-ea.2/maas-controller/Dockerfile.konflux] | |\n\nh1. After the Jira is filled out completely\n\n* *Communicate:* Start a workflow in [+#rhoai-devtestops-requests+|https://redhat.enterprise.slack.com/archives/C07TF3MBMMW] to communicate about the onboarding request.",
+    "customfield_10010": null,
+    "customfield_10254": null,
+    "customfield_10014": null,
+    "timetracking": {
+      "raw": null,
+      "remainingEstimate": null
+    },
+    "customfield_10015": null,
+    "customfield_10489": [
+      {
+        "raw": {
+          "self": "https://redhat.atlassian.net/rest/api/2/customFieldOption/12621",
+          "value": "Testable",
+          "id": "12621"
+        },
+        "self": "https://redhat.atlassian.net/rest/api/2/customFieldOption/12621",
+        "value": "Testable",
+        "id": "12621"
+      }
+    ],
+    "customfield_10005": null,
+    "customfield_10885": null,
+    "customfield_10006": null,
+    "customfield_10886": null,
+    "customfield_10007": null,
+    "security": {
+      "raw": {
+        "self": "https://redhat.atlassian.net/rest/api/2/securitylevel/10034",
+        "id": "10034",
+        "description": "Red Hat Employee and Contractors only",
+        "name": "Red Hat Employee"
+      },
+      "self": "https://redhat.atlassian.net/rest/api/2/securitylevel/10034",
+      "id": "10034",
+      "description": "Red Hat Employee and Contractors only",
+      "name": "Red Hat Employee"
+    },
+    "customfield_10887": null,
+    "customfield_10008": null,
+    "customfield_10009": null,
+    "attachment": [
+      {
+        "raw": {
+          "self": "https://redhat.atlassian.net/rest/api/2/attachment/1071219",
+          "id": "1071219",
+          "filename": "component_onboarding_details.yaml",
+          "author": {
+            "self": "https://redhat.atlassian.net/rest/api/2/user?accountId=712020%3A395040de-1e7a-4630-a23b-c43f216d8baa",
+            "accountId": "712020:395040de-1e7a-4630-a23b-c43f216d8baa",
+            "emailAddress": "dchouras@redhat.com",
+            "avatarUrls": {
+              "48x48": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+              "24x24": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+              "16x16": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+              "32x32": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png"
+            },
+            "displayName": "Deepak Chourasia",
+            "active": true,
+            "timeZone": "Etc/GMT",
+            "accountType": "atlassian"
+          },
+          "created": "2026-05-25T04:57:41.086+0000",
+          "size": 692,
+          "mimeType": "application/octet-stream",
+          "content": "https://redhat.atlassian.net/rest/api/2/attachment/content/1071219"
+        },
+        "self": "https://redhat.atlassian.net/rest/api/2/attachment/1071219",
+        "id": "1071219",
+        "filename": "component_onboarding_details.yaml",
+        "author": {
+          "raw": {
+            "self": "https://redhat.atlassian.net/rest/api/2/user?accountId=712020%3A395040de-1e7a-4630-a23b-c43f216d8baa",
+            "accountId": "712020:395040de-1e7a-4630-a23b-c43f216d8baa",
+            "emailAddress": "dchouras@redhat.com",
+            "avatarUrls": {
+              "48x48": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+              "24x24": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+              "16x16": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+              "32x32": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png"
+            },
+            "displayName": "Deepak Chourasia",
+            "active": true,
+            "timeZone": "Etc/GMT",
+            "accountType": "atlassian"
+          },
+          "self": "https://redhat.atlassian.net/rest/api/2/user?accountId=712020%3A395040de-1e7a-4630-a23b-c43f216d8baa",
+          "accountId": "712020:395040de-1e7a-4630-a23b-c43f216d8baa",
+          "emailAddress": "dchouras@redhat.com",
+          "avatarUrls": {
+            "48x48": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+            "24x24": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+            "16x16": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+            "32x32": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png"
+          },
+          "displayName": "Deepak Chourasia",
+          "active": true,
+          "timeZone": "Etc/GMT",
+          "accountType": "atlassian"
+        },
+        "created": "2026-05-25T04:57:41.086+0000",
+        "size": 692,
+        "mimeType": "application/octet-stream",
+        "content": "https://redhat.atlassian.net/rest/api/2/attachment/content/1071219"
+      }
+    ],
+    "customfield_10807": null,
+    "summary": "RHOAI Konflux CI Build Onboarding odh-ai-seventh-demo",
+    "customfield_10482": null,
+    "customfield_10483": "None",
+    "customfield_10000": "{}",
+    "customfield_10484": {
+      "raw": {
+        "self": "https://redhat.atlassian.net/rest/api/2/customFieldOption/10472",
+        "value": "False",
+        "id": "10472"
+      },
+      "self": "https://redhat.atlassian.net/rest/api/2/customFieldOption/10472",
+      "value": "False",
+      "id": "10472"
+    },
+    "customfield_10001": null,
+    "customfield_10881": null,
+    "customfield_10002": [],
+    "customfield_10882": null,
+    "customfield_10487": null,
+    "customfield_10003": null,
+    "customfield_10883": null,
+    "customfield_10488": null,
+    "customfield_10004": null,
+    "customfield_10884": null,
+    "customfield_10875": null,
+    "environment": null,
+    "customfield_10877": null,
+    "customfield_10756": null,
+    "duedate": null,
+    "customfield_10638": [
+      {
+        "raw": {
+          "self": "https://redhat.atlassian.net/rest/api/2/customFieldOption/16284",
+          "value": "Pending",
+          "id": "16284"
+        },
+        "self": "https://redhat.atlassian.net/rest/api/2/customFieldOption/16284",
+        "value": "Pending",
+        "id": "16284"
+      }
+    ],
+    "customfield_10517": {
+      "raw": {
+        "self": "https://redhat.atlassian.net/rest/api/2/customFieldOption/10853",
+        "value": "False",
+        "id": "10853"
+      },
+      "self": "https://redhat.atlassian.net/rest/api/2/customFieldOption/10853",
+      "value": "False",
+      "id": "10853"
+    },
+    "comment": {
+      "raw": {
+        "comments": [
+          {
+            "self": "https://redhat.atlassian.net/rest/api/2/issue/5893187/comment/17069876",
+            "id": "17069876",
+            "author": {
+              "self": "https://redhat.atlassian.net/rest/api/2/user?accountId=712020%3A395040de-1e7a-4630-a23b-c43f216d8baa",
+              "accountId": "712020:395040de-1e7a-4630-a23b-c43f216d8baa",
+              "emailAddress": "dchouras@redhat.com",
+              "avatarUrls": {
+                "48x48": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+                "24x24": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+                "16x16": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+                "32x32": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png"
+              },
+              "displayName": "Deepak Chourasia",
+              "active": true,
+              "timeZone": "Etc/GMT",
+              "accountType": "atlassian"
+            },
+            "body": "component_onboarding_details.yaml has been generated and attached to this ticket.\n\nComponent: odh-ai-seventh-demo\nProduct: RHOAI\nRepo: https://github.com/rhoai-rhtap/odh-ai-sixth-demo @ rhoai-3.5-ea.2\nOperator: true\n\nThis ticket is ready for onboarding automation. Run /validate-component-onboarding-jira to verify.",
+            "updateAuthor": {
+              "self": "https://redhat.atlassian.net/rest/api/2/user?accountId=712020%3A395040de-1e7a-4630-a23b-c43f216d8baa",
+              "accountId": "712020:395040de-1e7a-4630-a23b-c43f216d8baa",
+              "emailAddress": "dchouras@redhat.com",
+              "avatarUrls": {
+                "48x48": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+                "24x24": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+                "16x16": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+                "32x32": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png"
+              },
+              "displayName": "Deepak Chourasia",
+              "active": true,
+              "timeZone": "Etc/GMT",
+              "accountType": "atlassian"
+            },
+            "created": "2026-05-25T04:57:44.641+0000",
+            "updated": "2026-05-25T04:57:44.641+0000",
+            "jsdPublic": true
+          }
+        ],
+        "self": "https://redhat.atlassian.net/rest/api/2/issue/5893187/comment",
+        "maxResults": 1,
+        "total": 1,
+        "startAt": 0
+      },
+      "comments": [
+        {
+          "raw": {
+            "self": "https://redhat.atlassian.net/rest/api/2/issue/5893187/comment/17069876",
+            "id": "17069876",
+            "author": {
+              "self": "https://redhat.atlassian.net/rest/api/2/user?accountId=712020%3A395040de-1e7a-4630-a23b-c43f216d8baa",
+              "accountId": "712020:395040de-1e7a-4630-a23b-c43f216d8baa",
+              "emailAddress": "dchouras@redhat.com",
+              "avatarUrls": {
+                "48x48": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+                "24x24": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+                "16x16": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+                "32x32": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png"
+              },
+              "displayName": "Deepak Chourasia",
+              "active": true,
+              "timeZone": "Etc/GMT",
+              "accountType": "atlassian"
+            },
+            "body": "component_onboarding_details.yaml has been generated and attached to this ticket.\n\nComponent: odh-ai-seventh-demo\nProduct: RHOAI\nRepo: https://github.com/rhoai-rhtap/odh-ai-sixth-demo @ rhoai-3.5-ea.2\nOperator: true\n\nThis ticket is ready for onboarding automation. Run /validate-component-onboarding-jira to verify.",
+            "updateAuthor": {
+              "self": "https://redhat.atlassian.net/rest/api/2/user?accountId=712020%3A395040de-1e7a-4630-a23b-c43f216d8baa",
+              "accountId": "712020:395040de-1e7a-4630-a23b-c43f216d8baa",
+              "emailAddress": "dchouras@redhat.com",
+              "avatarUrls": {
+                "48x48": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+                "24x24": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+                "16x16": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+                "32x32": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png"
+              },
+              "displayName": "Deepak Chourasia",
+              "active": true,
+              "timeZone": "Etc/GMT",
+              "accountType": "atlassian"
+            },
+            "created": "2026-05-25T04:57:44.641+0000",
+            "updated": "2026-05-25T04:57:44.641+0000",
+            "jsdPublic": true
+          },
+          "self": "https://redhat.atlassian.net/rest/api/2/issue/5893187/comment/17069876",
+          "id": "17069876",
+          "author": {
+            "raw": {
+              "self": "https://redhat.atlassian.net/rest/api/2/user?accountId=712020%3A395040de-1e7a-4630-a23b-c43f216d8baa",
+              "accountId": "712020:395040de-1e7a-4630-a23b-c43f216d8baa",
+              "emailAddress": "dchouras@redhat.com",
+              "avatarUrls": {
+                "48x48": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+                "24x24": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+                "16x16": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+                "32x32": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png"
+              },
+              "displayName": "Deepak Chourasia",
+              "active": true,
+              "timeZone": "Etc/GMT",
+              "accountType": "atlassian"
+            },
+            "self": "https://redhat.atlassian.net/rest/api/2/user?accountId=712020%3A395040de-1e7a-4630-a23b-c43f216d8baa",
+            "accountId": "712020:395040de-1e7a-4630-a23b-c43f216d8baa",
+            "emailAddress": "dchouras@redhat.com",
+            "avatarUrls": {
+              "48x48": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+              "24x24": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+              "16x16": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+              "32x32": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png"
+            },
+            "displayName": "Deepak Chourasia",
+            "active": true,
+            "timeZone": "Etc/GMT",
+            "accountType": "atlassian"
+          },
+          "body": "component_onboarding_details.yaml has been generated and attached to this ticket.\n\nComponent: odh-ai-seventh-demo\nProduct: RHOAI\nRepo: https://github.com/rhoai-rhtap/odh-ai-sixth-demo @ rhoai-3.5-ea.2\nOperator: true\n\nThis ticket is ready for onboarding automation. Run /validate-component-onboarding-jira to verify.",
+          "updateAuthor": {
+            "raw": {
+              "self": "https://redhat.atlassian.net/rest/api/2/user?accountId=712020%3A395040de-1e7a-4630-a23b-c43f216d8baa",
+              "accountId": "712020:395040de-1e7a-4630-a23b-c43f216d8baa",
+              "emailAddress": "dchouras@redhat.com",
+              "avatarUrls": {
+                "48x48": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+                "24x24": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+                "16x16": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+                "32x32": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png"
+              },
+              "displayName": "Deepak Chourasia",
+              "active": true,
+              "timeZone": "Etc/GMT",
+              "accountType": "atlassian"
+            },
+            "self": "https://redhat.atlassian.net/rest/api/2/user?accountId=712020%3A395040de-1e7a-4630-a23b-c43f216d8baa",
+            "accountId": "712020:395040de-1e7a-4630-a23b-c43f216d8baa",
+            "emailAddress": "dchouras@redhat.com",
+            "avatarUrls": {
+              "48x48": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+              "24x24": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+              "16x16": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png",
+              "32x32": "https://secure.gravatar.com/avatar/a0db9dad613875750518322e701f6c49?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDC-6.png"
+            },
+            "displayName": "Deepak Chourasia",
+            "active": true,
+            "timeZone": "Etc/GMT",
+            "accountType": "atlassian"
+          },
+          "created": "2026-05-25T04:57:44.641+0000",
+          "updated": "2026-05-25T04:57:44.641+0000",
+          "jsdPublic": true
+        }
+      ],
+      "self": "https://redhat.atlassian.net/rest/api/2/issue/5893187/comment",
+      "maxResults": 1,
+      "total": 1,
+      "startAt": 0
+    }
+  }
+}

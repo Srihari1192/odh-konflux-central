@@ -1,0 +1,17 @@
+inputs:
+  product_context: RHOAI
+  component_name: odh-ai-seventh-demo
+  repo_url: https://github.com/rhoai-rhtap/odh-ai-sixth-demo
+  repo_branch: rhoai-3.5-ea.2
+  context_path: maas-controller
+  dockerfile_path: Dockerfile.konflux
+  architectures:
+    - x86_64
+    - arm64
+  target_rhoai_version: 3.5-ea-2
+  release_category: "Tech Preview"
+  long_description: A comprehensive platform for Models as a Service (MaaS) with real-time policy management, providing API gateway integration, model serving, and API key management on OpenShift.
+  short_description: Models as a Service platform
+  is_operator: true
+  operator_manifest_src_path: config/manifests
+  operator_manifest_dest_path: maas
