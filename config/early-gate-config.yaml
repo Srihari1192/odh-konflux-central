@@ -3,9 +3,7 @@ config:
     - main
     - master
   repositories:
-    dsp:
-      early-gate-enabled: true
-      # additional-branches: []
+    # additional-branches: []
     #  early-gate-required-on-default-branches: false
     kserve:
       early-gate-enabled: true
