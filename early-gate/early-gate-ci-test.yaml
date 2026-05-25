@@ -19,6 +19,9 @@ spec:
     value: '{{source_url}}'
   - name: revision
     value: '{{revision}}'
+  timeouts:
+    pipeline: 6h
+    tasks: 5h
   pipelineRef:
     resolver: git
     params:
