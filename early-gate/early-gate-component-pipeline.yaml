@@ -636,6 +636,10 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.labels['pipelinesascode.tekton.dev/pull-request']
+        - name: REPO_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['pipelinesascode.tekton.dev/url-repository']
         script: |
           #!/bin/bash
           set -eo pipefail
@@ -645,7 +649,7 @@ spec:
             echo "Operator image found in snapshot, extracting..."
             IMAGE=$(echo "${SNAPSHOT}" | jq -r '.["odh-operator-ci"].image')
             RESOLVED_REPO="${IMAGE%%@*}"
-            RESOLVED_TAG="odh-pr-${PR_NUMBER}"
+            RESOLVED_TAG="odh-pr-${PR_NUMBER}-${REPO_NAME}"
             RESOLVED_URL="${RESOLVED_REPO}:${RESOLVED_TAG}"
             RESOLVED_DIGEST="${IMAGE##*@}"
             RESOLVED_GIT_URL=$(echo "${SNAPSHOT}" | jq -r '.["odh-operator-ci"]["git.url"] // empty')
