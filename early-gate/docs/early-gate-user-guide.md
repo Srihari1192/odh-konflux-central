@@ -206,7 +206,74 @@ Re-running is always safe. The test pipeline will not trigger duplicate Jenkins 
 
 ---
 
-## 6. Onboarding a Repository to Early Gate
+## 6. How Tests Run on Your PR
+
+When the early gate test pipeline triggers a Jenkins job, the following stages execute:
+
+```mermaid
+flowchart LR
+    A["Provision <br /> ROSA HCP <br /> cluster"]:::cluster --> B["Deploy RHOAI <br /> operator from <br /> FBC image"]:::deploy
+    B --> C["Run component <br /> smoke tests"]:::test
+    C --> D["Collect results <br /> and clean up"]:::results
+
+    classDef cluster fill:#bbdefb,stroke:#1976d2,color:#000
+    classDef deploy fill:#c8e6c9,stroke:#388e3c,color:#000
+    classDef test fill:#fff9c4,stroke:#f9a825,color:#000
+    classDef results fill:#e1bee7,stroke:#7b1fa2,color:#000
+```
+
+### Cluster
+
+A fresh **ROSA HCP** cluster is provisioned on AWS for each test run.
+
+| Property | Value |
+|----------|-------|
+| **Platform** | ROSA HCP (AWS, us-west-2) |
+| **OpenShift version** | 4.20-latest (configurable) |
+| **Lifetime** | Deleted immediately after tests (default) |
+
+The cluster is a dedicated, isolated environment — no test run shares a cluster with another.
+
+### RHOAI Deployment
+
+The RHOAI operator is deployed from the **FBC catalog image built in Stage 2** (the early gate build pipeline). This image is installed using the **`odh-stable`** subscription channel, ensuring the PR's component images are what gets tested.
+
+The deployment flow:
+1. The FBC image tag (e.g., `odh-pr-73-feast`) is resolved to a full Quay URI via the [Tracer](https://github.com/red-hat-data-services/rhods-devops-infra) tool
+2. A `CatalogSource` is created pointing to this FBC image
+3. The RHOAI operator is installed via CLI using the `odh-stable` channel
+4. An identity provider and external DNS are configured
+5. Cluster and operator health checks verify everything is ready
+
+### Smoke Tests
+
+The Jenkins job determines which tests to run based on the component's configuration:
+
+- **Component mapping:** your repository's Konflux component key (from [`component_repo_map.json`](https://github.com/opendatahub-io/odh-konflux-central/blob/main/config/component_repo_map.json)) is mapped to a test configuration that defines which smoke tests to execute.
+- **Quality gate:** the `early-gate` quality gate is used, which typically maps to smoke-level tests (e.g., `-m smoke` for pytest components, or `FeatureStoreANDSmoke` for Robot Framework components).
+- **Test runners:** depending on your component's configuration, tests run either via **Robot Framework** (ods-ci) or as **containerized pytest/gotestsum jobs** (shift-left). The runner is determined by the `metadata.earlyGateTestRunner` field in your component's config — `ods-ci` for Robot, `shiftleft` (the default) for containers.
+
+### Must-Gather
+
+Must-gather diagnostic collection runs automatically for components that have `--collect-must-gather` in their test configuration. This collects OpenShift cluster diagnostics when tests fail, which helps with debugging.
+
+If your component uses the `opendatahub-tests` shared framework (shift-left runner), you can enable must-gather by adding `--collect-must-gather` to your component's `image.args` in its configuration file:
+
+```yaml
+# In your component's main.yaml
+# e.g. resources/configs/components-testing/components/<your-component>/main.yaml
+merge:
+  image:
+    args: [
+        --collect-must-gather,
+        -o junit_suite_name=<your-component>,
+        tests/<your-test-path>/
+    ]
+```
+
+---
+
+## 7. Onboarding a Repository to Early Gate
 
 To enable early gate testing on a new repository, use the **ODH Early Gate Onboarder** workflow in the `odh-konflux-central` repository.
 
@@ -267,7 +334,7 @@ If you run the onboarder workflow for a repository that's already configured:
 
 ---
 
-## 7. Limitations
+## 8. Limitations
 
 - **ODH repos only** — early gate testing currently supports only ODH repository builds. RHDS and RHOAI builds are not supported yet.
 - **Single architecture only** — early gate testing currently supports x86 architecture only.
