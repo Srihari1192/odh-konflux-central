@@ -27,6 +27,8 @@ spec:
     value: quay.io/opendatahub/model-registry-operator:$$OUTPUT_IMAGE_TAG$$
   - name: dockerfile
     value: Dockerfile
+  - name: path-context
+    value: .
   - name: additional-tags
     value:
     - 'odh-pr-{{revision}}'

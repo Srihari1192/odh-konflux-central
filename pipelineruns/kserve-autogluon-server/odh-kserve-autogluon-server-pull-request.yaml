@@ -2,22 +2,22 @@ apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
   annotations:
-    build.appstudio.openshift.io/repo: https://github.com/opendatahub-io/pipelines-components?rev={{revision}}
+    build.appstudio.openshift.io/repo: https://github.com/opendatahub-io/kserve-autogluon-server?rev={{revision}}
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
-    pipelinesascode.tekton.dev/cancel-in-progress: "false"
+    build.appstudio.redhat.com/pull_request_number: '{{pull_request_number}}'
+    pipelinesascode.tekton.dev/on-comment: "^/build-konflux"
+    pipelinesascode.tekton.dev/cancel-in-progress: "true"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-cel-expression: |
-      event == "push"
+      event == "pull_request"
       && target_branch == "$$TARGET_BRANCH$$"
-      && ( "pipelines/training/autorag/documents_rag_optimization_pipeline/**".pathChanged()
-            || ".tekton/odh-autorag-ci-on-push.yaml".pathChanged() )
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: opendatahub-builds
-    appstudio.openshift.io/component: odh-autorag-ci
+    appstudio.openshift.io/component: odh-kserve-autogluon-server-ci
     pipelines.appstudio.openshift.io/type: build
-  name: odh-autorag-ci-on-push
+  name: odh-kserve-autogluon-server-on-pull-request
   namespace: open-data-hub-tenant
 spec:
   params:
@@ -26,11 +26,16 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/odh-autorag:$$OUTPUT_IMAGE_TAG$$
+    value: quay.io/opendatahub/odh-kserve-autogluon-server:odh-pr
   - name: dockerfile
-    value: pipelines/training/autorag/documents_rag_optimization_pipeline/Containerfile
+    value: autogluon.Dockerfile
   - name: path-context
-    value: .
+    value: python
+  - name: pipeline-type
+    value: pull-request
+  - name: additional-tags
+    value:
+    - 'odh-pr-{{revision}}'
   pipelineRef:
     resolver: git
     params:
@@ -41,7 +46,7 @@ spec:
     - name: pathInRepo
       value: pipeline/multi-arch-container-build.yaml
   taskRunTemplate:
-    serviceAccountName: build-pipeline-odh-autorag-ci
+    serviceAccountName: build-pipeline-odh-kserve-autogluon-server-ci
   workspaces:
   - name: git-auth
     secret:

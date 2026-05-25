@@ -15,9 +15,9 @@ metadata:
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: opendatahub-builds
-    appstudio.openshift.io/component: odh-rhaii-cluster-validator-ci
+    appstudio.openshift.io/component: odh-rhaii-validator-tools-ci
     pipelines.appstudio.openshift.io/type: build
-  name: odh-rhaii-cluster-validator-ci-on-pull-request
+  name: odh-rhaii-validator-tools-on-pull-request
   namespace: open-data-hub-tenant
 spec:
   params:
@@ -26,9 +26,9 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/odh-rhaii-cluster-validator:odh-pr
+    value: quay.io/opendatahub/odh-rhaii-validator-tools:odh-pr
   - name: dockerfile
-    value: Dockerfile.konflux
+    value: tools/Dockerfile.konflux
   - name: path-context
     value: .
   - name: pipeline-type
@@ -50,7 +50,7 @@ spec:
     - name: pathInRepo
       value: pipeline/multi-arch-container-build.yaml
   taskRunTemplate:
-    serviceAccountName: build-pipeline-odh-rhaii-cluster-validator-ci
+    serviceAccountName: build-pipeline-odh-rhaii-validator-tools-ci
   workspaces:
   - name: git-auth
     secret:
