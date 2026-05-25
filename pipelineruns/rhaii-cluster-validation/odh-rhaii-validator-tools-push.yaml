@@ -2,7 +2,7 @@ apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
   annotations:
-    build.appstudio.openshift.io/repo: https://github.com/opendatahub-io/kserve-autogluon-server?rev={{revision}}
+    build.appstudio.openshift.io/repo: https://github.com/opendatahub-io/rhaii-cluster-validation?rev={{revision}}
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
@@ -10,14 +10,14 @@ metadata:
     pipelinesascode.tekton.dev/on-cel-expression: |
       event == "push"
       && target_branch == "$$TARGET_BRANCH$$"
-      && ( "python/**".pathChanged()
-            || ".tekton/odh-kserve-autogluon-server-ci-on-push.yaml".pathChanged() )
+      && ( "tools/**".pathChanged()
+            || ".tekton/odh-rhaii-validator-tools-ci-on-push.yaml".pathChanged() )
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: opendatahub-builds
-    appstudio.openshift.io/component: odh-kserve-autogluon-server-ci
+    appstudio.openshift.io/component: odh-rhaii-validator-tools-ci
     pipelines.appstudio.openshift.io/type: build
-  name: odh-kserve-autogluon-server-ci-on-push
+  name: odh-rhaii-validator-tools-on-push
   namespace: open-data-hub-tenant
 spec:
   params:
@@ -26,11 +26,15 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/odh-kserve-autogluon-server:$$OUTPUT_IMAGE_TAG$$
+    value: quay.io/opendatahub/odh-rhaii-validator-tools:$$OUTPUT_IMAGE_TAG$$
   - name: dockerfile
-    value: autogluon.Dockerfile
+    value: tools/Dockerfile.konflux
   - name: path-context
-    value: python
+    value: .
+  - name: build-platforms
+    value:
+    - linux/x86_64
+    - linux/arm64
   pipelineRef:
     resolver: git
     params:
@@ -41,7 +45,7 @@ spec:
     - name: pathInRepo
       value: pipeline/multi-arch-container-build.yaml
   taskRunTemplate:
-    serviceAccountName: build-pipeline-odh-kserve-autogluon-server-ci
+    serviceAccountName: build-pipeline-odh-rhaii-validator-tools-ci
   workspaces:
   - name: git-auth
     secret:

@@ -15,7 +15,7 @@ metadata:
     appstudio.openshift.io/application: opendatahub-builds
     appstudio.openshift.io/component: odh-th06-rocm64-torch291-py312-ci
     pipelines.appstudio.openshift.io/type: build
-  name: odh-th06-rocm64-torch291-py312-ci-on-push
+  name: odh-th06-rocm64-torch291-py312-on-push
   namespace: open-data-hub-tenant
 spec:
   timeouts:

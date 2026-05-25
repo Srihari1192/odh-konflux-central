@@ -2,22 +2,21 @@ apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
   annotations:
-    build.appstudio.openshift.io/repo: https://github.com/opendatahub-io/rhaii-cluster-validation?rev={{revision}}
+    build.appstudio.openshift.io/repo: https://github.com/opendatahub-io/odh-model-controller?rev={{revision}}
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
-    pipelinesascode.tekton.dev/cancel-in-progress: "false"
+    build.appstudio.redhat.com/pull_request_number: '{{pull_request_number}}'
+    pipelinesascode.tekton.dev/on-comment: "^/build-konflux"
+    pipelinesascode.tekton.dev/cancel-in-progress: "true"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
-    pipelinesascode.tekton.dev/on-cel-expression: |
-      event == "push"
-      && target_branch == "$$TARGET_BRANCH$$"
-      && ( "tools/**".pathChanged()
-            || ".tekton/odh-rhaii-validator-tools-ci-on-push.yaml".pathChanged() )
+    pipelinesascode.tekton.dev/on-cel-expression: event == "pull_request" && target_branch
+      == "$$TARGET_BRANCH$$"
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: opendatahub-builds
-    appstudio.openshift.io/component: odh-rhaii-validator-tools-ci
+    appstudio.openshift.io/component: odh-model-serving-api-ci
     pipelines.appstudio.openshift.io/type: build
-  name: odh-rhaii-validator-tools-ci-on-push
+  name: odh-model-serving-api-on-pull-request
   namespace: open-data-hub-tenant
 spec:
   params:
@@ -26,15 +25,22 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/odh-rhaii-validator-tools:$$OUTPUT_IMAGE_TAG$$
+    value: quay.io/opendatahub/odh-model-serving-api:odh-pr
   - name: dockerfile
-    value: tools/Dockerfile.konflux
+    value: Containerfile.server
   - name: path-context
     value: .
   - name: build-platforms
     value:
     - linux/x86_64
-    - linux/arm64
+    - linux/aarch64
+    - linux/ppc64le
+    - linux/s390x
+  - name: additional-tags
+    value:
+    - 'odh-pr-{{revision}}'
+  - name: pipeline-type
+    value: pull-request
   pipelineRef:
     resolver: git
     params:
@@ -45,7 +51,7 @@ spec:
     - name: pathInRepo
       value: pipeline/multi-arch-container-build.yaml
   taskRunTemplate:
-    serviceAccountName: build-pipeline-odh-rhaii-validator-tools-ci
+    serviceAccountName: build-pipeline-odh-model-serving-api-ci
   workspaces:
   - name: git-auth
     secret:

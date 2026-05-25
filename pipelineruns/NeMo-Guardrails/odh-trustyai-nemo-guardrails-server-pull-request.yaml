@@ -14,7 +14,7 @@ metadata:
     appstudio.openshift.io/application: opendatahub-builds
     appstudio.openshift.io/component: odh-trustyai-nemo-guardrails-serve-ci
     pipelines.appstudio.openshift.io/type: build
-  name: odh-trustyai-nemo-guardrails-server-ci-on-pull-request
+  name: odh-trustyai-nemo-guardrails-server-on-pull-request
   namespace: open-data-hub-tenant
 spec:
   params:

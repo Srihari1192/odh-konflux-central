@@ -2,22 +2,19 @@ apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
   annotations:
-    build.appstudio.openshift.io/repo: https://github.com/opendatahub-io/ai-gateway-payload-processing?rev={{revision}}
+    build.appstudio.openshift.io/repo: https://github.com/opendatahub-io/odh-model-controller?rev={{revision}}
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
-    build.appstudio.redhat.com/pull_request_number: '{{pull_request_number}}'
-    pipelinesascode.tekton.dev/on-comment: "^/build-konflux"
-    pipelinesascode.tekton.dev/cancel-in-progress: "true"
+    pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
-    pipelinesascode.tekton.dev/on-cel-expression: |
-      event == "pull_request"
-      && target_branch == "$$TARGET_BRANCH$$"
+    pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
+      == "$$TARGET_BRANCH$$"
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: opendatahub-builds
-    appstudio.openshift.io/component: ai-gateway-payload-processing-e2e-ci
+    appstudio.openshift.io/component: odh-model-serving-api-ci
     pipelines.appstudio.openshift.io/type: build
-  name: ai-gateway-payload-processing-e2e-ci-on-pull-request
+  name: odh-model-serving-api-on-push
   namespace: open-data-hub-tenant
 spec:
   params:
@@ -26,22 +23,15 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/ai-gateway-payload-processing-e2e:odh-pr
+    value: quay.io/opendatahub/odh-model-serving-api:$$OUTPUT_IMAGE_TAG$$
   - name: dockerfile
-    value: Dockerfile.e2e
+    value: Containerfile.server
   - name: path-context
     value: .
-  - name: pipeline-type
-    value: pull-request
-  - name: enable-group-testing
-    value: "true"
-  - name: additional-tags
-    value:
-    - 'odh-pr-{{revision}}'
   - name: build-platforms
     value:
     - linux/x86_64
-    - linux/arm64
+    - linux/aarch64
     - linux/ppc64le
     - linux/s390x
   pipelineRef:
@@ -54,7 +44,7 @@ spec:
     - name: pathInRepo
       value: pipeline/multi-arch-container-build.yaml
   taskRunTemplate:
-    serviceAccountName: build-pipeline-ai-gateway-payload-processing-e2e-ci
+    serviceAccountName: build-pipeline-odh-model-serving-api-ci
   workspaces:
   - name: git-auth
     secret:

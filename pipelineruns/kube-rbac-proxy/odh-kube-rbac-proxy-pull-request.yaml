@@ -15,7 +15,7 @@ metadata:
     appstudio.openshift.io/application: opendatahub-builds
     appstudio.openshift.io/component: odh-kube-rbac-proxy-ci
     pipelines.appstudio.openshift.io/type: build
-  name: odh-kube-rbac-proxy-ci-on-pull-request
+  name: odh-kube-rbac-proxy-on-pull-request
   namespace: open-data-hub-tenant
 spec:
   params:
