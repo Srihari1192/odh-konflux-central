@@ -121,6 +121,10 @@ spec:
     default: "false"
     type: string
     description: Triggers a group testing pipeline at the end of PR builds
+  - name: enable-early-gate-testing
+    default: "true"
+    type: string
+    description: Triggers an early gate build pipeline on comment /early-gate-build
   results:
   - description: ""
     name: IMAGE_URL
@@ -695,6 +699,28 @@ spec:
       values:
       - "Succeeded"
     - input: $(params.enable-group-testing)
+      operator: in
+      values:
+      - "true"
+  - name: trigger-early-gate-build
+    workspaces:
+    - name: basic-auth
+      workspace: git-auth
+    taskRef:
+      resolver: git
+      params:
+      - name: url
+        value: https://github.com/red-hat-data-services/rhoai-konflux-tasks.git
+      - name: revision
+        value: earlygate
+      - name: pathInRepo
+        value: konflux-tekton-tasks/trigger-early-gate-build/0.1/trigger-early-gate-build.yaml
+    when:
+    - input: $(tasks.pipeline-success-indicator.status)
+      operator: in
+      values:
+      - "Succeeded"
+    - input: $(params.enable-early-gate-testing)
       operator: in
       values:
       - "true"
