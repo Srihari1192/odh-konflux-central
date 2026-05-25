@@ -186,12 +186,12 @@ jobs:
 
           TARGET_BRANCH="${{ inputs.pr_target_branch }}"
 
-          # Prepare the repository entry (4 spaces for repo name, 6 for properties)
+          # Prepare the repository entry (4 spaces for repo name, 6 for properties, 8 for array items)
           REPO_ENTRY="    $COMPONENT:\n      early-gate-enabled: true"
 
-          # Add additional-branches only if target branch is NOT main/master
+          # Add additional-branches only if target branch is NOT main/master (YAML array format)
           if [ "$TARGET_BRANCH" != "main" ] && [ "$TARGET_BRANCH" != "master" ]; then
-            REPO_ENTRY="${REPO_ENTRY}\n      additional-branches: [\"$TARGET_BRANCH\"]"
+            REPO_ENTRY="${REPO_ENTRY}\n      additional-branches:\n        - $TARGET_BRANCH"
           fi
 
           # Append to config file under repositories section
