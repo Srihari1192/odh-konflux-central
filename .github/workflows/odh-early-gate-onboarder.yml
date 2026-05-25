@@ -9,21 +9,10 @@ on:
         type: string
 
       pr_target_branch:
-        description: 'Target branch for the PR in the component repo (e.g. main)'
+        description: 'Target branch for the PR in the component repo (e.g. main, v2.0)'
         required: true
         type: string
         default: 'main'
-
-      additional_branches:
-        description: 'Additional branches for early-gate (comma-separated, leave empty if none)'
-        required: false
-        type: string
-        default: ''
-
-      early_gate_required_on_default_branches:
-        description: 'Require early-gate on default branches (only processed if additional_branches is set)'
-        required: false
-        type: boolean
 
 jobs:
   onboard-early-gate:
@@ -186,37 +175,23 @@ jobs:
 
           echo "Updating $CONFIG_FILE with $COMPONENT"
 
-          # Check if component already exists in config
-          if grep -q "^  $COMPONENT:" "$CONFIG_FILE"; then
+          # Check if component already exists in config (4 spaces indentation under repositories)
+          if grep -q "^    $COMPONENT:" "$CONFIG_FILE"; then
             echo "Component $COMPONENT already exists in $CONFIG_FILE"
+            echo "Existing configuration:"
+            grep -A 5 "^    $COMPONENT:" "$CONFIG_FILE"
             echo "config_updated=false" >> $GITHUB_ENV
             exit 0
           fi
 
-          # Prepare the repository entry - always enable early-gate
-          REPO_ENTRY="  $COMPONENT:\n    early-gate-enabled: true"
+          TARGET_BRANCH="${{ inputs.pr_target_branch }}"
 
-          # Add additional-branches if provided
-          if [ -n "${{ inputs.additional_branches }}" ]; then
-            # Convert comma-separated string to YAML array
-            IFS=',' read -ra BRANCHES <<< "${{ inputs.additional_branches }}"
-            BRANCH_LIST=""
-            for branch in "${BRANCHES[@]}"; do
-              branch=$(echo "$branch" | xargs)  # trim whitespace
-              if [ -n "$branch" ]; then
-                BRANCH_LIST="${BRANCH_LIST}\"$branch\", "
-              fi
-            done
-            # Remove trailing comma and space
-            BRANCH_LIST=$(echo "$BRANCH_LIST" | sed 's/, $//')
-            REPO_ENTRY="${REPO_ENTRY}\n    additional-branches: [$BRANCH_LIST]"
+          # Prepare the repository entry (4 spaces for repo name, 6 for properties)
+          REPO_ENTRY="    $COMPONENT:\n      early-gate-enabled: true"
 
-            # Only add early-gate-required-on-default-branches if additional_branches is set
-            if [ "${{ inputs.early_gate_required_on_default_branches }}" = "true" ]; then
-              REPO_ENTRY="${REPO_ENTRY}\n    early-gate-required-on-default-branches: true"
-            elif [ "${{ inputs.early_gate_required_on_default_branches }}" = "false" ]; then
-              REPO_ENTRY="${REPO_ENTRY}\n    early-gate-required-on-default-branches: false"
-            fi
+          # Add additional-branches only if target branch is NOT main/master
+          if [ "$TARGET_BRANCH" != "main" ] && [ "$TARGET_BRANCH" != "master" ]; then
+            REPO_ENTRY="${REPO_ENTRY}\n      additional-branches: [\"$TARGET_BRANCH\"]"
           fi
 
           # Append to config file under repositories section
@@ -236,16 +211,17 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          branch_name="early-gate-config-${{ inputs.component }}-$(date +%s)"
+          branch_name="early-gate-config-${{ inputs.repository }}-$(date +%s)"
           echo "CONFIG_BRANCH_NAME=$branch_name" >> $GITHUB_ENV
 
           git checkout -B "$branch_name"
 
           cat <<EOF > commit_message.txt
-          Early-gate: add ${{ inputs.component }} to early-gate-config
+          Early-gate: add ${{ inputs.repository }} to early-gate-config
 
-          - Added ${{ inputs.component }} to config/early-gate-config.yaml
-          - early-gate-enabled: ${{ inputs.early_gate_enabled }}
+          - Added ${{ inputs.repository }} to config/early-gate-config.yaml
+          - early-gate-enabled: true
+          - target-branch: ${{ inputs.pr_target_branch }}
           EOF
 
           git commit -F commit_message.txt
@@ -259,22 +235,21 @@ jobs:
           cd okc-repo
 
           cat <<EOF > pr_body.txt
-          This PR adds ${{ inputs.component }} to the early-gate configuration.
+          This PR adds ${{ inputs.repository }} to the early-gate configuration.
 
           ## Configuration
-          - **Repository**: ${{ inputs.component }}
-          - **Early-gate enabled**: ${{ inputs.early_gate_enabled }}
-          - **Additional branches**: ${{ inputs.additional_branches }}
-          - **Early-gate required on default branches**: ${{ inputs.early_gate_required_on_default_branches }}
+          - **Repository**: ${{ inputs.repository }}
+          - **Early-gate enabled**: true
+          - **Target branch**: ${{ inputs.pr_target_branch }}
 
           ## Related
-          This is part of onboarding ${{ inputs.component }} to the early-gate system.
-          A corresponding PR has been created in opendatahub-io/${{ inputs.component }} to add the pipeline files.
+          This is part of onboarding ${{ inputs.repository }} to the early-gate system.
+          A corresponding PR has been created in opendatahub-io/${{ inputs.repository }} to add the pipeline files.
           EOF
 
           gh pr create \
             --repo "opendatahub-io/odh-konflux-central" \
             --base "main" \
             --head "${CONFIG_BRANCH_NAME}" \
-            --title "Early-gate: add ${{ inputs.component }} to config" \
+            --title "Early-gate: add ${{ inputs.repository }} to config" \
             --body "$(cat pr_body.txt)"
