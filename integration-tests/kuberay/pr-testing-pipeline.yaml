@@ -401,7 +401,7 @@ spec:
                   value: $(context.pipelineRun.name)
 
             - name: check-test-exit-code
-              image: alpine
+              image: quay.io/rhoai-konflux/alpine:latest
               volumeMounts:
                 - name: test-status
                   mountPath: /test-status
