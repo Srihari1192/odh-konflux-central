@@ -106,7 +106,7 @@ spec:
       - name: url
         value: https://github.com/opendatahub-io/odh-konflux-central.git
       - name: revision
-        value: earlygate
+        value: main
       - name: pathInRepo
         value: early-gate/tasks/check-prerequisites.yaml
 
@@ -122,7 +122,7 @@ spec:
       - name: url
         value: https://github.com/opendatahub-io/odh-konflux-central.git
       - name: revision
-        value: earlygate
+        value: main
       - name: pathInRepo
         value: early-gate/tasks/check-ongoing-jobs.yaml
     params:
@@ -160,7 +160,7 @@ spec:
       - name: url
         value: https://github.com/opendatahub-io/odh-konflux-central.git
       - name: revision
-        value: earlygate
+        value: main
       - name: pathInRepo
         value: early-gate/tasks/trigger-test-pipeline.yaml
     params:
@@ -201,7 +201,7 @@ spec:
       - name: url
         value: https://github.com/opendatahub-io/odh-konflux-central.git
       - name: revision
-        value: earlygate
+        value: main
       - name: pathInRepo
         value: early-gate/tasks/monitor-jenkins-job.yaml
     params:
@@ -252,7 +252,7 @@ spec:
       - name: url
         value: https://github.com/opendatahub-io/odh-konflux-central.git
       - name: revision
-        value: earlygate
+        value: main
       - name: pathInRepo
         value: early-gate/tasks/monitor-jenkins-job.yaml
     params:

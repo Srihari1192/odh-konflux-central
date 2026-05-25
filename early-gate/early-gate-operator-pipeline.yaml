@@ -240,7 +240,7 @@ spec:
       - name: url
         value: https://github.com/opendatahub-io/odh-konflux-central.git
       - name: revision
-        value: earlygate
+        value: main
       - name: pathInRepo
         value: early-gate/tasks/generate-snapshot-for-group-testing.yaml
 
@@ -495,7 +495,7 @@ spec:
       - name: url
         value: https://github.com/opendatahub-io/odh-konflux-central.git
       - name: revision
-        value: earlygate
+        value: main
       - name: pathInRepo
         value: early-gate/tasks/bundle-processor.yaml
 
@@ -631,7 +631,7 @@ spec:
       - name: url
         value: https://github.com/opendatahub-io/odh-konflux-central.git
       - name: revision
-        value: earlygate
+        value: main
       - name: pathInRepo
         value: early-gate/tasks/fbc-processor.yaml
 
@@ -772,7 +772,7 @@ spec:
       - name: url
         value: https://github.com/opendatahub-io/odh-konflux-central.git
       - name: revision
-        value: earlygate
+        value: main
       - name: pathInRepo
         value: early-gate/tasks/post-build-complete-comment.yaml
 
