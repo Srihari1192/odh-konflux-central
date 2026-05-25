@@ -619,6 +619,9 @@ spec:
         if [ "${FAILED_COUNT}" -gt 0 ]; then
           RESULT_ICON=":x:"
           STATUS_DISPLAY="${RESULT_ICON} FAILED — ${FAILED_COUNT} test(s) failed"
+        elif [ "${TOTAL_COUNT}" -eq 0 ] && [ "${IS_JOB_FAILURE}" = "true" ]; then
+          RESULT_ICON=":x:"
+          STATUS_DISPLAY="${RESULT_ICON} FAILED — 0 tests ran and Jenkins job status is ${FINAL_STATUS}"
         else
           RESULT_ICON=":white_check_mark:"
           STATUS_DISPLAY="${RESULT_ICON} PASSED — all ${TOTAL_COUNT} test(s) passed"
@@ -652,6 +655,10 @@ spec:
       if [ "${SUMMARY_VALID}" = "true" ]; then
         if [ "${FAILED_COUNT}" -gt 0 ]; then
           echo "${FAILED_COUNT} test(s) failed. Marking pipeline as failed."
+          exit 1
+        fi
+        if [ "${TOTAL_COUNT}" -eq 0 ] && [ "${IS_JOB_FAILURE}" = "true" ]; then
+          echo "0 tests ran and Jenkins job status is '${FINAL_STATUS}'. Marking pipeline as failed."
           exit 1
         fi
         if [ "${IS_JOB_FAILURE}" = "true" ]; then
