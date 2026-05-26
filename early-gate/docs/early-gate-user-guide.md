@@ -253,11 +253,30 @@ The Jenkins job determines which tests to run based on the component's configura
 - **Quality gate:** the `early-gate` quality gate is used, which typically maps to smoke-level tests (e.g., `-m smoke` for pytest components, or `FeatureStoreANDSmoke` for Robot Framework components).
 - **Test runners:** depending on your component's configuration, tests run either via **Robot Framework** (ods-ci) or as **containerized pytest/gotestsum jobs** (shift-left). The runner is determined by the `metadata.earlyGateTestRunner` field in your component's config — `ods-ci` for Robot, `shiftleft` (the default) for containers.
 
-### Must-Gather
+### Troubleshooting Test Failures
 
-Must-gather diagnostic collection runs automatically for components that have `--collect-must-gather` in their test configuration. This collects OpenShift cluster diagnostics when tests fail, which helps with debugging.
+When an early gate test fails, the pipeline collects several types of diagnostic information to help you identify the root cause. Understanding what is available and how to access it will speed up your debugging.
 
-If your component uses the `opendatahub-tests` shared framework (shift-left runner), you can enable must-gather by adding `--collect-must-gather` to your component's `image.args` in its configuration file:
+Start by checking the **completion comment** on your PR. Click the **Job URL** to open the Jenkins build page. The Jenkins build status tells you what category of failure occurred:
+
+#### Review Test Results
+
+Test results are available in multiple formats from the Jenkins build page:
+
+| Artifact | Where to Find It | What It Contains |
+|----------|-------------------|------------------|
+| **JUnit Test Report** | Jenkins build page → *Test Result* | Per-test pass/fail/skip with error messages and stack traces |
+| **ReportPortal** | Link in Jenkins build description | Interactive test report with historical comparison and defect classification |
+
+#### Use Must-Gather for Deeper Diagnostics
+
+**Must-gather** collects comprehensive OpenShift cluster diagnostics when tests fail. This is the single most useful artifact for debugging failures that involve operator behavior, resource state, or cluster-level issues.
+
+> **We strongly recommend that all component teams enable `--collect-must-gather` in their test configuration.** Without it, diagnosing operator-level or cluster-level failures requires manual intervention that is no longer possible after the test cluster is deleted.
+
+**How to enable must-gather:**
+
+Add `--collect-must-gather` to your component's `image.args` in its configuration file:
 
 ```yaml
 # In your component's main.yaml
@@ -270,8 +289,6 @@ merge:
         tests/<your-test-path>/
     ]
 ```
-
----
 
 ## 7. Onboarding a Repository to Early Gate
 
@@ -387,7 +404,7 @@ A full early gate run (build + test) typically takes 60-90 minutes. The build pi
 
 ### What should I do if my early gate test fails?
 
-First, check the Jenkins job URL in the completion comment to see which specific tests failed. If the failure is due to your changes, push a fix to the PR — early gate will automatically re-run. If it's a transient/infrastructure issue, comment `/early-gate-test` to re-run just the test stage without rebuilding.
+First, check the Jenkins job URL in the completion comment to see which specific tests failed. If the failure is due to your changes, push a fix to the PR — early gate will automatically re-run. If it's a transient/infrastructure issue, comment `/early-gate-test` to re-run just the test stage without rebuilding. See [Section 6: Troubleshooting Test Failures](#troubleshooting-test-failures) for a detailed debugging guide.
 
 ### Can I skip early gate tests?
 
@@ -412,14 +429,6 @@ For detailed technical documentation about the early gate pipelines:
 - **[Early Gate Build Pipeline Design](early-gate-build-pipeline-design.md)** — architecture, implementation details, and build flow for the early gate build pipeline (stage 2)
 - **[Early Gate Test Pipeline Design](early-gate-test-pipeline-design.md)** — architecture, implementation details, and test orchestration for the early gate test pipeline (stage 3)
 
-### What test runner does my component use?
-
-Your component's test runner is determined by the `metadata.earlyGateTestRunner` field in your component's configuration:
-- `ods-ci` — Robot Framework tests via ods-ci
-- `shiftleft` (default) — Containerized pytest/gotestsum tests
-
-Check your component's config in `resources/configs/components-testing/components/<your-component>/main.yaml` in this repo.
-
 ### How do I enable must-gather diagnostics for my tests?
 
-If your component uses the shift-left runner (opendatahub-tests framework), add `--collect-must-gather` to your component's `image.args` in its configuration file. See [Section 6: How Tests Run on Your PR → Must-Gather](#must-gather) for details.
+If your component uses the shift-left runner (opendatahub-tests framework), add `--collect-must-gather` to your component's `image.args` in its configuration file. This is strongly recommended for all components.
