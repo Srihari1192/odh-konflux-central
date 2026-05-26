@@ -1,6 +1,6 @@
-# Early Gate Testing — User Guide
+# Early Gate — User Guide
 
-Early gate testing is a pre-merge smoke testing infrastructure for ODH. It validates that a pull request does not break core functionality by building a complete set of OLM artifacts (operator, bundle, and FBC catalog) using the PR's latest images and running smoke tests against them — all before the PR is merged.
+Early gate is a pre-merge smoke testing infrastructure for ODH. It validates that a pull request does not break core functionality by building a complete set of OLM artifacts (operator, bundle, and FBC catalog) using the PR's latest images and running smoke tests against them — all before the PR is merged.
 
 ---
 
@@ -275,7 +275,7 @@ merge:
 
 ## 7. Onboarding a Repository to Early Gate
 
-To enable early gate testing on a new repository, use the **ODH Early Gate Onboarder** workflow in the `odh-konflux-central` repository.
+To enable early gate on a new repository, use the **ODH Early Gate Onboarder** workflow in the `odh-konflux-central` repository.
 
 ### How to Onboard
 
@@ -340,28 +340,28 @@ If you run the onboarder workflow for a repository that's already configured:
 
 - **Early Detection of Integration Issues** — Catches breaking changes before merge, reducing the risk of broken main branches and preventing downstream failures
 - **Faster Feedback Loop** — Developers get test results within their PR review cycle, eliminating the need to wait for post-merge CI to discover issues
-- **Increased Confidence in Merges** — PRs that pass early gate testing have been validated against the full operator and component stack, reducing merge anxiety
+- **Increased Confidence in Merges** — PRs that pass early gate have been validated against the full operator and component stack, reducing merge anxiety
 - **Reduced Debugging Time** — Issues are caught in the context of the specific PR that caused them, making root cause analysis faster and easier
 
 ### Cons
 
 - **Cloud Infrastructure Costs** — Each early gate run provisions a dedicated ROSA HCP cluster for testing, which incurs AWS infrastructure costs that scale with PR volume
 - **Jenkins Infrastructure Scaling** — Increased test load requires scaling Jenkins executors and managing queue times during peak PR activity
-- **Longer PR Feedback Time** — Full early gate test cycles can take 30-45 minutes, which is slower than standard unit/integration tests
+- **Longer PR Feedback Time** — Full early gate build & test cycles can take 60-90 minutes, which is slower than standard unit/integration tests
 - **Resource Contention** — High PR volume can lead to queued test runs and resource contention, potentially delaying feedback for some PRs
 
 ---
 
 ## 9. Limitations
 
-- **ODH repos only** — early gate testing currently supports only ODH repository builds. RHDS and RHOAI builds are not supported yet.
-- **Single architecture only** — early gate testing currently supports x86 architecture only.
-- **Repo-scoped testing** — each early gate run tests a single PR from a single repository. Testing PRs from multiple repositories together (group testing) is planned for a future phase.
+- **ODH repos only** — early gate currently supports only ODH repository builds. RHDS and RHOAI builds are not supported yet.
+- **Single architecture only** — early gate currently supports x86 architecture only.
+- **Repo-scoped testing** — each early gate run builds & tests a single PR from a single repository. Testing multiple PRs from various repositories together (group testing) is planned for a future phase.
 
 ---
 
 ## 10. Future Plans
 
-- **Early Gate Group Tests** — currently, each early gate run tests a single PR from a single repository. Group testing will enable testing multiple PRs from different repositories together in a single early gate run, validating cross-component changes as a cohesive set before any of them are merged.
+- **Early Gate Group Tests** — currently, each early gate run build & tests a single PR from a single repository. Group testing will enable testing multiple PRs from different repositories together in a single early gate run, validating cross-component changes as a cohesive set before any of them are merged.
 
 - **Konflux Integration Test Scenarios (ITS)** — the current early gate test execution relies on Jenkins for smoke test orchestration. A future iteration will migrate test execution to Konflux Integration Test Scenarios (ITS), bringing the entire early gate pipeline — build and test — fully within the Konflux platform.
