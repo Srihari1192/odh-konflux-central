@@ -350,8 +350,6 @@ Teams who want to enable early gate on their repository should add their request
 ### Cons
 
 - **Cloud Infrastructure Costs** — Each early gate run provisions a dedicated ROSA HCP cluster for testing, which incurs AWS infrastructure costs that scale with PR volume
-- **Jenkins Infrastructure Scaling** — Increased test load requires scaling Jenkins executors and managing queue times during peak PR activity
-- **Longer PR Feedback Time** — Full early gate build & test cycles can take 60-90 minutes, which is slower than standard unit/integration tests
 - **Resource Contention** — High PR volume can lead to queued test runs and resource contention, potentially delaying feedback for some PRs
 
 ---
@@ -361,6 +359,7 @@ Teams who want to enable early gate on their repository should add their request
 - **ODH repos only** — early gate currently supports only ODH repository builds. RHDS and RHOAI builds are not supported yet.
 - **Single architecture only** — early gate currently supports x86 architecture only.
 - **Repo-scoped testing** — each early gate run builds & tests a single PR from a single repository. Testing multiple PRs from various repositories together (group testing) is planned for a future phase.
+- **Only configured branches supported** — early gate build & test are by default enabled only for main/master branch, and can be requested to cover any additional branches required for a repo. Need to limit the infra to only few branches to contain the cloud cost.
 
 ---
 
@@ -370,7 +369,7 @@ Teams who want to enable early gate on their repository should add their request
 
 - **Konflux Integration Test Scenarios (ITS)** — the current early gate test execution relies on Jenkins for smoke test orchestration. A future iteration will migrate test execution to Konflux Integration Test Scenarios (ITS), bringing the entire early gate pipeline — build and test — fully within the Konflux platform.
 
-- **Mandatory Early Gate Tests** — early gate tests will be made mandatory for all onboarded repositories, enforced as a required check that must pass before a PR can be merged.
+- **Mandatory Early Gate Tests** — early gate tests will be made mandatory for all ODH repositories, enforced as a required check that must pass before a PR can be merged.
 
 - **Automated Upgrade Testing** — enable upgrade testing as part of the early gate test suite, validating that the PR's changes do not break upgrade paths from previous versions.
 
