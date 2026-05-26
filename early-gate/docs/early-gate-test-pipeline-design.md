@@ -562,3 +562,106 @@ flowchart TD
 >
 > :warning: Test results could not be obtained from the expected location:
 > [early-gate-test-summary.yaml](link)
+>
+## 11. Jenkins Job Internals
+
+This section describes what happens inside the Jenkins job that the Tekton test pipeline triggers.
+
+### 11.1 Cluster Provisioning
+
+By default the job provisions a **ROSA HCP** (Hosted Control Plane) cluster on AWS. The `TEST_ENVIRONMENT` parameter controls the cluster type:
+
+- **OpenShift version:** `4.20-latest` by default (configurable via `OPENSHIFT_VERSION`).
+- **Cluster naming:** auto-generated as `egt-<sanitized-version-tag>`, truncated to 15 characters.
+- **Cluster cleanup:** by default the cluster is deleted immediately after tests complete. Setting `DELETE_CLUSTER_IMMEDIATELY` to false retains it for 4 hours (useful for debugging).
+
+### 11.2 RHOAI Operator Deployment
+
+After the cluster is provisioned, the job deploys the RHOAI operator using the following flow:
+
+```mermaid
+flowchart TD
+    A["Resolve FBC Image <br /> via Tracer tool"]:::resolve --> B["Configure cluster <br /> External DNS + ICSP + IDP"]:::config
+    B --> C["Deploy RHOAI Operator <br /> CLI mode, odh-stable channel"]:::deploy
+    C --> D["Regenerate test config <br /> with cluster URLs"]:::config
+    D --> E["Health checks <br /> Cluster node health + RHOAI Operator health"]:::health
+
+    classDef resolve fill:#bbdefb,stroke:#1976d2,color:#000
+    classDef config fill:#e0e0e0,stroke:#757575,color:#000
+    classDef deploy fill:#c8e6c9,stroke:#388e3c,color:#000
+    classDef health fill:#fff9c4,stroke:#f9a825,color:#000
+```
+
+1. **FBC image resolution** — The `RHOAI_VERSION` parameter (which contains the FBC tag, e.g. `odh-pr-73-feast`) is passed to the [Tracer](https://github.com/red-hat-data-services/rhods-devops-infra) tool to resolve the full FBC catalog image URI on Quay (`quay.io/opendatahub/opendatahub-operator-catalog:<tag>`).
+2. **Subscription channel** — The operator is always installed using the **`odh-stable`** channel.
+3. **Deployment method** — Uses the `Cli` (Robot Framework) deployment type. This creates a `CatalogSource` pointing to the FBC image, then installs the RHOAI operator subscription via the ods-ci Robot Framework install scripts.
+4. **Post-deploy setup** — External DNS is configured, ICSP (brew pull secret) is added, and an IDP (identity provider) is created. Test configuration files are regenerated with the deployed cluster's URLs.
+5. **Health checks** — Cluster node health and RHOAI operator health (including Dashboard route accessibility) are verified before tests run.
+
+### 11.3 Component Test Execution
+
+The Jenkins job maps the `GITHUB_REPO` parameter (comma-separated Konflux component keys from [`component_repo_map.json`](https://github.com/opendatahub-io/odh-konflux-central/blob/main/config/component_repo_map.json)) to component test configurations, then executes tests using one or both of two runners.
+
+#### Component resolution
+
+```mermaid
+flowchart TD
+    A["GITHUB_REPO param <br /> e.g. feast,model-registry"]:::input --> B["Validate each key against <br /> component_repo_map.json"]:::validate
+    B --> C["Map to components-testing config <br /> by name or konfluxRepoMapKeys"]:::map
+    C --> D{earlyGateTestRunner?}:::decision
+    D -- "ods-ci" --> E["Robot Framework runner <br /> qualityGatesMap.default.early-gate tags"]:::odsCi
+    D -- "shiftleft (default)" --> F["Shift-left container runner <br /> qualityGatesMap.default.early-gate args"]:::shiftLeft
+
+    classDef input fill:#e0e0e0,stroke:#757575,color:#000
+    classDef validate fill:#bbdefb,stroke:#1976d2,color:#000
+    classDef map fill:#b2dfdb,stroke:#00796b,color:#000
+    classDef decision fill:#ffe0b2,stroke:#f57c00,color:#000
+    classDef odsCi fill:#c8e6c9,stroke:#388e3c,color:#000
+    classDef shiftLeft fill:#fff9c4,stroke:#f9a825,color:#000
+```
+
+1. Each token in `GITHUB_REPO` is validated against `component_repo_map.json`.
+2. The key is mapped to a component in the Jenkins per-component config (`resources/configs/components-testing/components/<name>/main.yaml`) — either by name match or via `metadata.konfluxRepoMapKeys`.
+3. Each component's `metadata.earlyGateTestRunner` field determines which runner executes its tests.
+
+#### Runner 1: ods-ci Robot Framework
+
+Components with `earlyGateTestRunner: ods-ci` (e.g., `feast`) run through Robot Framework:
+
+- Robot tags are resolved from `qualityGatesMap.default.early-gate` in the component config (e.g., `FeatureStoreANDSmoke`).
+- The job calls `run_robot_test.sh` with `--extra-robot-args '-i <tags> -e AutomationBug -e ProductBug -e ExcludeOnRHOAI -e deprecatedTest'`.
+- Test results are collected as xunit XML.
+
+#### Runner 2: Shift-left containers
+
+Components with `earlyGateTestRunner: shiftleft` (the default) run as containerized test jobs:
+
+- Each component's container image, args, and quality gate selection come from its `main.yaml` config (under `components-testing/components/<name>/`).
+- Quality gate args are resolved from `qualityGatesMap.default.early-gate` (e.g., `-m smoke`).
+- The test container runs inside a Kubernetes pod on the Jenkins agent, with the cluster kubeconfig mounted.
+
+#### Mixed execution
+
+When `GITHUB_REPO` includes components using different runners, both stages execute in the same build — Robot Framework tests run first, followed by shift-left containers in parallel.
+
+### 11.4 Must-Gather
+
+Must-gather collection is configured **per-component** in the component's test configuration YAML. To enable must-gather for a shift-left component, add `--collect-must-gather` to the `image.args` list in the component's `main.yaml`:
+
+```yaml
+# Example: resources/configs/components-testing/components/model-registry/main.yaml
+merge:
+  image:
+    args: [
+        --collect-must-gather,     # enables must-gather
+        -o junit_suite_name=model-registry,
+        tests/model_registry/
+    ]
+```
+
+### 11.5 Test Results and Summary
+
+After tests complete (or on failure):
+
+1. xunit XML results are collected, aggregated via `test_report_aggregator.py`, and the summary is pushed to [`odh-build-metadata`](https://github.com/opendatahub-io/odh-build-metadata) (branch `early-gate`) as `<githubRepo>/<prNumber>/early-gate-test-summary.yaml`.
+3. The Tekton test pipeline picks up this summary and posts the completion comment on the PR.

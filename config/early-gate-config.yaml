@@ -7,4 +7,5 @@ config:
     #  early-gate-required-on-default-branches: false
     kserve:
       early-gate-enabled: true
-      additional-branches: ["release-v0.17"]
+      additional-branches:
+        - release-v0.17
