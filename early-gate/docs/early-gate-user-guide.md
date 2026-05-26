@@ -275,6 +275,7 @@ The Jenkins job determines which tests to run based on the component's configura
 - **Component mapping:** your repository's Konflux component key (from [`component_repo_map.json`](https://github.com/opendatahub-io/odh-konflux-central/blob/main/config/component_repo_map.json)) is mapped to a test configuration that defines which smoke tests to execute.
 - **Quality gate:** the `early-gate` quality gate is used, which typically maps to smoke-level tests (e.g., `-m smoke` for pytest components, or `FeatureStoreANDSmoke` for Robot Framework components).
 - **Test runners:** depending on your component's configuration, tests run either via **Robot Framework** (ods-ci) or as **containerized pytest/gotestsum jobs** (shift-left). The runner is determined by the `metadata.earlyGateTestRunner` field in your component's config — `ods-ci` for Robot, `shiftleft` (the default) for containers.
+- **PR test images:** the pipeline automatically checks if a `pr-<N>` tag exists in Quay for your component's test image. If found, it uses that PR-tagged image instead of the default `latest` tag, allowing you to test with updated test code from your PR.
 
 ### Troubleshooting Test Failures
 
@@ -288,7 +289,7 @@ Test results are available in multiple formats from the Jenkins build page:
 
 | Artifact | Where to Find It | What It Contains |
 |----------|-------------------|------------------|
-| **JUnit Test Report** | Jenkins build page → *Test Result* | Per-test pass/fail/skip with error messages and stack traces |
+| **JUnit Test Report** | Jenkins build page → *Tests* | Per-test pass/fail/skip with error messages and stack traces |
 | **ReportPortal** | Link in Jenkins build description | Interactive test report with historical comparison and defect classification |
 
 #### Use Must-Gather for Deeper Diagnostics
