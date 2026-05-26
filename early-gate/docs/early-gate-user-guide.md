@@ -253,11 +253,53 @@ The Jenkins job determines which tests to run based on the component's configura
 - **Quality gate:** the `early-gate` quality gate is used, which typically maps to smoke-level tests (e.g., `-m smoke` for pytest components, or `FeatureStoreANDSmoke` for Robot Framework components).
 - **Test runners:** depending on your component's configuration, tests run either via **Robot Framework** (ods-ci) or as **containerized pytest/gotestsum jobs** (shift-left). The runner is determined by the `metadata.earlyGateTestRunner` field in your component's config — `ods-ci` for Robot, `shiftleft` (the default) for containers.
 
-### Must-Gather
+### Troubleshooting Test Failures
 
-Must-gather diagnostic collection runs automatically for components that have `--collect-must-gather` in their test configuration. This collects OpenShift cluster diagnostics when tests fail, which helps with debugging.
+When an early gate test fails, the pipeline collects several types of diagnostic information to help you identify the root cause. Understanding what is available and how to access it will speed up your debugging.
 
-If your component uses the `opendatahub-tests` shared framework (shift-left runner), you can enable must-gather by adding `--collect-must-gather` to your component's `image.args` in its configuration file:
+#### Step 1: Identify the Failure Type
+
+Start by checking the **completion comment** on your PR. Click the **Job URL** to open the Jenkins build page. The Jenkins build status tells you what category of failure occurred:
+
+| Jenkins Build Status | Meaning | Typical Cause |
+|---------------------|---------|---------------|
+| **UNSTABLE** | One or more smoke tests failed, but the infrastructure is healthy | Your PR introduced a regression, or there is a flaky test |
+| **FAILURE** | An infrastructure or setup stage failed before tests could run | Cluster provisioning issue, operator deployment failure, or health check failure |
+
+If the build is **UNSTABLE**, the test results are available and you should proceed to Step 2. If the build is **FAILURE**, the issue is in the infrastructure stages — check the Jenkins console log for which stage failed (cluster install, operator deploy, or health check).
+
+#### Step 2: Review Test Results
+
+Test results are available in multiple formats from the Jenkins build page:
+
+| Artifact | Where to Find It | What It Contains |
+|----------|-------------------|------------------|
+| **JUnit Test Report** | Jenkins build page → *Test Result* | Per-test pass/fail/skip with error messages and stack traces |
+| **ReportPortal** | Link in Jenkins build description | Interactive test report with historical comparison and defect classification |
+| **HTML Test Report** | Jenkins build page → *HTML Report* | Consolidated HTML view of all test suites (Robot + shift-left) |
+| **Robot Framework Log** | Jenkins build page → *Robot Results* (ods-ci components only) | Detailed keyword-level execution log with screenshots |
+
+#### Step 3: Examine Diagnostic Artifacts
+
+The pipeline automatically collects diagnostic artifacts after every run, regardless of the outcome:
+
+- **RHOAI Pod Logs** — logs from all RHOAI operator and application pods are collected during the post-build phase and archived as Jenkins build artifacts. Look for these when you suspect an operator crash, reconciliation failure, or component not starting.
+
+- **Health Check Results** — cluster and operator health checks run before the tests begin. Their results are archived as JUnit XML (suites named `cluster-health` and `operator-health`). If a health check fails, the build is marked **FAILURE** and tests are skipped.
+
+- **Shift-Left Test Logs** — for containerized test components, the full pytest/gotestsum output is archived under `shiftleftArtifacts/<component>/` in the Jenkins build artifacts.
+
+#### Step 4: Use Must-Gather for Deeper Diagnostics
+
+**Must-gather** collects comprehensive OpenShift cluster diagnostics (operator logs, CRD states, events, resource dumps) when tests fail. This is the single most useful artifact for debugging failures that involve operator behavior, resource state, or cluster-level issues.
+
+> **We strongly recommend that all component teams enable `--collect-must-gather` in their test configuration.** Without it, diagnosing operator-level or cluster-level failures requires manual intervention that is no longer possible after the test cluster is deleted.
+
+Must-gather runs **inside the shift-left test container** and is triggered automatically on test failure when the flag is present. The collected diagnostics are archived alongside the test results under `shiftleftArtifacts/<component>/`.
+
+**How to enable must-gather:**
+
+Add `--collect-must-gather` to your component's `image.args` in its configuration file:
 
 ```yaml
 # In your component's main.yaml
@@ -270,6 +312,19 @@ merge:
         tests/<your-test-path>/
     ]
 ```
+
+Components that already have must-gather enabled include `model-registry` and `workbenches`. If your component uses a Go test framework (gotestsum/ginkgo), must-gather is not yet supported — reach out to the DevTestOps team for alternatives.
+
+#### Quick Reference: Debugging by Failure Scenario
+
+| Scenario | What to Check |
+|----------|---------------|
+| Tests fail with assertion errors | JUnit/ReportPortal test report → look at the failing test's error message and stack trace |
+| Tests fail with timeouts | Must-gather artifacts → check if the expected pods/resources were created; pod logs → check for crash loops |
+| All tests fail | Health check results → verify cluster and operator are healthy; Jenkins console → check if operator deployment succeeded |
+| Tests pass locally but fail in early gate | Verify your component's `early-gate` quality gate selects the correct tests; check if the FBC image contains your latest changes |
+| Transient / infrastructure failure | Comment `/early-gate-test` to re-run; if it persists, check Jenkins console for cluster provisioning or image pull errors |
+| Operator not starting | Pod logs artifact → look for the operator pod; must-gather → check CatalogSource and Subscription status |
 
 ---
 
@@ -387,7 +442,7 @@ A full early gate run (build + test) typically takes 60-90 minutes. The build pi
 
 ### What should I do if my early gate test fails?
 
-First, check the Jenkins job URL in the completion comment to see which specific tests failed. If the failure is due to your changes, push a fix to the PR — early gate will automatically re-run. If it's a transient/infrastructure issue, comment `/early-gate-test` to re-run just the test stage without rebuilding.
+First, check the Jenkins job URL in the completion comment to see which specific tests failed. If the failure is due to your changes, push a fix to the PR — early gate will automatically re-run. If it's a transient/infrastructure issue, comment `/early-gate-test` to re-run just the test stage without rebuilding. See [Section 6: Troubleshooting Test Failures](#troubleshooting-test-failures) for a detailed debugging guide.
 
 ### Can I skip early gate tests?
 
@@ -422,4 +477,4 @@ Check your component's config in `resources/configs/components-testing/component
 
 ### How do I enable must-gather diagnostics for my tests?
 
-If your component uses the shift-left runner (opendatahub-tests framework), add `--collect-must-gather` to your component's `image.args` in its configuration file. See [Section 6: How Tests Run on Your PR → Must-Gather](#must-gather) for details.
+If your component uses the shift-left runner (opendatahub-tests framework), add `--collect-must-gather` to your component's `image.args` in its configuration file. This is strongly recommended for all components — see [Section 6: Troubleshooting Test Failures → Use Must-Gather](#step-4-use-must-gather-for-deeper-diagnostics) for details and examples.
