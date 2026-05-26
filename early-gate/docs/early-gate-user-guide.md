@@ -357,3 +357,11 @@ If you run the onboarder workflow for a repository that's already configured:
 - **ODH repos only** — early gate testing currently supports only ODH repository builds. RHDS and RHOAI builds are not supported yet.
 - **Single architecture only** — early gate testing currently supports x86 architecture only.
 - **Repo-scoped testing** — each early gate run tests a single PR from a single repository. Testing PRs from multiple repositories together (group testing) is planned for a future phase.
+
+---
+
+## 10. Future Plans
+
+- **Early Gate Group Tests** — currently, each early gate run tests a single PR from a single repository. Group testing will enable testing multiple PRs from different repositories together in a single early gate run, validating cross-component changes as a cohesive set before any of them are merged.
+
+- **Konflux Integration Test Scenarios (ITS)** — the current early gate test execution relies on Jenkins for smoke test orchestration. A future iteration will migrate test execution to Konflux Integration Test Scenarios (ITS), bringing the entire early gate pipeline — build and test — fully within the Konflux platform.
