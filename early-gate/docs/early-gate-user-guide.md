@@ -370,6 +370,10 @@ Teams who want to enable early gate on their repository should add their request
 
 - **Konflux Integration Test Scenarios (ITS)** — the current early gate test execution relies on Jenkins for smoke test orchestration. A future iteration will migrate test execution to Konflux Integration Test Scenarios (ITS), bringing the entire early gate pipeline — build and test — fully within the Konflux platform.
 
+- **Mandatory Early Gate Tests** — early gate tests will be made mandatory for all onboarded repositories, enforced as a required check that must pass before a PR can be merged.
+
+- **Automated Upgrade Testing** — enable upgrade testing as part of the early gate test suite, validating that the PR's changes do not break upgrade paths from previous versions.
+
 ---
 
 ## 11. FAQ
