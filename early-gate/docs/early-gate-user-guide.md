@@ -117,7 +117,20 @@ The bot posts comments on your PR to keep you informed of the testing progress.
 
 As the test progresses, the bot posts status comments showing the current phase (queued, running). These intermediate comments are automatically cleaned up once the next phase begins.
 
-### Completion Comment
+### Build Completion Comment
+
+When the early gate build pipeline (Stage 2) completes successfully, the bot posts a build completion comment with the FBC image reference:
+
+> :white_check_mark: **Early Gate Build - Complete**
+>
+> | Field | Value |
+> |-------|-------|
+> | **Status** | :white_check_mark: SUCCESS |
+> | **FBC Image** | quay.io/opendatahub/opendatahub-operator-catalog:odh-pr-73-feast@sha256:b904ea... |
+
+This comment confirms that the operator, bundle, and FBC catalog images were built successfully and provides the fully qualified FBC image reference (with digest) that will be used for testing.
+
+### Test Completion Comment
 
 When testing finishes, a permanent completion comment is posted with the test results:
 
@@ -156,7 +169,15 @@ When testing finishes, a permanent completion comment is posted with the test re
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Queued : Build pipeline triggers test
+    [*] --> BuildComplete : Build pipeline completes
+
+    state "Build Complete" as BuildComplete
+    note right of BuildComplete
+        Bot posts build completion comment
+        with FBC image reference
+    end note
+
+    BuildComplete --> Queued : Test pipeline starts
 
     state "Job Queued" as Queued
     note right of Queued
@@ -172,23 +193,25 @@ stateDiagram-v2
         with a running status comment
     end note
 
-    Running --> Complete : Job finishes
+    Running --> TestComplete : Job finishes
 
-    state "Results Posted" as Complete
-    note right of Complete
+    state "Test Results Posted" as TestComplete
+    note right of TestComplete
         Bot posts the final completion
         comment with test summary
     end note
 
-    Complete --> [*]
+    TestComplete --> [*]
 
+    classDef build fill:#c8e6c9,stroke:#388e3c,color:#000
     classDef queued fill:#fff9c4,stroke:#f9a825,color:#000
     classDef running fill:#bbdefb,stroke:#1976d2,color:#000
-    classDef complete fill:#c8e6c9,stroke:#388e3c,color:#000
+    classDef complete fill:#e1bee7,stroke:#7b1fa2,color:#000
 
+    class BuildComplete build
     class Queued queued
     class Running running
-    class Complete complete
+    class TestComplete complete
 ```
 
 ---
