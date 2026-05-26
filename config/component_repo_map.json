@@ -190,6 +190,9 @@
   "vllm-orchestrator-gateway": {
     "trustyai-vllm-orchestrator-gateway-ci": "opendatahub/vllm-orchestrator-gateway"
   },
+  "workbenches-operator": {
+    "odh-workbenches-operator-ci": "opendatahub/odh-workbenches-operator"
+  },
   "workload-variant-autoscaler": {
     "odh-workload-variant-autoscaler-controller-ci": "opendatahub/workload-variant-autoscaler"
   }
