@@ -332,6 +332,10 @@ If you run the onboarder workflow for a repository that's already configured:
 
 > **Note:** During the initial rollout phase (first few weeks), the DevTestOps team will handle repository onboarding to ensure proper setup and validate the automated workflow. If you need to onboard a new repository, please reach out to the DevTestOps team.
 
+### Request to Enable Early Gate
+
+Teams who want to enable early gate on their repository should add their request to the [Early Gate Onboarding Tracker](https://docs.google.com/spreadsheets/d/1p73COhgYIOz6oGz-YnTpJX3qd7YxyW2nh0QE7dXMmFI/edit?usp=sharing) spreadsheet. This helps the DevTestOps team track and prioritize onboarding requests.
+
 ---
 
 ## 8. Pros and Cons
@@ -365,3 +369,54 @@ If you run the onboarder workflow for a repository that's already configured:
 - **Early Gate Group Tests** — currently, each early gate run build & tests a single PR from a single repository. Group testing will enable testing multiple PRs from different repositories together in a single early gate run, validating cross-component changes as a cohesive set before any of them are merged.
 
 - **Konflux Integration Test Scenarios (ITS)** — the current early gate test execution relies on Jenkins for smoke test orchestration. A future iteration will migrate test execution to Konflux Integration Test Scenarios (ITS), bringing the entire early gate pipeline — build and test — fully within the Konflux platform.
+
+---
+
+## 11. FAQ
+
+### What is early gate and why should I care?
+
+Early gate is a pre-merge testing system that validates your PR doesn't break ODH before it's merged. It builds a complete operator + bundle + catalog with your changes and runs smoke tests against a real cluster. This catches integration issues early, before they hit main, saving you from post-merge debugging.
+
+### How long does an early gate test take?
+
+A full early gate run (build + test) typically takes 60-90 minutes. The build pipeline (stage 2) takes ~15-20 minutes, and the test pipeline (stage 3) takes ~45-70 minutes, which includes cluster provisioning, operator deployment, and smoke test execution.
+
+### What should I do if my early gate test fails?
+
+First, check the Jenkins job URL in the completion comment to see which specific tests failed. If the failure is due to your changes, push a fix to the PR — early gate will automatically re-run. If it's a transient/infrastructure issue, comment `/early-gate-test` to re-run just the test stage without rebuilding.
+
+### Can I skip early gate tests?
+
+No. Early gate tests are required for all onboarded repositories. They run automatically when your PR builds succeed. However, you can re-trigger specific stages using `/early-gate-build` or `/early-gate-test` commands if needed.
+
+### Does early gate work for all repositories?
+
+Early gate currently supports ODH repositories only (not RHDS/RHOAI builds yet). Your repository must be onboarded first — see [Section 7: Onboarding a Repository to Early Gate](#7-onboarding-a-repository-to-early-gate) for details. During the initial rollout, the DevTestOps team handles onboarding.
+
+### How much does early gate cost to run?
+
+Each early gate run provisions a dedicated ROSA HCP cluster on AWS, which incurs infrastructure costs. The cluster is deleted immediately after tests complete (default). The exact cost depends on cluster size and test duration, but is typically in the range of cloud development/testing costs.
+
+### Can I test multiple PRs together?
+
+Not yet. Currently, each early gate run tests a single PR from a single repository. Group testing (testing multiple PRs from different repos together) is planned for a future phase — see [Section 10: Future Plans](#10-future-plans).
+
+### Where can I find more technical details?
+
+For detailed technical documentation about the early gate pipelines:
+
+- **[Early Gate Build Pipeline Design](early-gate-build-pipeline-design.md)** — architecture, implementation details, and build flow for the early gate build pipeline (stage 2)
+- **[Early Gate Test Pipeline Design](early-gate-test-pipeline-design.md)** — architecture, implementation details, and test orchestration for the early gate test pipeline (stage 3)
+
+### What test runner does my component use?
+
+Your component's test runner is determined by the `metadata.earlyGateTestRunner` field in your component's configuration:
+- `ods-ci` — Robot Framework tests via ods-ci
+- `shiftleft` (default) — Containerized pytest/gotestsum tests
+
+Check your component's config in `resources/configs/components-testing/components/<your-component>/main.yaml` in this repo.
+
+### How do I enable must-gather diagnostics for my tests?
+
+If your component uses the shift-left runner (opendatahub-tests framework), add `--collect-must-gather` to your component's `image.args` in its configuration file. See [Section 6: How Tests Run on Your PR → Must-Gather](#must-gather) for details.
