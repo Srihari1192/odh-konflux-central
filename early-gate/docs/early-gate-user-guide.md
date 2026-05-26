@@ -351,7 +351,7 @@ If you run the onboarder workflow for a repository that's already configured:
 
 ### Request to Enable Early Gate
 
-Teams who want to enable early gate on their repository should add their request to the [Early Gate Onboarding Tracker](https://docs.google.com/spreadsheets/d/1p73COhgYIOz6oGz-YnTpJX3qd7YxyW2nh0QE7dXMmFI/edit?usp=sharing) spreadsheet. This helps the DevTestOps team track and prioritize onboarding requests.
+Teams who want to enable early gate on their repository should add their request to the [Early Gate Onboarding Tracker](https://docs.google.com/spreadsheets/d/1p73COhgYIOz6oGz-YnTpJX3qd7YxyW2nh0QE7dXMmFI/edit?usp=sharing) spreadsheet. Please raise a request in the #rhoai-devtestops-requests slack channel. This helps the DevTestOps team track and prioritize onboarding requests.
 
 ---
 
