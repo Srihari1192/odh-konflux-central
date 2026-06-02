@@ -37,6 +37,7 @@ on:
           - llm-d-async
           - llm-d-inference-scheduler
           - llm-d-kv-cache
+          - llm-d-router
           - llm-d-routing-sidecar
           - lm-evaluation-harness
           - ml-metadata
