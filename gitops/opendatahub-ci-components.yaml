@@ -1315,6 +1315,25 @@ apiVersion: appstudio.redhat.com/v1alpha1
 kind: Component
 metadata:
   annotations:
+    build.appstudio.openshift.io/request: configure-pac-no-mr
+    build.appstudio.openshift.io/pipeline: '{"name":"docker-build-multi-platform-oci-ta","bundle":"latest"}'
+    mintmaker.appstudio.redhat.com/disabled: true
+  name: odh-mod-arch-agent-ops-ci
+spec:
+  application: opendatahub-builds
+  componentName: odh-mod-arch-agent-ops-ci
+  containerImage: quay.io/opendatahub/odh-mod-arch-agent-ops
+  source:
+    git:
+      context: .
+      dockerfileUrl: packages/agent-ops/Dockerfile.workspace
+      revision: "main"
+      url: https://github.com/opendatahub-io/odh-dashboard
+---
+apiVersion: appstudio.redhat.com/v1alpha1
+kind: Component
+metadata:
+  annotations:
     build.appstudio.openshift.io/pipeline: '{"name":"docker-build-multi-platform-oci-ta","bundle":"latest"}'
     mintmaker.appstudio.redhat.com/disabled: true
     build.appstudio.openshift.io/request: configure-pac-no-mr
