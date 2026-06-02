@@ -238,6 +238,23 @@ build_runner_image() {
 start_runners() {
   build_runner_image
 
+  # Docker-in-Docker externals fix: the runner creates job containers via the
+  # host Docker socket, passing -v "/home/runner/actions-runner/externals":"/__e":ro.
+  # That path is inside the runner container, not on the host. Docker resolves
+  # bind-mount sources on the HOST, so the externals must exist there too.
+  # Extract them from the image once; they're version-locked and shared safely.
+  local host_externals="/home/runner/actions-runner/externals"
+  if [[ ! -d "${host_externals}/node20" ]]; then
+    log "Populating host externals at ${host_externals} (one-time)..."
+    sudo mkdir -p "${host_externals}"
+    local tmp_ctr="tmp-externals-copy-$$"
+    docker create --name "${tmp_ctr}" "${CONTAINER_IMAGE}" >/dev/null 2>&1
+    sudo docker cp "${tmp_ctr}:/home/runner/actions-runner/externals/." "${host_externals}/"
+    docker rm "${tmp_ctr}" >/dev/null 2>&1
+    sudo chown -R 1001:1001 "${host_externals}"
+    log "Host externals populated: $(ls "${host_externals}" | tr '\n' ' ')"
+  fi
+
   log "Obtaining registration token..."
   local reg_token
   reg_token=$(get_registration_token)
