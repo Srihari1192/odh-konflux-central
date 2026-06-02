@@ -33,6 +33,7 @@ on:
           - llama-stack-k8s-operator
           - llama-stack-provider-ragas
           - llama-stack-provider-trustyai-garak
+          - llm-d-batch-gateway-operator
           - llm-d-async
           - llm-d-inference-scheduler
           - llm-d-kv-cache
