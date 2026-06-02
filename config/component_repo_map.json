@@ -88,6 +88,9 @@
   "llm-d-async": {
     "odh-llm-d-async-ci": "opendatahub/odh-llm-d-async"
   },
+  "llm-d-batch-gateway-operator": {
+    "odh-batch-gateway-operator-ci": "opendatahub/odh-batch-gateway-operator"
+  },
   "llm-d-inference-scheduler": {
     "llm-d-inference-scheduler-ci": "opendatahub/llm-d-inference-scheduler",
     "llm-d-routing-sidecar-ci": "opendatahub/llm-d-routing-sidecar"
