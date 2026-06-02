@@ -85,6 +85,9 @@
   "llama-stack-provider-trustyai-garak": {
     "odh-trustyai-garak-lls-provider-dsp-ci": "opendatahub/odh-trustyai-garak-lls-provider-dsp"
   },
+  "llm-d-async": {
+    "odh-llm-d-async-ci": "opendatahub/odh-llm-d-async"
+  },
   "llm-d-inference-scheduler": {
     "llm-d-inference-scheduler-ci": "opendatahub/llm-d-inference-scheduler",
     "llm-d-routing-sidecar-ci": "opendatahub/llm-d-routing-sidecar"
