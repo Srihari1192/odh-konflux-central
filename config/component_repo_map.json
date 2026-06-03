@@ -98,6 +98,9 @@
   "llm-d-kv-cache": {
     "odh-llm-d-kv-cache": "opendatahub/llm-d-kv-cache"
   },
+  "llm-d-router": {
+    "odh-llm-d-router-disagg-sidecar-ci": "opendatahub/odh-llm-d-router-disagg-sidecar"
+  },
   "lm-evaluation-harness": {
     "ta-lmes-job-ci": "opendatahub/ta-lmes-job"
   },
