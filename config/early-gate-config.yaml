@@ -9,3 +9,8 @@ config:
       early-gate-enabled: true
       additional-branches:
         - release-v0.17
+    data-science-pipelines-operator:
+      early-gate-enabled: true
+      additional-branches:
+        - earlygate-test
+      
