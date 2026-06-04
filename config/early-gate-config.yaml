@@ -14,3 +14,5 @@ config:
       additional-branches:
         - earlygate-test
       
+    feast:
+      early-gate-enabled: true
