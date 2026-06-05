@@ -14,3 +14,7 @@ config:
       additional-branches:
         - earlygate-test
       
+    model-registry:
+      early-gate-enabled: true
+      additional-branches:
+        - stable
