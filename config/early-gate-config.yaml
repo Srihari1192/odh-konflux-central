@@ -18,3 +18,5 @@ config:
       early-gate-enabled: true
       additional-branches:
         - stable
+    trainer:
+      early-gate-enabled: true
