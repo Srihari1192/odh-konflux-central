@@ -5,6 +5,9 @@
   "agents-operator": {
     "odh-agents-operator-ci": "opendatahub/odh-agents-operator"
   },
+  "ai-gateway-operator": {
+    "odh-ai-gateway-operator-ci": "opendatahub/odh-ai-gateway-operator"
+  },
   "ai-gateway-payload-processing": {
     "ai-gateway-payload-processing-e2e-ci": "opendatahub/ai-gateway-payload-processing-e2e",
     "odh-ai-gateway-payload-processing-ci": "opendatahub/odh-ai-gateway-payload-processing"
