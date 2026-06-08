@@ -3,7 +3,8 @@
     "odh-trustyai-nemo-guardrails-serve-ci": "opendatahub/odh-trustyai-nemo-guardrails-server"
   },
   "agents-operator": {
-    "odh-agents-operator-ci": "opendatahub/odh-agents-operator"
+    "odh-agents-operator-ci": "opendatahub/odh-agents-operator",
+    "odh-authbridge-proxy-ci": "opendatahub/odh-authbridge-proxy"
   },
   "ai-gateway-operator": {
     "odh-ai-gateway-operator-ci": "opendatahub/odh-ai-gateway-operator"
