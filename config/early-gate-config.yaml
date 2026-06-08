@@ -16,3 +16,9 @@ config:
       
     feast:
       early-gate-enabled: true
+    model-registry:
+      early-gate-enabled: true
+      additional-branches:
+        - stable
+    trainer:
+      early-gate-enabled: true
