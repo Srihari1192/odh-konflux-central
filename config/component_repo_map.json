@@ -206,6 +206,9 @@
   "vllm-orchestrator-gateway": {
     "trustyai-vllm-orchestrator-gateway-ci": "opendatahub/vllm-orchestrator-gateway"
   },
+  "workbenches": {
+    "odh-workbenches-controller-ci": "opendatahub/odh-workbenches-controller"
+  },
   "workbenches-operator": {
     "odh-workbenches-operator-ci": "opendatahub/odh-workbenches-operator"
   },
