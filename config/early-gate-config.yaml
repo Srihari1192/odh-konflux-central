@@ -22,3 +22,5 @@ config:
         - stable
     trainer:
       early-gate-enabled: true
+    MLServer:
+      early-gate-enabled: true
