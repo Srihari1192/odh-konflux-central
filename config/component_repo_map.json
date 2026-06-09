@@ -190,6 +190,9 @@
   "trainer": {
     "trainer-ci": "opendatahub/trainer"
   },
+  "trainer-operator": {
+    "odh-trainer-operator-ci": "opendatahub/odh-trainer-operator"
+  },
   "training-operator": {
     "odh-training-operator-ci": "opendatahub/training-operator"
   },
