@@ -1,4 +1,7 @@
 {
+  "MLServer": {
+    "mlserver-ci": "opendatahub/mlserver"
+  },
   "NeMo-Guardrails": {
     "odh-trustyai-nemo-guardrails-serve-ci": "opendatahub/odh-trustyai-nemo-guardrails-server"
   },
