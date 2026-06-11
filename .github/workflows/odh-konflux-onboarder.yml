@@ -70,7 +70,6 @@ on:
           - spark-operator
           - text-generation-inference
           - trainer
-          - trainer-operator
           - training-operator
           - trustyai-explainability
           - trustyai-service-operator
