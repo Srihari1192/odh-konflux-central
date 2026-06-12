@@ -35,11 +35,6 @@
   "data-science-pipelines-operator": {
     "odh-data-science-pipelines-operator-controller-ci": "opendatahub/data-science-pipelines-operator"
   },
-  "distributed-workloads": {
-    "odh-th06-cpu-torch210-py312-ci": "opendatahub/odh-th06-cpu-torch210-py312",
-    "odh-th06-cuda130-torch210-py312-ci": "opendatahub/odh-th06-cuda130-torch210-py312",
-    "odh-th06-rocm64-torch291-py312-ci": "opendatahub/odh-th06-rocm64-torch291-py312"
-  },
   "eval-hub": {
     "eval-hub": "opendatahub/odh-eval-hub"
   },
