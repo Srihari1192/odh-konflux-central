@@ -96,6 +96,9 @@
   "llm-d-kv-cache": {
     "odh-llm-d-kv-cache": "opendatahub/llm-d-kv-cache"
   },
+  "llm-d-latency-predictor": {
+    "odh-latency-predictor-prediction-ci": "opendatahub/odh-latency-predictor-prediction"
+  },
   "llm-d-router": {
     "odh-llm-d-router-disagg-sidecar-ci": "opendatahub/odh-llm-d-router-disagg-sidecar",
     "odh-llm-d-router-endpoint-picker-ci": "opendatahub/odh-llm-d-router-endpoint-picker"
