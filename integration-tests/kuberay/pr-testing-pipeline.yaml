@@ -331,7 +331,8 @@ spec:
                 echo "Running kuberay e2e tests..."
                 cd "${KUBERAY_SRC}/ray-operator"
                 # Bump Ray cluster resources to build-image scenario (head: 6G req / 10G limit)
-                go run ../scripts/update-resources.go -scenario build-image test/e2e/support.go
+                go run ../scripts/update-resources.go -scenario build-image test/support/support.go
+                go run ../scripts/update-resources.go -scenario build-image test/e2erayjob/rayjob_lightweight_test.go
                 cp images/tests/.env-odh .
                 bash images/tests/run-tests.sh -testTier=Tier1,Smoke \
                   2>&1 | tee "${ARTIFACT_DIR}/its-tests.log"
