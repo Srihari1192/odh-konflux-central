@@ -37,6 +37,7 @@ on:
           - llm-d-batch-gateway-operator
           - llm-d-async
           - llm-d-kv-cache
+          - llm-d-latency-predictor
           - llm-d-router
           - lm-evaluation-harness
           - ml-metadata
