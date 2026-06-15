@@ -26,7 +26,7 @@ spec:
   - name: output-image
     value: quay.io/opendatahub/odh-llm-d-router-endpoint-picker:$$OUTPUT_IMAGE_TAG$$
   - name: dockerfile
-    value: Dockerfile.epp.konflux
+    value: Dockerfile.konflux.epp
   - name: path-context
     value: .
   pipelineRef:
