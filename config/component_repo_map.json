@@ -178,6 +178,9 @@
   "opendatahub-operator": {
     "odh-operator-ci": "opendatahub/opendatahub-operator"
   },
+  "openvino_model_server": {
+    "openvino-model-server-ci": "opendatahub/openvino_model_server"
+  },
   "pipelines-components": {
     "odh-automl-ci": "opendatahub/odh-automl",
     "odh-autorag-ci": "opendatahub/odh-autorag",
