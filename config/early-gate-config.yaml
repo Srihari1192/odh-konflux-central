@@ -28,3 +28,5 @@ config:
       early-gate-enabled: true
     odh-model-controller:
       early-gate-enabled: true
+    odh-dashboard:
+      early-gate-enabled: true
