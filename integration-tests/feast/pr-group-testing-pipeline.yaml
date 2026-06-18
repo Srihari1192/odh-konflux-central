@@ -272,23 +272,44 @@ spec:
               cd infra/feast-operator
               make install && make deploy IMG=${FEAST_OPERATOR_CONTROLLER_IMAGE} FS_IMG=${FEAST_FEATURE_SERVER_IMAGE}
               oc wait --for condition=Available -n feast-operator-system deployment feast-operator-controller-manager
-              make test-e2e
-            
+              
+              E2E_RC=0
+              REGISTRY_RC=0
+              PREV_RC=0
+              UPGRADE_RC=0
+
+              echo "=== Running: make test-e2e ==="
+              make test-e2e || E2E_RC=$?
+
               cd ../..
-              echo "Registry REST API test run"
-              make install-python-dependencies-ci
-              uv run pytest -c sdk/python/pytest.ini sdk/python/tests/integration/rest_api/test_registry_rest_api.py --integration -s --timeout=600
+              echo "=== Running: registry REST API test ==="
+              make install-python-dependencies-ci && \
+              uv run pytest -c sdk/python/pytest.ini sdk/python/tests/integration/rest_api/test_registry_rest_api.py --integration -s --timeout=600 || REGISTRY_RC=$?
 
               cd infra/feast-operator
-              make undeploy IMG=${FEAST_OPERATOR_CONTROLLER_IMAGE} FS_IMG=${FEAST_FEATURE_SERVER_IMAGE}
+              make undeploy IMG=${FEAST_OPERATOR_CONTROLLER_IMAGE} FS_IMG=${FEAST_FEATURE_SERVER_IMAGE} || true
 
-              make test-previous-version
-              oc delete deployment feast-operator-controller-manager -n feast-operator-system
+              echo "=== Running: make test-previous-version ==="
+              make test-previous-version || PREV_RC=$?
 
-              make test-upgrade
+              oc delete deployment feast-operator-controller-manager -n feast-operator-system --ignore-not-found=true
+              oc wait --for=delete deployment/feast-operator-controller-manager -n feast-operator-system --timeout=180s || UPGRADE_RC=$?
 
-              echo "success" > "$STATUS_FILE"
+              echo "=== Running: make test-upgrade ==="
+              make test-upgrade || UPGRADE_RC=$?
 
+              echo ""
+              echo "=== Test Suite Results ==="
+              echo "  test-e2e:              $([ $E2E_RC      -eq 0 ] && echo PASSED || echo FAILED [rc=$E2E_RC])"
+              echo "  registry-rest-api:     $([ $REGISTRY_RC -eq 0 ] && echo PASSED || echo FAILED [rc=$REGISTRY_RC])"
+              echo "  test-previous-version: $([ $PREV_RC     -eq 0 ] && echo PASSED || echo FAILED [rc=$PREV_RC])"
+              echo "  test-upgrade:          $([ $UPGRADE_RC  -eq 0 ] && echo PASSED || echo FAILED [rc=$UPGRADE_RC])"
+
+              if [ $E2E_RC -eq 0 ] && [ $REGISTRY_RC -eq 0 ] && [ $PREV_RC -eq 0 ] && [ $UPGRADE_RC -eq 0 ]; then
+                echo "success" > "$STATUS_FILE"
+              else
+                exit 1
+              fi
           - name: must-gather
             onError: continue
             image: quay.io/rhoai/rhoai-task-toolset:go-its
