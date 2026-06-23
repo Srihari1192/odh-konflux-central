@@ -12,6 +12,21 @@ metadata:
     pipelinesascode.tekton.dev/on-cel-expression: |
       event == "pull_request"
       && target_branch == "$$TARGET_BRANCH$$"
+      && (
+        "components/training/autorag/**".pathChanged()
+        || "components/data_processing/autorag/**".pathChanged()
+        || "pipelines/training/autorag/**".pathChanged()
+        || "pipelines/data_processing/autorag/**".pathChanged()
+        || ".tekton/odh-autorag-ci-pull-request.yaml".pathChanged()
+      )
+      && !(
+        files.all(f,
+          f.matches(".*\\.md$")
+          || f.matches(".*/tests/.*")
+          || f.matches(".*_test\\.py$")
+          || f.matches(".*/metadata\\.yaml$")
+        )
+      )
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: opendatahub-builds
