@@ -10,8 +10,22 @@ metadata:
     pipelinesascode.tekton.dev/on-cel-expression: |
       event == "push"
       && target_branch == "$$TARGET_BRANCH$$"
-      && ( "pipelines/training/automl/autogluon_tabular_training_pipeline/**".pathChanged()
-            || ".tekton/odh-automl-ci-on-push.yaml".pathChanged() )
+      && (
+        "components/training/automl/**".pathChanged()
+        || "components/data_processing/automl/**".pathChanged()
+        || "pipelines/training/automl/**".pathChanged()
+        || "utils/**".pathChanged()
+        || "pyproject.toml".pathChanged()
+        || ".tekton/odh-automl-ci-on-push.yaml".pathChanged()
+      )
+      && !(
+        files.all(f,
+          f.matches(".*\\.md$")
+          || f.matches(".*/tests/.*")
+          || f.matches(".*_test\\.py$")
+          || f.matches(".*/metadata\\.yaml$")
+        )
+      )
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: opendatahub-builds
