@@ -30,7 +30,7 @@ metadata:
     appstudio.openshift.io/application: opendatahub-builds
     appstudio.openshift.io/component: odh-autorag-ci
     pipelines.appstudio.openshift.io/type: build
-  name: odh-autorag-ci-on-push
+  name: odh-autorag-on-push
   namespace: open-data-hub-tenant
 spec:
   params:
@@ -39,7 +39,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/odh-autorag:odh-stable
+    value: quay.io/opendatahub/odh-autorag:$$OUTPUT_IMAGE_TAG$$
   - name: dockerfile
     value: pipelines/training/autorag/documents_rag_optimization_pipeline/Containerfile
   - name: path-context
