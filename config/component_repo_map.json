@@ -108,6 +108,9 @@
   "lm-evaluation-harness": {
     "ta-lmes-job-ci": "opendatahub/ta-lmes-job"
   },
+  "mcp-lifecycle-module-operator": {
+    "odh-mcp-lifecycle-module-operator-ci": "opendatahub/odh-mcp-lifecycle-module-operator"
+  },
   "mcp-lifecycle-operator": {
     "odh-mcp-lifecycle-operator-ci": "opendatahub/odh-mcp-lifecycle-operator"
   },
