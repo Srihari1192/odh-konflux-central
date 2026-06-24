@@ -76,6 +76,7 @@ on:
           - workload-variant-autoscaler
           - workbenches
           - workbenches-operator
+          - mcp-lifecycle-module-operator
       pr_target_branch:
         description: 'Target branch for the PR (e.g. main)'
         required: true
