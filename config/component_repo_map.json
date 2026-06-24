@@ -108,6 +108,9 @@
   "lm-evaluation-harness": {
     "ta-lmes-job-ci": "opendatahub/ta-lmes-job"
   },
+  "mcp-lifecycle-operator": {
+    "odh-mcp-lifecycle-operator-ci": "opendatahub/odh-mcp-lifecycle-operator"
+  },
   "ml-metadata": {
     "odh-mlmd-grpc-server-ci": "opendatahub/mlmd-grpc-server"
   },

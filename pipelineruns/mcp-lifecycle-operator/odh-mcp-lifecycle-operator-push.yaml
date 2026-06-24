@@ -1,22 +1,21 @@
 apiVersion: tekton.dev/v1
 kind: PipelineRun
+#
 metadata:
   annotations:
-    build.appstudio.openshift.io/repo: https://github.com/opendatahub-io/odh-dashboard?rev={{revision}}
+    build.appstudio.openshift.io/repo: https://github.com/opendatahub-io/mcp-lifecycle-operator?rev={{revision}}
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
-      == "$$TARGET_BRANCH$$" && ( "packages/model-registry/**".pathChanged()
-      || ".tekton/odh-mod-arch-modular-architecture-push.yaml".pathChanged() || "Dockerfile.workspace".pathChanged()
-      )
+      == "$$TARGET_BRANCH$$"
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: opendatahub-builds
-    appstudio.openshift.io/component: odh-mod-arch-modular-architecture-ci
+    appstudio.openshift.io/component: odh-mcp-lifecycle-operator-ci
     pipelines.appstudio.openshift.io/type: build
-  name: odh-mod-arch-modular-architecture-on-push
+  name: odh-mcp-lifecycle-operator-on-push
   namespace: open-data-hub-tenant
 spec:
   params:
@@ -25,9 +24,9 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/odh-mod-arch-modular-architecture:$$OUTPUT_IMAGE_TAG$$
+    value: quay.io/opendatahub/odh-mcp-lifecycle-operator:$$OUTPUT_IMAGE_TAG$$
   - name: dockerfile
-    value: packages/model-registry/Dockerfile.workspace
+    value: Dockerfile.ocp
   - name: path-context
     value: .
   pipelineRef:
@@ -40,7 +39,7 @@ spec:
     - name: pathInRepo
       value: pipeline/multi-arch-container-build.yaml
   taskRunTemplate:
-    serviceAccountName: build-pipeline-odh-model-registry-mod-arch
+    serviceAccountName: build-pipeline-odh-mcp-lifecycle-operator-ci
   workspaces:
   - name: git-auth
     secret:
