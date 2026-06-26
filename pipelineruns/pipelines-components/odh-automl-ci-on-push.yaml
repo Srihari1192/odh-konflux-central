@@ -5,17 +5,33 @@ metadata:
     build.appstudio.openshift.io/repo: https://github.com/opendatahub-io/pipelines-components?rev={{revision}}
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
-    build.appstudio.redhat.com/pull_request_number: '{{pull_request_number}}'
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
-    pipelinesascode.tekton.dev/on-cel-expression: event == "pull_request" && target_branch
-      == "$$TARGET_BRANCH$$"
+    pipelinesascode.tekton.dev/on-cel-expression: |
+      event == "push"
+      && target_branch == "$$TARGET_BRANCH$$"
+      && (
+        "components/training/automl/**".pathChanged()
+        || "components/data_processing/automl/**".pathChanged()
+        || "pipelines/training/automl/**".pathChanged()
+        || "utils/**".pathChanged()
+        || "pyproject.toml".pathChanged()
+        || ".tekton/odh-automl-ci-on-push.yaml".pathChanged()
+      )
+      && !(
+        files.all(f,
+          f.matches(".*\\.md$")
+          || f.matches(".*/tests/.*")
+          || f.matches(".*_test\\.py$")
+          || f.matches(".*/metadata\\.yaml$")
+        )
+      )
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: opendatahub-builds
-    appstudio.openshift.io/component: odh-pipelines-components-ci
+    appstudio.openshift.io/component: odh-automl-ci
     pipelines.appstudio.openshift.io/type: build
-  name: odh-pipelines-components-on-pull-request
+  name: odh-automl-ci-on-push
   namespace: open-data-hub-tenant
 spec:
   params:
@@ -24,16 +40,11 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/odh-pipelines-components:odh-pr
+    value: quay.io/opendatahub/odh-automl:$$OUTPUT_IMAGE_TAG$$
   - name: dockerfile
-    value: Dockerfile
+    value: pipelines/training/automl/autogluon_tabular_training_pipeline/Containerfile
   - name: path-context
     value: .
-  - name: additional-tags
-    value:
-    - 'odh-pr-{{revision}}'
-  - name: pipeline-type
-    value: pull-request
   pipelineRef:
     resolver: git
     params:
@@ -44,7 +55,7 @@ spec:
     - name: pathInRepo
       value: pipeline/multi-arch-container-build.yaml
   taskRunTemplate:
-    serviceAccountName: build-pipeline-odh-pipelines-components-ci
+    serviceAccountName: build-pipeline-odh-automl-ci
   workspaces:
   - name: git-auth
     secret:

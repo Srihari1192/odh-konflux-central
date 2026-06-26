@@ -7,14 +7,30 @@ metadata:
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
-    pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
-      == "$$TARGET_BRANCH$$"
+    pipelinesascode.tekton.dev/on-cel-expression: |
+      event == "push"
+      && target_branch == "$$TARGET_BRANCH$$"
+      && (
+        "components/training/autorag/**".pathChanged()
+        || "components/data_processing/autorag/**".pathChanged()
+        || "pipelines/training/autorag/**".pathChanged()
+        || "pipelines/data_processing/autorag/**".pathChanged()
+        || ".tekton/odh-autorag-ci-on-push.yaml".pathChanged()
+      )
+      && !(
+        files.all(f,
+          f.matches(".*\\.md$")
+          || f.matches(".*/tests/.*")
+          || f.matches(".*_test\\.py$")
+          || f.matches(".*/metadata\\.yaml$")
+        )
+      )
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: opendatahub-builds
-    appstudio.openshift.io/component: odh-pipelines-components-ci
+    appstudio.openshift.io/component: odh-autorag-ci
     pipelines.appstudio.openshift.io/type: build
-  name: odh-pipelines-components-on-push
+  name: odh-autorag-ci-on-push
   namespace: open-data-hub-tenant
 spec:
   params:
@@ -23,15 +39,11 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/odh-pipelines-components:$$OUTPUT_IMAGE_TAG$$
+    value: quay.io/opendatahub/odh-autorag:$$OUTPUT_IMAGE_TAG$$
   - name: dockerfile
-    value: Dockerfile
+    value: pipelines/training/autorag/documents_rag_optimization_pipeline/Containerfile
   - name: path-context
     value: .
-  - name: build-platforms
-    value:
-    - linux/x86_64
-    - linux/aarch64
   pipelineRef:
     resolver: git
     params:
@@ -42,7 +54,7 @@ spec:
     - name: pathInRepo
       value: pipeline/multi-arch-container-build.yaml
   taskRunTemplate:
-    serviceAccountName: build-pipeline-odh-pipelines-components-ci
+    serviceAccountName: build-pipeline-odh-autorag-ci
   workspaces:
   - name: git-auth
     secret:

@@ -6,34 +6,16 @@ metadata:
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     build.appstudio.redhat.com/pull_request_number: '{{pull_request_number}}'
-    pipelinesascode.tekton.dev/on-comment: "^/build-konflux"
     pipelinesascode.tekton.dev/cancel-in-progress: "true"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
-    pipelinesascode.tekton.dev/on-cel-expression: |
-      event == "pull_request"
-      && target_branch == "$$TARGET_BRANCH$$"
-      && (
-        "components/training/automl/**".pathChanged()
-        || "components/data_processing/automl/**".pathChanged()
-        || "pipelines/training/automl/**".pathChanged()
-        || "utils/**".pathChanged()
-        || "pyproject.toml".pathChanged()
-        || ".tekton/odh-automl-ci-pull-request.yaml".pathChanged()
-      )
-      && !(
-        files.all(f,
-          f.matches(".*\\.md$")
-          || f.matches(".*/tests/.*")
-          || f.matches(".*_test\\.py$")
-          || f.matches(".*/metadata\\.yaml$")
-        )
-      )
+    pipelinesascode.tekton.dev/on-cel-expression: event == "pull_request" && target_branch
+      == "$$TARGET_BRANCH$$"
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: opendatahub-builds
-    appstudio.openshift.io/component: odh-automl-ci
+    appstudio.openshift.io/component: odh-pipelines-components-ci
     pipelines.appstudio.openshift.io/type: build
-  name: odh-automl-on-pull-request
+  name: odh-pipelines-components-ci-on-pull-request
   namespace: open-data-hub-tenant
 spec:
   params:
@@ -42,16 +24,24 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/odh-automl:odh-pr
+    value: quay.io/opendatahub/odh-pipelines-components:odh-pr
   - name: dockerfile
-    value: pipelines/training/automl/autogluon_tabular_training_pipeline/Containerfile
+    value: Dockerfile.konflux.pipelines-components
   - name: path-context
     value: .
-  - name: pipeline-type
-    value: pull-request
+  - name: hermetic
+    value: 'true'
+  - name: prefetch-input
+    value: >-
+      {"type": "pip", "path": ".",
+      "requirements_files": ["requirements.txt"],
+      "requirements_build_files": ["requirements-build.txt"],
+      "binary": {"arch": ":all:"}}
   - name: additional-tags
     value:
     - 'odh-pr-{{revision}}'
+  - name: pipeline-type
+    value: pull-request
   pipelineRef:
     resolver: git
     params:
@@ -62,7 +52,7 @@ spec:
     - name: pathInRepo
       value: pipeline/multi-arch-container-build.yaml
   taskRunTemplate:
-    serviceAccountName: build-pipeline-odh-automl-ci
+    serviceAccountName: build-pipeline-odh-pipelines-components-ci
   workspaces:
   - name: git-auth
     secret:
