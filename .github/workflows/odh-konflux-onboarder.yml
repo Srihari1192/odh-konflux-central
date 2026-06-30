@@ -79,6 +79,7 @@ on:
           - mcp-lifecycle-module-operator
           - mcp-lifecycle-operator
           - trainer-operator
+          - trustyai-service
       pr_target_branch:
         description: 'Target branch for the PR (e.g. main)'
         required: true
