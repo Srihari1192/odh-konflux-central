@@ -26,7 +26,7 @@ spec:
   - name: output-image
     value: quay.io/opendatahub/odh-mcp-lifecycle-operator:$$OUTPUT_IMAGE_TAG$$
   - name: dockerfile
-    value: Dockerfile.ocp
+    value: Dockerfile.konflux
   - name: path-context
     value: .
   pipelineRef:
