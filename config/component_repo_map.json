@@ -209,6 +209,9 @@
   "trustyai-explainability": {
     "odh-trustyai-service-ci": "opendatahub/trustyai-service"
   },
+  "trustyai-service": {
+    "odh-trustyai-service-ci": "opendatahub/odh-trustyai-service"
+  },
   "trustyai-service-operator": {
     "odh-trustyai-service-operator-ci": "opendatahub/trustyai-service-operator",
     "ta-lmes-driver-ci": "opendatahub/ta-lmes-driver"
