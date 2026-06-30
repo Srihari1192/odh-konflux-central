@@ -308,9 +308,9 @@ spec:
 
                 # Deploy the operator using the image built by the Konflux PR build pipeline
                 echo "Deploying kuberay operator (image: ${KUBERAY_IMAGE})..."
-                echo "namespace=${NAMESPACE}" > "${KUBERAY_SRC}/ray-operator/config/openshift/params.env"
-                echo "odh-kuberay-operator-controller-image=${KUBERAY_IMAGE}" \
-                  >> "${KUBERAY_SRC}/ray-operator/config/openshift/params.env"
+                PARAMS_ENV="${KUBERAY_SRC}/ray-operator/config/openshift/params.env"
+                sed -i "s|^namespace=.*|namespace=${NAMESPACE}|" "${PARAMS_ENV}"
+                sed -i "s|odh-kuberay-operator-controller-image=.*|odh-kuberay-operator-controller-image=${KUBERAY_IMAGE}|" "${PARAMS_ENV}"
                 kubectl apply -k "${KUBERAY_SRC}/ray-operator/config/openshift/" \
                   --server-side --force-conflicts
                 oc rollout status deployment/kuberay-operator -n ${NAMESPACE} --timeout=300s
