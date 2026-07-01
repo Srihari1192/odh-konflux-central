@@ -197,6 +197,9 @@
     "odh-rhaii-cluster-validator-ci": "opendatahub/odh-rhaii-cluster-validator",
     "odh-rhaii-validator-tools-ci": "opendatahub/odh-rhaii-validator-tools"
   },
+  "rhoai-mcp": {
+    "odh-rhoai-mcp-ci": "opendatahub/odh-rhoai-mcp"
+  },
   "trainer": {
     "trainer-ci": "opendatahub/trainer"
   },
