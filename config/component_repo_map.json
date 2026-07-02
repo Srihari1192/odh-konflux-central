@@ -156,6 +156,7 @@
   },
   "odh-dashboard": {
     "mod-arch-maas": "opendatahub/mod-arch-maas",
+    "odh-core-bff-ci": "opendatahub/odh-core-bff",
     "odh-dashboard-ci": "opendatahub/odh-dashboard",
     "odh-dashboard-operator-ci": "opendatahub/odh-dashboard-operator",
     "odh-mod-arch-agent-ops-ci": "opendatahub/odh-mod-arch-agent-ops",
