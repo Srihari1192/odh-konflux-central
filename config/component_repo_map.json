@@ -42,6 +42,9 @@
     "odh-feast-operator-ci": "opendatahub/feast-operator",
     "odh-feature-server-ci": "opendatahub/feature-server"
   },
+  "feast-module-operator": {
+    "odh-feast-module-operator-ci": "opendatahub/odh-feast-module-operator"
+  },
   "fms-guardrails-orchestrator": {
     "fms-guardrails-orchestrator-ci": "opendatahub/ta-guardrails-orchestrator"
   },
