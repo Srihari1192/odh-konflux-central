@@ -2,7 +2,7 @@ apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
   annotations:
-    build.appstudio.openshift.io/repo: https://github.com/opendatahub-io/kserve-autogluon-server?rev={{revision}}
+    build.appstudio.openshift.io/repo: https://github.com/opendatahub-io/kserve?rev={{revision}}
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     build.appstudio.redhat.com/pull_request_number: '{{pull_request_number}}'
@@ -28,7 +28,7 @@ spec:
   - name: output-image
     value: quay.io/opendatahub/odh-kserve-autogluon-server:odh-pr
   - name: dockerfile
-    value: autogluon.Dockerfile
+    value: python/autogluon.Dockerfile
   - name: path-context
     value: python
   - name: pipeline-type
