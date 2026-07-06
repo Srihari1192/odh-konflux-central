@@ -278,6 +278,9 @@ spec:
             ls /var/workdir/cachi2
             ls /var/workdir/cachi2/prefetched-manifests
 
+            echo "exploring charts"
+            ls /var/workdir/cachi2/prefetched-charts 2>/dev/null || echo "No prefetched-charts directory found"
+
             echo "exploring sources"
             ls /var/workdir/source
 
@@ -710,6 +713,9 @@ spec:
             ls /var/workdir/cachi2
             ls /var/workdir/cachi2/prefetched-manifests
 
+            echo "exploring charts"
+            ls /var/workdir/cachi2/prefetched-charts 2>/dev/null || echo "No prefetched-charts directory found"
+
             echo "exploring sources"
             ls /var/workdir/source
 
@@ -732,8 +738,15 @@ spec:
             OUTPUT_IMAGE_DIGEST=${OUTPUT_IMAGE_DIGEST/sha256:/}
             mkdir -p components/odh-operator/${OUTPUT_IMAGE_DIGEST}/manifests
             cp -r /var/workdir/cachi2/prefetched-manifests/* components/odh-operator/${OUTPUT_IMAGE_DIGEST}/manifests
+            if [ -d /var/workdir/cachi2/prefetched-charts ] && [ "$(ls -A /var/workdir/cachi2/prefetched-charts)" ]; then
+              mkdir -p components/odh-operator/${OUTPUT_IMAGE_DIGEST}/charts
+              cp -r /var/workdir/cachi2/prefetched-charts/* components/odh-operator/${OUTPUT_IMAGE_DIGEST}/charts
+            fi
             cp /var/workdir/source/build/operands-map.yaml components/odh-operator/${OUTPUT_IMAGE_DIGEST}
             cp /var/workdir/source/build/manifests-config.yaml components/odh-operator/${OUTPUT_IMAGE_DIGEST}
+            if [ -f /var/workdir/source/build/charts-config.yaml ]; then
+              cp /var/workdir/source/build/charts-config.yaml components/odh-operator/${OUTPUT_IMAGE_DIGEST}
+            fi
 
             git add --sparse components/odh-operator/${OUTPUT_IMAGE_DIGEST}
             git commit -m "build-meta for operator image ${OUTPUT_IMAGE_DIGEST}"
