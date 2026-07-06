@@ -148,13 +148,13 @@ spec:
                 command: ["pg_isready", "-U", "ogx", "-d", "ogx"]
               initialDelaySeconds: 5
               periodSeconds: 3
-            resources:
+            computeResources:
               requests:
-                memory: "256Mi"
-                cpu: "250m"
-              limits:
                 memory: "512Mi"
-                cpu: "500m"
+                cpu: "1"
+              limits:
+                memory: "1Gi"
+                cpu: "1"
 
           - name: vllm-inference
             image: quay.io/opendatahub/vllm-cpu:Qwen3-0.6B-granite-embedding-125m-english
@@ -181,7 +181,7 @@ spec:
               initialDelaySeconds: 60
               periodSeconds: 10
               failureThreshold: 60
-            resources:
+            computeResources:
               requests:
                 memory: "4Gi"
                 cpu: "2"
@@ -211,12 +211,12 @@ spec:
               initialDelaySeconds: 60
               periodSeconds: 10
               failureThreshold: 60
-            resources:
+            computeResources:
               requests:
-                memory: "1Gi"
+                memory: "2Gi"
                 cpu: "1"
               limits:
-                memory: "2Gi"
+                memory: "4Gi"
                 cpu: "2"
 
           - name: ogx
@@ -259,13 +259,13 @@ spec:
               initialDelaySeconds: 15
               periodSeconds: 5
               failureThreshold: 60
-            resources:
+            computeResources:
               requests:
-                memory: "512Mi"
-                cpu: "500m"
-              limits:
                 memory: "1Gi"
                 cpu: "1"
+              limits:
+                memory: "2Gi"
+                cpu: "2"
 
         steps:
           - name: clone-repo
