@@ -297,64 +297,133 @@ spec:
         echo "No SNAPSHOT artifact found at ${SNAPSHOT_FILE}, using buildVersionTag-resolved images for all components."
       fi
 
-      echo "*************** Prefetching manifests ********************"
-      PREFETCHED_MANIFEST_DIR_PATH="/var/workdir/cachi2/prefetched-manifests"
-      MANIFEST_CONFIG_PATH=/var/workdir/source/build/manifests-config.yaml
+      # Fetch every component listed in a manifests-config.yaml/charts-config.yaml
+      # "map" into its own sparse git checkout, then copy $src into $dest under
+      # $default_dest_base (or $chart_dest_base when the entry's "type" is
+      # "chart" and $chart_dest_base is non-empty). Shared by both the
+      # manifests and charts prefetch phases below so a fix here (for example
+      # the dest containment check) never has to be duplicated or drift.
+      fetch_and_copy_entries() {
+        local config_path="$1"
+        local work_dir="$2"
+        local default_dest_base="$3"
+        local chart_dest_base="$4"
+        local value component git_url git_commit ref_type branch
+        local src dest entry_type dest_base dest_dir_path
 
-      mkdir -p "$PREFETCHED_MANIFEST_DIR_PATH"
-      echo "# general cachi2 config" > /var/workdir/cachi2/cachi2.env
-      mkdir -p manifests
-      cd manifests
-      while IFS= read -r value;
-      do
-        value=${value/- /}
-        component=$value
-        [[ -z "$component" ]] && continue
+        mkdir -p "$work_dir"
+        cd "$work_dir"
 
-        echo "=============================================================="
-        echo "Fetching Manifest for component: $component"
-        echo "=============================================================="
-        if [[ -n $component ]]
-        then
-          git_url=$(value="$value" yq '.map[strenv(value)]["git.url"]' ${MANIFEST_CONFIG_PATH})
-          git_commit=$(value="$value" yq '.map[strenv(value)]["git.commit"]' ${MANIFEST_CONFIG_PATH})
-          ref_type=$(value="$value" yq '.map[strenv(value)]["ref_type"]' ${MANIFEST_CONFIG_PATH})
-          BRANCH=$(value="$value" yq '.map[strenv(value)]["branch"]' ${MANIFEST_CONFIG_PATH})
+        while IFS= read -r value; do
+          value=${value/- /}
+          component=$value
+          [[ -z "$component" ]] && continue
+
+          echo "=============================================================="
+          echo "Fetching entry for component: $component"
+          echo "=============================================================="
+
+          git_url=$(value="$value" yq '.map[strenv(value)]["git.url"]' "${config_path}")
+          git_commit=$(value="$value" yq '.map[strenv(value)]["git.commit"]' "${config_path}")
+          ref_type=$(value="$value" yq '.map[strenv(value)]["ref_type"]' "${config_path}")
+          branch=$(value="$value" yq '.map[strenv(value)]["branch"]' "${config_path}")
 
           if [[ "$ref_type" == "branch" ]]; then
-            git_commit=$(git ls-remote "$git_url" "refs/heads/$BRANCH" | awk '{print $1}')
-            echo "Resolved git.commit for branch '$BRANCH' to commit SHA $git_commit"
-            value="$value" git_commit="$git_commit" yq -i eval '.map[strenv(value)]["git.commit"] = strenv(git_commit)' ${MANIFEST_CONFIG_PATH}
+            git_commit=$(git ls-remote "$git_url" "refs/heads/$branch" | awk '{print $1}')
+            if [[ -z "$git_commit" ]]; then
+              echo "ERROR: could not resolve branch '$branch' for $git_url (component: $component)" >&2
+              exit 1
+            fi
+            echo "Resolved git.commit for branch '$branch' to commit SHA $git_commit"
+            value="$value" git_commit="$git_commit" yq -i eval '.map[strenv(value)]["git.commit"] = strenv(git_commit)' "${config_path}"
           fi
 
-          src=$(value="$value" yq '.map[strenv(value)]["src"]' ${MANIFEST_CONFIG_PATH})
-          dest=$(value="$value" yq '.map[strenv(value)]["dest"]' ${MANIFEST_CONFIG_PATH})
+          if [[ -z "$git_commit" ]]; then
+            echo "ERROR: no git.commit resolved for component '$component'" >&2
+            exit 1
+          fi
+
+          src=$(value="$value" yq '.map[strenv(value)]["src"]' "${config_path}")
+          dest=$(value="$value" yq '.map[strenv(value)]["dest"]' "${config_path}")
+          entry_type=$(value="$value" yq '.map[strenv(value)]["type"] // "manifest"' "${config_path}")
+
+          # Route type: chart entries to prefetched-charts (opendatahub-operator#3763 /
+          # rhoai-konflux-tasks#273). Entries without a type default to "manifest".
+          dest_base="$default_dest_base"
+          if [[ -n "$chart_dest_base" && "$entry_type" == "chart" ]]; then
+            dest_base="$chart_dest_base"
+          fi
+
+          # Reject dest values that would escape dest_base (for example "../../etc").
+          case "$dest" in
+            *..*)
+              echo "ERROR: dest '$dest' for component '$component' contains '..' and is rejected" >&2
+              exit 1
+              ;;
+          esac
 
           echo "component = $component"
           echo "git_url = $git_url"
           echo "git_commit = $git_commit"
           echo "src = $src"
           echo "dest = $dest"
+          echo "type = $entry_type"
 
-          mkdir -p $component
-          cd $component
+          mkdir -p "$component"
+          cd "$component"
           git init
-          git remote add origin $git_url
+          git remote add origin "$git_url"
           git config core.sparseCheckout true
           git config core.sparseCheckoutCone false
           echo "$src" >> .git/info/sparse-checkout
-          git fetch --depth=1 origin $git_commit
-          git checkout $git_commit
+          if ! git fetch --depth=1 origin "$git_commit"; then
+            echo "ERROR: failed to fetch $git_commit from $git_url (component: $component)" >&2
+            exit 1
+          fi
+          if ! git checkout "$git_commit"; then
+            echo "ERROR: failed to checkout $git_commit for component '$component'" >&2
+            exit 1
+          fi
           cd ../
 
-          dest_dir_path=${PREFETCHED_MANIFEST_DIR_PATH}/$dest
-          mkdir -p ${dest_dir_path}
-          cp -r $component/$src/* ${dest_dir_path}
+          dest_dir_path="${dest_base}/${dest}"
+          mkdir -p "${dest_dir_path}"
+          cp -r "$component/$src"/* "${dest_dir_path}"
           echo ""
-        fi
-      done < <(yq e '.map | keys' ${MANIFEST_CONFIG_PATH} )
+        done < <(yq e '.map | keys' "${config_path}")
 
+        cd /var/workdir
+      }
+
+      echo "*************** Prefetching manifests ********************"
+      PREFETCHED_MANIFEST_DIR_PATH="/var/workdir/cachi2/prefetched-manifests"
+      PREFETCHED_CHARTS_DIR_PATH="/var/workdir/cachi2/prefetched-charts"
+      MANIFEST_CONFIG_PATH=/var/workdir/source/build/manifests-config.yaml
+
+      # Create both dirs so operator CI BUILD_TYPE=CI can always cp charts
+      mkdir -p "$PREFETCHED_MANIFEST_DIR_PATH"
+      mkdir -p "$PREFETCHED_CHARTS_DIR_PATH"
+      echo "# general cachi2 config" > /var/workdir/cachi2/cachi2.env
+
+      fetch_and_copy_entries "$MANIFEST_CONFIG_PATH" /var/workdir/manifests \
+        "$PREFETCHED_MANIFEST_DIR_PATH" "$PREFETCHED_CHARTS_DIR_PATH"
+
+      echo "=== Prefetched Manifests ==="
       cd ${PREFETCHED_MANIFEST_DIR_PATH}
+      ls -l
+
+      echo "*************** Prefetching charts ********************"
+      CHARTS_CONFIG_PATH=/var/workdir/source/build/charts-config.yaml
+
+      if [ -f "$CHARTS_CONFIG_PATH" ]; then
+        fetch_and_copy_entries "$CHARTS_CONFIG_PATH" /var/workdir/charts \
+          "$PREFETCHED_CHARTS_DIR_PATH" ""
+      else
+        echo "No charts-config.yaml found at ${CHARTS_CONFIG_PATH}, skipping charts prefetch"
+      fi
+
+      echo "=== Prefetched Charts ==="
+      cd ${PREFETCHED_CHARTS_DIR_PATH}
       ls -l
 
   - name: create-trusted-artifact
