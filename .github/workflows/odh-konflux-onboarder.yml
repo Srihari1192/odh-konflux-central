@@ -44,7 +44,7 @@ on:
           - ml-metadata
           - mlflow
           - mlflow-operator
-          - mlserver
+          - MLServer
           - model-registry
           - model-registry-operator
           - modelmesh
@@ -82,7 +82,6 @@ on:
           - trainer-operator
           - trustyai-service
           - rhoai-mcp
-          - MLServer
       pr_target_branch:
         description: 'Target branch for the PR (e.g. main)'
         required: true
