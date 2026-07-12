@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+"""Unit tests for DSC disabled probes (no cluster)."""
+
+from __future__ import annotations
+
+import unittest
+from unittest.mock import patch
+
+from suite.component_dsc_gate import (
+    dsc_disabled_reason_from_states,
+    llama_stack_smoke_prereq_reason_from_states,
+    smoke_component_prereq_reason_from_states,
+    smoke_component_prereq_unavailable,
+    wait_for_smoke_dsc_ready_after_patch,
+)
+
+class DscDisabledReasonTest(unittest.TestCase):
+    def test_workbenches_removed_via_ready_condition(self) -> None:
+        reason = dsc_disabled_reason_from_states(
+            "workbenches",
+            management_states={"dashboard": "Managed", "workbenches": "Managed"},
+            ready_reasons={"WorkbenchesReady": "Removed"},
+        )
+        self.assertEqual(reason, "WorkbenchesReady reason=Removed")
+
+    def test_maas_billing_removed_via_models_as_service(self) -> None:
+        reason = dsc_disabled_reason_from_states(
+            "maas_billing",
+            management_states={"kserve": "Managed"},
+            models_as_service_state="Removed",
+        )
+        self.assertEqual(reason, "spec.components.kserve.modelsAsService.managementState=Removed")
+
+    def test_maas_billing_enabled(self) -> None:
+        reason = dsc_disabled_reason_from_states(
+            "maas_billing",
+            management_states={"kserve": "Managed"},
+            models_as_service_state="Managed",
+            ready_reasons={"ModelsAsServiceReady": "Reconciled"},
+        )
+        self.assertEqual(reason, "")
+
+    def test_ai_pipelines_removed_via_management_state(self) -> None:
+        reason = dsc_disabled_reason_from_states(
+            "ai_pipelines",
+            management_states={"aipipelines": "Removed"},
+        )
+        self.assertEqual(reason, "spec.components.aipipelines.managementState=Removed")
+
+class LlamaStackSmokePrereqTest(unittest.TestCase):
+    def test_ready_when_condition_true(self) -> None:
+        reason = llama_stack_smoke_prereq_reason_from_states(
+            management_states={"llamastackoperator": "Managed"},
+            ready_status="True",
+        )
+        self.assertEqual(reason, "")
+
+    def test_missing_crd_when_no_ready_condition(self) -> None:
+        reason = llama_stack_smoke_prereq_reason_from_states(
+            management_states={"llamastackoperator": "Managed"},
+            exposes_ready_condition=False,
+            crd_present=False,
+        )
+        self.assertIn("llamastackdistributions.llamastack.io", reason)
+
+    def test_crd_present_without_ready_condition(self) -> None:
+        reason = llama_stack_smoke_prereq_reason_from_states(
+            management_states={"llamastackoperator": "Managed"},
+            exposes_ready_condition=False,
+            crd_present=True,
+        )
+        self.assertEqual(reason, "")
+
+class ComponentSmokePrereqTest(unittest.TestCase):
+    def test_workbenches_not_ready_when_condition_false(self) -> None:
+        reason = smoke_component_prereq_reason_from_states(
+            "workbenches",
+            management_states={"workbenches": "Managed", "dashboard": "Managed"},
+            ready_status="False",
+            ready_reason="Progressing",
+            exposes_ready_condition=True,
+        )
+        self.assertIn("WorkbenchesReady status=False", reason)
+
+    def test_maas_billing_missing_authorino(self) -> None:
+        reason = smoke_component_prereq_reason_from_states(
+            "maas_billing",
+            management_states={"kserve": "Managed"},
+            models_as_service_state="Managed",
+            maas_deps_ready=False,
+        )
+        self.assertIn("Authorino", reason)
+
+    def test_dashboard_cypress_allows_gateway_without_dashboard_ready(self) -> None:
+        reason = smoke_component_prereq_reason_from_states(
+            "dashboard_cypress",
+            management_states={"dashboard": "Managed"},
+            ready_status="False",
+            ready_reason="Progressing",
+            exposes_ready_condition=True,
+            gateway_url_reachable=True,
+        )
+        self.assertEqual(reason, "")
+
+    def test_dashboard_cypress_blocks_when_gateway_unreachable(self) -> None:
+        reason = smoke_component_prereq_reason_from_states(
+            "dashboard_cypress",
+            management_states={"dashboard": "Managed"},
+            gateway_url="https://rh-ai.example.com",
+            gateway_url_reachable=False,
+        )
+        self.assertIn("not reachable", reason)
+
+    def test_dashboard_cypress_requires_reachable_gateway_even_when_dashboard_ready(self) -> None:
+        reason = smoke_component_prereq_reason_from_states(
+            "dashboard_cypress",
+            management_states={"dashboard": "Managed"},
+            gateway_url="https://rh-ai.example.com",
+            gateway_url_reachable=False,
+            ready_status="True",
+        )
+        self.assertIn("not reachable", reason)
+
+class WaitForSmokeDscReadyTest(unittest.TestCase):
+    @patch("suite.component_dsc_gate._dsc_condition_types", return_value=["WorkbenchesReady"])
+    @patch("suite.component_dsc_gate._dsc_condition", side_effect=[("True", "Reconciled", "")])
+    def test_returns_when_ready(self, _cond, _types) -> None:
+        wait_for_smoke_dsc_ready_after_patch("workbenches", timeout_sec=5)
+
+    @patch("suite.component_dsc_gate._dsc_condition_types", return_value=[])
+    def test_skips_when_condition_not_exposed(self, _types) -> None:
+        wait_for_smoke_dsc_ready_after_patch("workbenches", timeout_sec=5)
+
+    @patch("suite.component_dsc_gate._dsc_smoke_managed_components", return_value={"workbenches"})
+    @patch("suite.component_dsc_gate._component_management_state", return_value="Managed")
+    @patch("suite.component_dsc_gate._dsc_condition_types", return_value=["WorkbenchesReady"])
+    @patch("suite.component_dsc_gate._dsc_condition")
+    @patch("suite.component_dsc_gate.time.sleep")
+    def test_waits_past_stale_removed_reason(
+        self,
+        _sleep,
+        cond,
+        _types,
+        _mgmt,
+        _keys,
+    ) -> None:
+        cond.side_effect = [
+            ("False", "Removed", "reconciling"),
+            ("True", "Reconciled", ""),
+        ] + [("True", "Reconciled", "")] * 20
+        wait_for_smoke_dsc_ready_after_patch("workbenches", timeout_sec=60)
+
+    @patch("suite.component_dsc_gate._dsc_smoke_managed_components", return_value={"kserve"})
+    @patch("suite.component_dsc_gate._component_management_state", return_value="Managed")
+    @patch("suite.component_dsc_gate._dsc_condition_types", return_value=["ModelsAsServiceReady"])
+    @patch("suite.component_dsc_gate._dsc_condition")
+    @patch("suite.component_dsc_gate.time.sleep")
+    def test_skips_maas_wait_when_prerequisites_not_met(
+        self,
+        _sleep,
+        cond,
+        _types,
+        _mgmt,
+        _keys,
+    ) -> None:
+        cond.return_value = (
+            "False",
+            "PrerequisitesNotMet",
+            "database Secret 'maas-db-config' not found",
+        )
+        wait_for_smoke_dsc_ready_after_patch("maas_billing", timeout_sec=60)
+        _sleep.assert_not_called()
+
+    @patch("suite.component_dsc_gate._dsc_condition_types", return_value=["KserveReady", "ModelsAsServiceReady"])
+    @patch("suite.component_dsc_gate._dsc_condition")
+    @patch("suite.component_dsc_gate.time.sleep")
+    def test_batch_wait_defers_models_as_service_for_maas_matrix(
+        self,
+        _sleep,
+        cond,
+        _types,
+    ) -> None:
+        from suite.component_dsc_gate import wait_for_smoke_dsc_ready_batch
+
+        cond.return_value = ("True", "Reconciled", "")
+        wait_for_smoke_dsc_ready_batch(
+            {"maas_billing", "model_server", "workbenches"},
+            timeout_sec=60,
+        )
+        called_types = {call.args[0] for call in cond.call_args_list}
+        self.assertNotIn("ModelsAsServiceReady", called_types)
+        self.assertIn("KserveReady", called_types)
+
+    @patch("suite.component_dsc_gate.smoke_component_dsc_disabled", return_value=(False, ""))
+    @patch("components.maas_billing.common.maas_functional_smoke_ready", return_value=(True, ""))
+    @patch("components.maas_billing.common.deps_only_install_dependencies_smoke", return_value=True)
+    def test_model_server_available_on_deps_only_functional_gate(
+        self,
+        _deps_only,
+        _functional,
+        _disabled,
+    ) -> None:
+        unavailable, reason = smoke_component_prereq_unavailable("model_server")
+        self.assertFalse(unavailable)
+        self.assertEqual(reason, "")
+
+    @patch("suite.component_dsc_gate.smoke_component_dsc_disabled", return_value=(False, ""))
+    @patch(
+        "components.maas_billing.common.maas_functional_smoke_ready",
+        return_value=(False, "Authorino deployment not ready in kuadrant-system"),
+    )
+    @patch("components.maas_billing.common.deps_only_install_dependencies_smoke", return_value=True)
+    def test_model_server_blocked_when_functional_gate_fails(
+        self,
+        _deps_only,
+        _functional,
+        _disabled,
+    ) -> None:
+        unavailable, reason = smoke_component_prereq_unavailable("model_server")
+        self.assertTrue(unavailable)
+        self.assertIn("Authorino deployment not ready", reason)
+
+if __name__ == "__main__":
+    raise SystemExit(unittest.main())

@@ -8,37 +8,52 @@ import sys
 from pathlib import Path
 
 _OLMINSTALL_DIR = Path(__file__).resolve().parent
-if str(_OLMINSTALL_DIR) not in sys.path:
-    sys.path.insert(0, str(_OLMINSTALL_DIR))
+from _bootstrap import ensure_olminstall_path
 
-from helpers.cli import emit_click_style_error, make_parser, parse_cli_args
-from helpers.errors import AppError
-from helpers.kubearchive import KubeArchiveAuthError
-from helpers.runner import OLMInstallRunner
+ensure_olminstall_path()
+
+from runners.cli.cli import emit_click_style_error, make_parser, parse_cli_args
+from suite.errors import AppError
+from k8s.kubearchive import KubeArchiveAuthError
+from runners.cli.runner import OLMInstallRunner
 
 _HELP_DESCRIPTION = (
-    "Konflux olminstall ITS helper: apply/patch ITS, trigger PipelineRuns, stream logs, "
-    "list/watch runs, KubeArchive when pruned."
+    "Konflux olminstall helper: enable/disable IntegrationTestScenario, patch ITS for triggers, "
+    "create PipelineRuns, stream logs, list/watch runs, and fetch KubeArchive when pruned."
 )
 
 _HELP_EPILOG = """\
-Tools: oc (required); tkn (optional, live logs during trigger mode); yq (repo/branch/channel/odh); skopeo (odh, optional).
-Env: KONFLUX_UI, KA_HOST, KONFLUX_SERVER, PR_APPEAR_TIMEOUT_SECONDS — README / contributing doc.
+Tools: oc (required); tkn (optional, live logs in trigger mode); yq (ITS patches); skopeo (odh, optional).
+Env: KONFLUX_UI, KA_HOST, KONFLUX_SERVER, PR_APPEAR_TIMEOUT_SECONDS — see README.
 
-Modes: default (trigger) OR --watch OR --list-pipelines OR --list-supported-ocp.
-Trigger always creates a new PipelineRun; use --watch to stream an existing run.
-Do not mix trigger flags (--image, --version, …) with --watch/--list* (except --ocp-version with --list-supported-ocp).
+Run rules:
+  • Default = trigger (always creates a new PipelineRun).
+  • Default --product existing without --external-kubeconfig: BVT placeholder only; smoke needs a cluster.
+  • Default --tests bvt,smoke with existing: pass --external-kubeconfig for component smoke.
+  • -w / --watch, -l / --list-pipelines, --delete-pending-pipelines, --enable-its, --disable-its = Konflux query/maintenance (pick one).
+  • --enable-its / --disable-its apply or remove an in-tree IntegrationTestScenario by name (uses --konflux-namespace / --konflux-app).
+  • --enable-its odh-olminstall-testops-rh-nightly also runs catalog sync once (skip if digest unchanged).
+  • --enable-its NAME --run-now: direct PipelineRun from ITS manifest params (descriptive generateName; no ITS on cluster).
+  • --list-supported-ocp = supported OCP query (product & catalog; pick alone or with --ocp-version).
+  • Do not mix trigger-only flags with -w, -l, --delete-pending-pipelines, --enable-its, --disable-its, or --list-supported-ocp.
+  • --ocp-version may accompany --list-supported-ocp or a trigger run.
 
 Examples:
-  %(prog)s --watch                       # newest olminstall for --app (same merge order as --list)
-  %(prog)s --watch odh-olminstall-testops-xyz
-  %(prog)s --list
+  %(prog)s                                     # trigger with defaults
+  %(prog)s -w                                  # watch newest run for --konflux-app
+  %(prog)s -w olminstall-rhoai-3.5ea2-eaas-bvt-smoke-nmanos-xyz
+  %(prog)s -l                                  # list last 10 runs
+  %(prog)s --delete-pending-pipelines          # stop stuck/incomplete live runs
+  %(prog)s --delete-pending-pipelines --delete-pending-dry-run
+  %(prog)s --enable-its odh-olminstall-testops-rh-nightly
+  %(prog)s --enable-its odh-olminstall-testops-rh-nightly --run-now
+  %(prog)s --enable-its odh-olminstall-testops-eaas
+  %(prog)s --disable-its odh-olminstall-testops-rh-nightly
   %(prog)s --list-supported-ocp --ocp-version 4.19
   %(prog)s --tests bvt
-  %(prog)s --tests smoke
-  %(prog)s --product rhoai --version 3.5
+  %(prog)s --tests smoke --components workbenches
+  %(prog)s --product rhoai --rhoai-version 3.5
   %(prog)s --tests bvt,smoke,tier1
-  %(prog)s --tests bvt --product rhoai --version 3.5
   %(prog)s --tests bvt --slack-channel-id C01234ABCDE
   %(prog)s --konflux-repo https://github.com/you/fork.git --konflux-branch your-branch
 
@@ -53,6 +68,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     try:
         args = parse_cli_args(parser, argv_list)
+        args.trigger_argv = list(argv_list)
         runner = OLMInstallRunner(args)
         atexit.register(runner.cleanup)
         return runner.run()

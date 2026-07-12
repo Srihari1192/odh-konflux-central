@@ -216,7 +216,7 @@ def make_parser(description: str = "", epilog: str | None = None) -> CliArgument
         help=(
             "When creating a Snapshot with default --namespace rhoai-tenant and --app testops-playpen, "
             "skip deleting legacy IntegrationTestScenario CRs (rhoai-test) "
-            "before oc apply + Snapshot. Default: prune so only odh-olminstall-testops runs for that app."
+            "before oc apply + Snapshot. Default: prune legacy ITS names so only current olminstall profiles run for that app."
         ),
     )
     return parser

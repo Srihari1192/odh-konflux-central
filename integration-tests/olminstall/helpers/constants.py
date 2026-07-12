@@ -4,13 +4,14 @@ from pathlib import Path
 
 DEFAULT_NAMESPACE = "rhoai-tenant"
 DEFAULT_APP = "testops-playpen"
-# Canonical sandbox ITS in its-olminstall-rhoai-tenant.yaml (resolver → olminstall-pipeline.yaml).
-OLMINSTALL_TESTOPS_ITS_NAME = "odh-olminstall-testops"
+# Canonical sandbox EaaS ITS (its-olminstall-testops-eaas.yaml).
+OLMINSTALL_EAAS_ITS_NAME = "odh-olminstall-testops-eaas"
 # Legacy IntegrationTestScenario names still present on some tenants; Konflux starts one PipelineRun
 # per ITS when a Snapshot is created for the same application. ``olm_pipeline.py`` deletes these
 # before triggering when using default -n/--app unless ``--no-prune-stale-its`` is passed.
 STALE_TESTOPS_PLAYPEN_ITS_NAMES: frozenset[str] = frozenset(
     (
+        "odh-olminstall-testops",
         "odh-olminstall-smoke-testops",
         "rhoai-test",
     )

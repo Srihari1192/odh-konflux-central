@@ -29,7 +29,7 @@ from .constants import (
     LIST_SUPPORTED_OCP_MAX_PRS,
     OLMINSTALL_CTX_PRINT_KEYS,
     RHOAI_FBCF_IMAGE_REF_PATTERN,
-    OLMINSTALL_TESTOPS_ITS_NAME,
+    OLMINSTALL_EAAS_ITS_NAME,
     OLMINSTALL_WRITE_ANNOTATION_KEYS,
     PENDING_REASONS,
     STALE_TESTOPS_PLAYPEN_ITS_NAMES,
@@ -233,7 +233,7 @@ class OLMInstallRunner:
         self.args = args
         self.script_dir = Path(__file__).resolve().parent.parent
         self.snapshot_file = self.script_dir / "test-snapshot.yaml"
-        self.its_file = self.script_dir / "its-olminstall-rhoai-tenant.yaml"
+        self.its_file = self.script_dir / "tekton" / "its" / "its-olminstall-testops-eaas.yaml"
         self.konflux_ui = args.konflux_ui or ""
         self.ka_host = args.ka_host or ""
         self.konflux_server = args.konflux_server or ""
@@ -738,7 +738,7 @@ class OLMInstallRunner:
         )
         if repo and branch:
             ns = self.args.namespace
-            its_name = OLMINSTALL_TESTOPS_ITS_NAME
+            its_name = OLMINSTALL_EAAS_ITS_NAME
             print(
                 f"{head}"
                 f"  This run applied the ITS with ``--konflux-repo`` / ``--konflux-branch``: **{repo}** @ **{branch}**.\n"
@@ -1398,7 +1398,7 @@ class OLMInstallRunner:
             return
         print(
             "Pruning legacy IntegrationTestScenario objects so the next Snapshot only starts "
-            f"{OLMINSTALL_TESTOPS_ITS_NAME!r} for application {self.args.app!r}: "
+            f"{OLMINSTALL_EAAS_ITS_NAME!r} for application {self.args.app!r}: "
             + ", ".join(stale)
         )
         for name in stale:

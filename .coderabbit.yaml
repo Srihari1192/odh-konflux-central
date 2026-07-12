@@ -1,0 +1,23 @@
+# CodeRabbit: olminstall PR #516 exceeds the 150-file review cap when unscoped.
+# Wave 1 covers pipeline core (~150 files). Wave 2 widens scope (see comment on PR).
+language: en-US
+reviews:
+  review_status: true
+  path_filters:
+    - "integration-tests/olminstall/**"
+    - "!integration-tests/olminstall/unit_tests/**"
+    - "!integration-tests/olminstall/tekton/tasks/generated/**"
+    - "!integration-tests/olminstall/components/**"
+    - "!integration-tests/olminstall/helpers/**"
+    - "!integration-tests/olminstall/k8s/**"
+    - "!integration-tests/olminstall/config/kyverno/**"
+    - "!integration-tests/olminstall/config/test-pipelinerun.yaml"
+    - "!integration-tests/olminstall/config/test-snapshot.yaml"
+    - "!integration-tests/olminstall/config/olminstall-pipeline-snippets.yaml"
+    - "!integration-tests/olminstall/config/olminstall-dsc-install.json"
+  path_instructions:
+    - path: "integration-tests/olminstall/**"
+      instructions: >
+        Konflux olminstall phase 2 (RHOAIENG-62890): Jenkins smoke parity on Tekton.
+        Focus on gate semantics (no hollow-green), Tekton result size limits, catalog
+        vs pipeline task consistency, and external/EaaS cluster paths.
