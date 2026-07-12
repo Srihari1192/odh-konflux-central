@@ -1,0 +1,356 @@
+"""MaaS Gateway API and OpenShift Route setup."""
+
+from __future__ import annotations
+
+from install.dsc_install import oc_run
+
+from components.maas_billing.common import (
+    _AUTHORINO_TLS_ANNOTATION,
+    _GATEWAY_NAME,
+    _GATEWAY_NS,
+    _GATEWAY_SVC,
+    _MAAS_APPS_NS,
+    _MAAS_AUTH_POLICY,
+    _MAAS_AUTH_POLICY_PATH,
+    _MANAGED_ANNOTATION,
+    _secret_exists,
+)
+from components.maas_billing.database import _clone_models_as_a_service
+
+
+def _cluster_domain() -> str:
+    r = oc_run(
+        ["get", "ingresses.config.openshift.io", "cluster", "-o", "jsonpath={.spec.domain}"],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    domain = (r.stdout or "").strip()
+    if not domain:
+        raise RuntimeError("Could not detect OpenShift cluster domain from ingresses.config/cluster")
+    return domain
+
+
+def _ingress_tls_secret_name() -> str:
+    r = oc_run(
+        [
+            "get",
+            "ingresscontroller",
+            "default",
+            "-n",
+            "openshift-ingress-operator",
+            "-o",
+            "jsonpath={.spec.defaultCertificate.name}",
+        ],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    cert_name = (r.stdout or "").strip()
+    return cert_name or "router-certs-default"
+
+
+_INGRESS_OPERATOR_NS = "openshift-ingress-operator"
+_ROUTER_CERT_FALLBACK = "router-certs-default"
+
+
+def _copy_tls_secret_to_gateway_ns(name: str, *, src_ns: str) -> bool:
+    import json
+
+    r = oc_run(
+        ["get", "secret", name, "-n", src_ns, "-o", "json"],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    if r.returncode != 0:
+        return False
+    try:
+        doc = json.loads(r.stdout or "{}")
+    except json.JSONDecodeError:
+        return False
+    meta = dict(doc.get("metadata") or {})
+    meta["namespace"] = _GATEWAY_NS
+    for key in ("resourceVersion", "uid", "creationTimestamp", "managedFields", "ownerReferences"):
+        meta.pop(key, None)
+    doc["metadata"] = meta
+    apply = oc_run(
+        ["apply", "-f", "-"],
+        stdin_text=json.dumps(doc),
+        check=False,
+        capture_output=True,
+        timeout=60,
+    )
+    if apply.returncode != 0:
+        err = (apply.stderr or apply.stdout or "").strip()
+        print(
+            f"WARN: could not copy TLS secret {src_ns}/{name} to {_GATEWAY_NS}: {err[:200]}",
+            flush=True,
+        )
+        return False
+    print(f"✓ Copied TLS secret {src_ns}/{name} → {_GATEWAY_NS}/{name}", flush=True)
+    return True
+
+
+def ensure_maas_gateway_ingress_tls_secret() -> None:
+    """Ensure the Gateway HTTPS listener certificateRef exists in openshift-ingress."""
+    cert_name = _ingress_tls_secret_name()
+    if _secret_exists(_GATEWAY_NS, cert_name):
+        print(f"✓ MaaS gateway TLS secret {_GATEWAY_NS}/{cert_name} exists", flush=True)
+        return
+    if _copy_tls_secret_to_gateway_ns(cert_name, src_ns=_INGRESS_OPERATOR_NS):
+        return
+    if cert_name != _ROUTER_CERT_FALLBACK and _secret_exists(_GATEWAY_NS, _ROUTER_CERT_FALLBACK):
+        print(
+            f"✓ MaaS gateway TLS fallback {_GATEWAY_NS}/{_ROUTER_CERT_FALLBACK} exists",
+            flush=True,
+        )
+        return
+    if _copy_tls_secret_to_gateway_ns(_ROUTER_CERT_FALLBACK, src_ns=_GATEWAY_NS):
+        return
+    if _copy_tls_secret_to_gateway_ns(_ROUTER_CERT_FALLBACK, src_ns=_INGRESS_OPERATOR_NS):
+        return
+    print(
+        f"WARN: MaaS gateway TLS secret {_GATEWAY_NS}/{cert_name} missing "
+        f"(Gateway may stay Programmed=Unknown)",
+        flush=True,
+    )
+
+
+def _gateway_yaml(cluster_domain: str, cert_name: str) -> str:
+    hostname = f"maas.{cluster_domain}"
+    return f"""\
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {_GATEWAY_NAME}
+  namespace: {_GATEWAY_NS}
+  annotations:
+    {_MANAGED_ANNOTATION}: "false"
+    {_AUTHORINO_TLS_ANNOTATION}: "true"
+  labels:
+    app.kubernetes.io/name: maas
+    app.kubernetes.io/instance: {_GATEWAY_NAME}
+    app.kubernetes.io/component: gateway
+    opendatahub.io/managed: "false"
+spec:
+  gatewayClassName: openshift-default
+  listeners:
+    - name: http
+      hostname: "{hostname}"
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: All
+    - name: https
+      hostname: "{hostname}"
+      port: 443
+      protocol: HTTPS
+      allowedRoutes:
+        namespaces:
+          from: All
+      tls:
+        certificateRefs:
+          - group: ""
+            kind: Secret
+            name: {cert_name}
+            namespace: {_GATEWAY_NS}
+        mode: Terminate
+"""
+
+
+def _gateway_route_yaml(cluster_domain: str) -> str:
+    hostname = f"maas.{cluster_domain}"
+    return f"""\
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {_GATEWAY_NAME}
+  namespace: {_GATEWAY_NS}
+  labels:
+    app.kubernetes.io/name: maas
+    app.kubernetes.io/instance: {_GATEWAY_NAME}
+    app.kubernetes.io/component: gateway
+    opendatahub.io/managed: "false"
+  annotations:
+    opendatahub.io/managed: "false"
+spec:
+  host: {hostname}
+  port:
+    targetPort: 443
+  tls:
+    termination: passthrough
+    insecureEdgeTerminationPolicy: Redirect
+  to:
+    kind: Service
+    name: {_GATEWAY_SVC}
+    weight: 100
+  wildcardPolicy: None
+"""
+
+
+def _maas_gateway_route_ready(hostname: str) -> bool:
+    r = oc_run(
+        [
+            "get",
+            "route",
+            _GATEWAY_NAME,
+            "-n",
+            _GATEWAY_NS,
+            "-o",
+            "jsonpath={.spec.host},{.spec.tls.termination}",
+        ],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    if r.returncode != 0:
+        return False
+    parts = (r.stdout or "").strip().split(",", 1)
+    if len(parts) != 2:
+        return False
+    host, termination = parts
+    return host == hostname and termination == "passthrough"
+
+
+def ensure_maas_gateway_route() -> None:
+    """Expose MaaS gateway on the default ingress router (maas.<cluster-domain>)."""
+    domain = _cluster_domain()
+    hostname = f"maas.{domain}"
+    if _maas_gateway_route_ready(hostname):
+        print(
+            f"✓ MaaS gateway route {_GATEWAY_NS}/{_GATEWAY_NAME} → {hostname} (passthrough)",
+            flush=True,
+        )
+        return
+    print(f"Applying {_GATEWAY_NS}/{_GATEWAY_NAME} route for {hostname}...", flush=True)
+    apply = oc_run(
+        ["apply", "-f", "-"],
+        stdin_text=_gateway_route_yaml(domain),
+        check=False,
+        capture_output=True,
+        timeout=60,
+    )
+    if apply.returncode != 0:
+        err = (apply.stderr or apply.stdout or "").strip()
+        raise RuntimeError(f"Could not apply MaaS gateway route: {err or 'unknown error'}")
+    print(f"✓ MaaS gateway route {_GATEWAY_NS}/{_GATEWAY_NAME} → {hostname}", flush=True)
+
+
+def ensure_maas_api_auth_policy() -> None:
+    """Apply maas-api Kuadrant AuthPolicy when missing or apiKeyValidation URL is wrong."""
+    validate_url = (
+        f"https://maas-api.{_MAAS_APPS_NS}.svc.cluster.local:8443/internal/v1/api-keys/validate"
+    )
+    oc_run(
+        ["delete", "authpolicy", _MAAS_AUTH_POLICY, "-n", "default", "--ignore-not-found"],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    r = oc_run(
+        [
+            "get",
+            "authpolicy",
+            _MAAS_AUTH_POLICY,
+            "-n",
+            _MAAS_APPS_NS,
+            "-o",
+            "jsonpath={.spec.rules.metadata.apiKeyValidation.http.url}",
+        ],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    if r.returncode == 0 and (r.stdout or "").strip() == validate_url:
+        print(
+            f"✓ MaaS API AuthPolicy {_MAAS_APPS_NS}/{_MAAS_AUTH_POLICY} has apiKeyValidation callback",
+            flush=True,
+        )
+        return
+    if r.returncode == 0:
+        print(
+            f"Patching {_MAAS_APPS_NS}/{_MAAS_AUTH_POLICY} apiKeyValidation callback URL...",
+            flush=True,
+        )
+
+    repo = _clone_models_as_a_service()
+    policy_path = repo / _MAAS_AUTH_POLICY_PATH
+    if not policy_path.is_file():
+        raise FileNotFoundError(f"Missing MaaS auth policy manifest: {policy_path}")
+
+    yaml_doc = policy_path.read_text(encoding="utf-8").replace(
+        "https://maas-api.placehold.svc.cluster.local:8443/internal/v1/api-keys/validate",
+        validate_url,
+    )
+    print(f"Applying {_MAAS_APPS_NS}/{_MAAS_AUTH_POLICY}...", flush=True)
+    apply = oc_run(
+        ["apply", "-n", _MAAS_APPS_NS, "-f", "-"],
+        stdin_text=yaml_doc,
+        check=False,
+        capture_output=True,
+        timeout=60,
+    )
+    if apply.returncode != 0:
+        err = (apply.stderr or apply.stdout or "").strip()
+        raise RuntimeError(f"Could not apply MaaS API AuthPolicy: {err or 'unknown error'}")
+    print(f"✓ MaaS API AuthPolicy {_MAAS_APPS_NS}/{_MAAS_AUTH_POLICY} applied", flush=True)
+
+
+def ensure_maas_gateway() -> None:
+    """Ensure maas-default-gateway exists with MaaS-required annotations (olminstall configure-maas-gateway)."""
+    from components.maas_billing.common import _maas_gateway_annotations_ready
+
+    r = oc_run(
+        ["get", "gateway", _GATEWAY_NAME, "-n", _GATEWAY_NS],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    if r.returncode != 0:
+        domain = _cluster_domain()
+        cert_name = _ingress_tls_secret_name()
+        ensure_maas_gateway_ingress_tls_secret()
+        print(f"Applying {_GATEWAY_NS}/{_GATEWAY_NAME} for maas.{domain}...", flush=True)
+        yaml_doc = _gateway_yaml(domain, cert_name)
+        apply = oc_run(["apply", "-f", "-"], stdin_text=yaml_doc, check=False, capture_output=True, timeout=60)
+        if apply.returncode != 0:
+            err = (apply.stderr or apply.stdout or "").strip()
+            raise RuntimeError(f"Could not apply MaaS gateway: {err or 'unknown error'}")
+    else:
+        ann_ready, _ = _maas_gateway_annotations_ready()
+        if not ann_ready:
+            domain = _cluster_domain()
+            cert_name = _ingress_tls_secret_name()
+            print(
+                f"Re-applying {_GATEWAY_NS}/{_GATEWAY_NAME} (annotations missing on live gateway)...",
+                flush=True,
+            )
+            yaml_doc = _gateway_yaml(domain, cert_name)
+            apply = oc_run(
+                ["apply", "-f", "-"],
+                stdin_text=yaml_doc,
+                check=False,
+                capture_output=True,
+                timeout=60,
+            )
+            if apply.returncode != 0:
+                err = (apply.stderr or apply.stdout or "").strip()
+                raise RuntimeError(f"Could not re-apply MaaS gateway: {err or 'unknown error'}")
+    oc_run(
+        [
+            "annotate",
+            "gateway",
+            _GATEWAY_NAME,
+            "-n",
+            _GATEWAY_NS,
+            f"{_MANAGED_ANNOTATION}=false",
+            f"{_AUTHORINO_TLS_ANNOTATION}=true",
+            "--overwrite",
+        ],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    print(f"✓ MaaS gateway {_GATEWAY_NS}/{_GATEWAY_NAME} annotated for Authorino TLS bootstrap", flush=True)

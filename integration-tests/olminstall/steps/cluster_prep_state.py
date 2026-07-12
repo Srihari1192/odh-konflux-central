@@ -1,0 +1,222 @@
+"""Shared markers for cluster prep across Tekton tasks (prepare vs install-dep-operators)."""
+
+from __future__ import annotations
+
+import os
+import time
+from pathlib import Path
+
+_CLUSTER_PREP_MARKER = ".cluster-prep-done"
+_DEP_OPERATORS_MARKER = ".dep-operators-done"
+_MAAS_SURFACE_MARKER = ".maas-smoke-surface-done"
+_MAAS_PREP_ATTEMPTED_MARKER = ".maas-smoke-prep-attempted"
+_MAAS_GATEWAY_MAS_MARKER = ".maas-gateway-mas-done"
+_IDP_ATTEMPTED_MARKER = ".identity-providers-attempted"
+_DEFAULT_MARKER_MAX_AGE_SEC = 48 * 3600
+
+
+def _artifacts_dir(explicit: Path | None = None) -> Path | None:
+    if explicit is not None:
+        return explicit
+    raw = os.environ.get("ARTIFACTS_DIR", "").strip()
+    return Path(raw) if raw else None
+
+
+def _artifacts_from_tests_shared() -> Path | None:
+    raw = os.environ.get("TESTS_SHARED", "").strip()
+    if not raw:
+        return None
+    return Path(raw) / "tests-payload" / "results"
+
+
+def resolve_artifacts_dir(explicit: Path | None = None) -> Path | None:
+    """Artifacts root for markers (ARTIFACTS_DIR preferred, else tests-shared layout)."""
+    return _artifacts_dir(explicit) or _artifacts_from_tests_shared()
+
+
+def _truthy_env(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes")
+
+
+def _current_pipelinerun_id() -> str:
+    for key in (
+        "PIPELINE_RUN_UID",
+        "PIPELINERUN_UID",
+        "PIPELINE_RUN_NAME",
+        "PIPELINERUN",
+        "PIPELINE_RUN",
+    ):
+        value = os.environ.get(key, "").strip()
+        if value:
+            return value
+    tekton_name = Path("/etc/tekton/pipelineRunName")
+    if tekton_name.is_file():
+        return tekton_name.read_text(encoding="utf-8").strip()
+    return ""
+
+
+def _marker_max_age_sec() -> int:
+    raw = os.environ.get("MARKER_MAX_AGE_SEC", "").strip()
+    if raw:
+        try:
+            return int(raw)
+        except ValueError:
+            return _DEFAULT_MARKER_MAX_AGE_SEC
+    return _DEFAULT_MARKER_MAX_AGE_SEC
+
+
+def _parse_marker(path: Path) -> tuple[str, float]:
+    """Return (pipelinerun_id, unix_timestamp) from marker body."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return "", 0.0
+    run_id = ""
+    stamped = 0.0
+    for line in text.splitlines():
+        if line.startswith("pipelinerun="):
+            run_id = line.split("=", 1)[1].strip()
+        elif line.startswith("ts="):
+            try:
+                stamped = float(line.split("=", 1)[1].strip())
+            except ValueError:
+                stamped = 0.0
+    if not stamped and path.is_file():
+        try:
+            stamped = path.stat().st_mtime
+        except OSError:
+            stamped = 0.0
+    if not run_id and text.strip() == "ok":
+        return "", stamped
+    return run_id, stamped
+
+
+def _marker_valid(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    if _truthy_env("CLUSTER_PREP_FORCE"):
+        return False
+    run_id, stamped = _parse_marker(path)
+    if stamped and (time.time() - stamped) > _marker_max_age_sec():
+        return False
+    current = _current_pipelinerun_id()
+    if current and run_id and run_id != current:
+        return False
+    return True
+
+
+def _write_marker(path: Path) -> None:
+    run_id = _current_pipelinerun_id()
+    lines = [f"ts={time.time():.0f}"]
+    if run_id:
+        lines.append(f"pipelinerun={run_id}")
+    path.write_text("\n".join(lines) + "\n", encoding="ascii")
+
+
+def clear_cluster_prep_markers(artifacts_dir: Path | None = None) -> None:
+    """Remove cluster-prep, dep-operators, and MaaS-surface markers (CLUSTER_PREP_FORCE / parse step)."""
+    root = resolve_artifacts_dir(artifacts_dir)
+    if root is None:
+        return
+    for name in (
+        _CLUSTER_PREP_MARKER,
+        _DEP_OPERATORS_MARKER,
+        _MAAS_SURFACE_MARKER,
+        _MAAS_PREP_ATTEMPTED_MARKER,
+        _MAAS_GATEWAY_MAS_MARKER,
+        _IDP_ATTEMPTED_MARKER,
+    ):
+        try:
+            (root / name).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def cluster_prep_already_done(artifacts_dir: Path | None = None) -> bool:
+    """True after full component cluster prep finished for this PipelineRun."""
+    root = resolve_artifacts_dir(artifacts_dir)
+    return root is not None and _marker_valid(root / _CLUSTER_PREP_MARKER)
+
+
+def mark_cluster_prep_done(artifacts_dir: Path | None = None) -> None:
+    """Record that component cluster prep finished."""
+    root = resolve_artifacts_dir(artifacts_dir)
+    if root is None:
+        return
+    root.mkdir(parents=True, exist_ok=True)
+    _write_marker(root / _CLUSTER_PREP_MARKER)
+
+
+def dep_operators_already_done(artifacts_dir: Path | None = None) -> bool:
+    """True after install-dep-operators ran RHCL/dependency-operator setup for this run."""
+    root = resolve_artifacts_dir(artifacts_dir)
+    return root is not None and _marker_valid(root / _DEP_OPERATORS_MARKER)
+
+
+def mark_dep_operators_done(artifacts_dir: Path | None = None) -> None:
+    """Record that dependency operators (RHCL/Authorino stack) are ready."""
+    root = resolve_artifacts_dir(artifacts_dir)
+    if root is None:
+        return
+    root.mkdir(parents=True, exist_ok=True)
+    _write_marker(root / _DEP_OPERATORS_MARKER)
+
+
+def maas_smoke_surface_already_done(artifacts_dir: Path | None = None) -> bool:
+    """True after MaaS gateway/auth surface prep finished for this PipelineRun."""
+    root = resolve_artifacts_dir(artifacts_dir)
+    return root is not None and _marker_valid(root / _MAAS_SURFACE_MARKER)
+
+
+def mark_maas_smoke_surface_done(artifacts_dir: Path | None = None) -> None:
+    """Record that MaaS smoke surface prep (gateway, DB, auth) finished."""
+    root = resolve_artifacts_dir(artifacts_dir)
+    if root is None:
+        return
+    root.mkdir(parents=True, exist_ok=True)
+    _write_marker(root / _MAAS_SURFACE_MARKER)
+
+
+def maas_smoke_prep_attempted(artifacts_dir: Path | None = None) -> bool:
+    """True after MaaS auth/readiness wait ran once this PipelineRun (success or timeout)."""
+    root = resolve_artifacts_dir(artifacts_dir)
+    return root is not None and _marker_valid(root / _MAAS_PREP_ATTEMPTED_MARKER)
+
+
+def mark_maas_smoke_prep_attempted(artifacts_dir: Path | None = None) -> None:
+    """Record that full MaaS auth/readiness prep was attempted (skip duplicate 600s waits)."""
+    root = resolve_artifacts_dir(artifacts_dir)
+    if root is None:
+        return
+    root.mkdir(parents=True, exist_ok=True)
+    _write_marker(root / _MAAS_PREP_ATTEMPTED_MARKER)
+
+
+def maas_gateway_mas_already_done(artifacts_dir: Path | None = None) -> bool:
+    """True after gateway HTTPS wait + modelsAsService patch succeeded this PipelineRun."""
+    root = resolve_artifacts_dir(artifacts_dir)
+    return root is not None and _marker_valid(root / _MAAS_GATEWAY_MAS_MARKER)
+
+
+def mark_maas_gateway_mas_done(artifacts_dir: Path | None = None) -> None:
+    """Record that MaaS gateway HTTPS service was ready and modelsAsService was enabled."""
+    root = resolve_artifacts_dir(artifacts_dir)
+    if root is None:
+        return
+    root.mkdir(parents=True, exist_ok=True)
+    _write_marker(root / _MAAS_GATEWAY_MAS_MARKER)
+
+
+def identity_providers_already_attempted(artifacts_dir: Path | None = None) -> bool:
+    """True after install_identity_providers ran once this PipelineRun."""
+    root = resolve_artifacts_dir(artifacts_dir)
+    return root is not None and _marker_valid(root / _IDP_ATTEMPTED_MARKER)
+
+
+def mark_identity_providers_attempted(artifacts_dir: Path | None = None) -> None:
+    """Record identity provider install attempt for this PipelineRun."""
+    root = resolve_artifacts_dir(artifacts_dir)
+    if root is None:
+        return
+    root.mkdir(parents=True, exist_ok=True)
+    _write_marker(root / _IDP_ATTEMPTED_MARKER)

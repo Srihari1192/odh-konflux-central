@@ -88,7 +88,13 @@ def main() -> int:
         print(f"❌ No quay.io/rhoai auth token found in {QUAY_SECRET_PATH}")
         return 1
 
-    quay = merge_docker_auths(quay, {"auths": {"quay.io": {"auth": quay_auth}}})
+    # NOTE: do not also inject `quay_auth` under a bare "quay.io" key here. The
+    # RHOAI robot account is scoped to quay.io/rhoai only; writing it under the
+    # unqualified "quay.io" host key into the cluster's global pull secret
+    # clobbers whatever broader credential previously covered that key,
+    # breaking pulls of *other* quay.io images (e.g. the OLM bundle-unpack
+    # utility image quay.io/openshift-release-dev/ocp-v4.0-art-dev), which
+    # then makes every bundle-unpack Job fail with BundleUnpackFailed.
 
     print("Patching cluster global pull secret with quay.io/rhoai credentials...")
     raw = run_oc(["get", "secret/pull-secret", "-n", "openshift-config", "-o", "json"]).stdout

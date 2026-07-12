@@ -4,7 +4,7 @@
 #
 # Prerequisites:
 #   1. The ITS CR must already be applied:
-#      oc apply -n rhoai-tenant -f integration-tests/olminstall/its-olminstall-rhoai-tenant.yaml
+#      oc apply -n rhoai-tenant -f integration-tests/olminstall/its-olminstall-testops-eaas.yaml
 #
 # Usage:
 #   oc create -n rhoai-tenant -f integration-tests/olminstall/test-snapshot.yaml
@@ -34,4 +34,4 @@ spec:
   application: testops-playpen
   components:
     - name: rhoai-fbc-fragment-ocp-421
-      containerImage: quay.io/rhoai/rhoai-fbc-fragment@sha256:ab0042e79c995ace875bf5624c6a7e98fe082c833b39bbc0ea9b0c16399496a9
+      containerImage: quay.io/rhoai/rhoai-fbc-fragment@sha256:6f8c6350ec16320668c7977c12219b2170432fff4d3626ca82dfc4ed909b7405

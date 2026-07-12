@@ -1,0 +1,9 @@
+# Legacy IntegrationTestScenario names pruned before olm_pipeline trigger on rhoai-tenant/testops-playpen.
+# Konflux starts one PipelineRun per ITS when a Snapshot is created for the same application.
+names:
+  - odh-olminstall-testops
+  - odh-olminstall-smoke-testops
+  - rhoai-test
+  # Manual olminstall Snapshots use image-only components (no git source); EC fails SLSA
+  # source_code_reference_provided and adds noise — prune before trigger like rhoai-test.
+  - testops-playpen-enterprise-contract

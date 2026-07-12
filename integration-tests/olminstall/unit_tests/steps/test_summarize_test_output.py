@@ -1,0 +1,461 @@
+#!/usr/bin/env python3
+"""Unit tests for per-component TEST_OUTPUT via summarize_test_output."""
+
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+import unittest
+from pathlib import Path
+from unit_tests._paths import OLMINSTALL_ROOT
+from unittest.mock import patch
+
+from steps.summarize_test_output import build_test_output_payload
+
+class EmitComponentTestOutputTest(unittest.TestCase):
+    def test_build_payload_from_component_junit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = root / "plan.json"
+            plan.write_text(
+                json.dumps(
+                    {
+                        "components": [
+                            {
+                                "id": "workbenches",
+                                "artifact_prefix": "workbenches-smoke",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            junit = root / "workbenches-smoke.xml"
+            junit.write_text(
+                """<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="workbenches" tests="2" failures="0" errors="0" skipped="0">
+  <testcase classname="a" name="t1"/>
+  <testcase classname="a" name="t2"/>
+</testsuite>
+""",
+                encoding="utf-8",
+            )
+            payload, note = build_test_output_payload(
+                root,
+                component_id="workbenches",
+                plan_path=plan,
+            )
+            self.assertEqual(payload["result"], "SUCCESS")
+            self.assertEqual(payload["successes"], 0)
+            self.assertEqual(payload["failures"], 0)
+            self.assertEqual(payload["skipped"], 0)
+            self.assertIn("Workbenches", note)
+            self.assertIn("2 passed", note)
+
+    def test_no_junit_emits_infrastructure_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = root / "plan.json"
+            plan.write_text(
+                json.dumps({"components": [{"id": "model_runtime", "artifact_prefix": "model_runtime-smoke"}]}),
+                encoding="utf-8",
+            )
+            payload, note = build_test_output_payload(
+                root,
+                component_id="model_runtime",
+                plan_path=plan,
+            )
+            self.assertEqual(payload["result"], "FAILURE")
+            self.assertEqual(payload["successes"], 0)
+            self.assertEqual(payload["failures"], 0)
+            self.assertEqual(payload["skipped"], 0)
+            self.assertIn("infrastructure error", note)
+
+    def test_version_skip_junit_emits_failure_with_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = root / "plan.json"
+            plan.write_text(
+                json.dumps({"components": [{"id": "mlflow", "artifact_prefix": "mlflow-smoke"}]}),
+                encoding="utf-8",
+            )
+            (root / "mlflow-smoke.xml").write_text(
+                """<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="mlflow" tests="1" failures="0" errors="0" skipped="1">
+  <testcase classname="mlflow" name="version_not_supported">
+    <skipped message="minRhoai 3.4"/>
+  </testcase>
+</testsuite>
+""",
+                encoding="utf-8",
+            )
+            payload, note = build_test_output_payload(
+                root,
+                component_id="mlflow",
+                plan_path=plan,
+            )
+            self.assertEqual(payload["result"], "FAILURE")
+            self.assertEqual(payload["successes"], 0)
+            self.assertEqual(payload["failures"], 0)
+            self.assertEqual(payload["skipped"], 0)
+            self.assertIn("0 passed, 0 failed, 1 skipped", note)
+
+    def test_main_surfaces_failure_without_failing_step(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            results = root / "tekton-results"
+            results.mkdir()
+            plan = root / "plan.json"
+            plan.write_text(
+                json.dumps({"components": [{"id": "platform", "artifact_prefix": "platform-smoke"}]}),
+                encoding="utf-8",
+            )
+            (root / "platform-smoke.xml").write_text(
+                """<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="platform" tests="1" failures="0" errors="0" skipped="1">
+  <testcase classname="platform" name="version_not_supported">
+    <skipped message="minRhoai 3.3"/>
+  </testcase>
+</testsuite>
+""",
+                encoding="utf-8",
+            )
+            out_path = results / "test_output.json"
+            env = {
+                "TEST_OUTPUT_PATH": str(out_path),
+                "TEKTON_RESULTS_DIR": str(results),
+                "ARTIFACT_BROWSER_BASE": "https://example.test",
+                "PR_NAME": "pr-1",
+                "ARTIFACTS_DIR": str(root),
+                "COMPONENT_ID": "platform",
+                "COMPONENT_TEST_PLAN_JSON": str(plan),
+                "WRITE_ARTIFACTS_URL": "false",
+                "SCRIPTS_REPO_ROOT": str(OLMINSTALL_ROOT),
+            }
+            with patch.dict(os.environ, env, clear=False):
+                from steps import summarize_test_output
+
+                self.assertEqual(summarize_test_output.main(), 0)
+            payload = json.loads(out_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["result"], "FAILURE")
+
+    def test_main_shows_stats_when_junit_zero_passed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            results = root / "tekton-results"
+            results.mkdir()
+            plan = root / "plan.json"
+            plan.write_text(
+                json.dumps({"components": [{"id": "platform", "artifact_prefix": "platform-smoke"}]}),
+                encoding="utf-8",
+            )
+            (root / "platform-smoke.xml").write_text(
+                """<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="platform" tests="2" failures="2" errors="0" skipped="0">
+  <testcase classname="a" name="t1"><failure message="x"/></testcase>
+  <testcase classname="a" name="t2"><failure message="y"/></testcase>
+</testsuite>
+""",
+                encoding="utf-8",
+            )
+            out_path = results / "test_output.json"
+            env = {
+                "TEST_OUTPUT_PATH": str(out_path),
+                "TEKTON_RESULTS_DIR": str(results),
+                "ARTIFACT_BROWSER_BASE": "https://example.test",
+                "PR_NAME": "pr-1",
+                "ARTIFACTS_DIR": str(root),
+                "COMPONENT_ID": "platform",
+                "COMPONENT_TEST_PLAN_JSON": str(plan),
+                "WRITE_ARTIFACTS_URL": "false",
+                "SCRIPTS_REPO_ROOT": str(OLMINSTALL_ROOT),
+            }
+            with patch.dict(os.environ, env, clear=False):
+                from steps import summarize_test_output
+
+                self.assertEqual(summarize_test_output.main(), 0)
+            payload = json.loads(out_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["result"], "FAILURE")
+            self.assertEqual(payload["successes"], 0)
+            self.assertEqual(payload["failures"], 2)
+            self.assertIn("0 passed, 2 failed", str(payload.get("note", "")))
+
+    def test_unreadable_junit_emits_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = root / "plan.json"
+            plan.write_text(
+                json.dumps({"components": [{"id": "model_runtime", "artifact_prefix": "model_runtime-smoke"}]}),
+                encoding="utf-8",
+            )
+            (root / "model_runtime-smoke.xml").write_text("not xml", encoding="utf-8")
+            payload, _note = build_test_output_payload(
+                root,
+                component_id="model_runtime",
+                plan_path=plan,
+            )
+            self.assertEqual(payload["result"], "FAILURE")
+            self.assertEqual(payload["successes"], 0)
+            self.assertEqual(payload["failures"], 1)
+
+    def test_mixed_failures_write_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = root / "plan.json"
+            plan.write_text(
+                json.dumps({"components": [{"id": "workbenches", "artifact_prefix": "workbenches-smoke"}]}),
+                encoding="utf-8",
+            )
+            (root / "workbenches-smoke.xml").write_text(
+                """<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="workbenches" tests="3" failures="1" errors="0" skipped="0">
+  <testcase classname="a" name="t1"/>
+  <testcase classname="a" name="t2"/>
+  <testcase classname="a" name="t3"><failure message="x"/></testcase>
+</testsuite>
+""",
+                encoding="utf-8",
+            )
+            payload, _note = build_test_output_payload(
+                root,
+                component_id="workbenches",
+                plan_path=plan,
+            )
+            self.assertEqual(payload["result"], "WARNING")
+            self.assertEqual(payload["successes"], 0)
+            self.assertEqual(payload["failures"], 1)
+            self.assertIn("2 passed, 1 failed", str(payload.get("note", "")))
+
+    def test_all_failed_write_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = root / "plan.json"
+            plan.write_text(
+                json.dumps({"components": [{"id": "model_registry", "artifact_prefix": "model_registry-smoke"}]}),
+                encoding="utf-8",
+            )
+            (root / "model_registry-smoke.xml").write_text(
+                """<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="model_registry" tests="2" failures="2" errors="0" skipped="0">
+  <testcase classname="a" name="t1"><failure message="x"/></testcase>
+  <testcase classname="a" name="t2"><failure message="y"/></testcase>
+</testsuite>
+""",
+                encoding="utf-8",
+            )
+            payload, _note = build_test_output_payload(
+                root,
+                component_id="model_registry",
+                plan_path=plan,
+            )
+            self.assertEqual(payload["result"], "FAILURE")
+            self.assertEqual(payload["successes"], 0)
+            self.assertEqual(payload["failures"], 2)
+            self.assertIn("0 passed, 2 failed", str(payload.get("note", "")))
+
+    def test_component_dag_badge_counts_failures_only_not_skipped(self) -> None:
+        """Skipped tests stay in note/suites; badge uses failures only (warnings zeroed)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = root / "plan.json"
+            plan.write_text(
+                json.dumps(
+                    {"components": [{"id": "platform", "artifact_prefix": "platform-smoke"}]}
+                ),
+                encoding="utf-8",
+            )
+            (root / "platform-smoke.xml").write_text(
+                """<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="platform" tests="60" failures="8" errors="0" skipped="50">
+  <testcase classname="a" name="t1"/>
+</testsuite>
+""",
+                encoding="utf-8",
+            )
+            payload, note = build_test_output_payload(
+                root,
+                component_id="platform",
+                plan_path=plan,
+            )
+            self.assertEqual(payload["result"], "WARNING")
+            self.assertEqual(payload["failures"], 8)
+            self.assertEqual(payload["warnings"], 0)
+            self.assertEqual(payload["successes"], 0)
+            self.assertEqual(payload["skipped"], 0)
+            self.assertIn("50 skipped", note)
+            suites = payload.get("suites", [])
+            self.assertEqual(len(suites), 1)
+            self.assertEqual(suites[0].get("skipped"), 50)
+
+    def test_component_preserves_failures_zeros_successes_for_dag_badge(self) -> None:
+        """Konflux DAG badge uses TEST_OUTPUT.failures only; successes stay 0."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = root / "plan.json"
+            plan.write_text(
+                json.dumps(
+                    {"components": [{"id": "trainer", "artifact_prefix": "trainer-smoke"}]}
+                ),
+                encoding="utf-8",
+            )
+            (root / "trainer-smoke.xml").write_text(
+                """<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="trainer" tests="5" failures="0" errors="0" skipped="0">
+  <testcase classname="a" name="t1"/>
+  <testcase classname="a" name="t2"/>
+  <testcase classname="a" name="t3"/>
+  <testcase classname="a" name="t4"/>
+  <testcase classname="a" name="t5"/>
+</testsuite>
+""",
+                encoding="utf-8",
+            )
+            payload, _note = build_test_output_payload(
+                root,
+                component_id="trainer",
+                plan_path=plan,
+            )
+            self.assertEqual(payload["result"], "SUCCESS")
+            self.assertEqual(payload["successes"], 0)
+            self.assertEqual(payload["failures"], 0)
+            self.assertEqual(payload["skipped"], 0)
+
+    def test_resolve_component_exit_codes_partial_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "workbenches-smoke.xml").write_text(
+                """<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="workbenches" tests="3" failures="1" errors="0" skipped="0">
+  <testcase classname="a" name="t1"/>
+  <testcase classname="a" name="t2"/>
+  <testcase classname="a" name="t3"><failure message="x"/></testcase>
+</testsuite>
+""",
+                encoding="utf-8",
+            )
+            from suite.component_task_exit import resolve_component_exit_codes
+
+            strict, tekton = resolve_component_exit_codes(
+                {"id": "workbenches", "artifact_prefix": "workbenches-smoke"},
+                raw_ec=1,
+                artifacts_dir=root,
+            )
+            self.assertEqual(strict, 1)
+            self.assertEqual(tekton, 0)
+
+    def test_bvt_all_skipped_emits_success(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "cluster-health.xml").write_text(
+                """<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="cluster" tests="1" failures="0" errors="0" skipped="1">
+  <testcase classname="a" name="t1"><skipped message="n/a"/></testcase>
+</testsuite>
+""",
+                encoding="utf-8",
+            )
+            (root / "operator-health.xml").write_text(
+                """<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="operator" tests="1" failures="0" errors="0" skipped="1">
+  <testcase classname="a" name="t1"><skipped message="n/a"/></testcase>
+</testsuite>
+""",
+                encoding="utf-8",
+            )
+            payload, _note = build_test_output_payload(root, note_prefix="BVT")
+            self.assertEqual(payload["result"], "SUCCESS")
+            self.assertEqual(payload["successes"], 0)
+            self.assertEqual(payload["skipped"], 2)
+
+    def test_bvt_partial_skip_emits_success_when_executed_passed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "cluster-health.xml").write_text(
+                """<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="cluster" tests="1" failures="0" errors="0" skipped="0">
+  <testcase classname="a" name="t1"/>
+</testsuite>
+""",
+                encoding="utf-8",
+            )
+            (root / "operator-health.xml").write_text(
+                """<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="operator" tests="1" failures="0" errors="0" skipped="1">
+  <testcase classname="a" name="t1"><skipped message="n/a"/></testcase>
+</testsuite>
+""",
+                encoding="utf-8",
+            )
+            payload, note = build_test_output_payload(root, note_prefix="BVT")
+            self.assertEqual(payload["result"], "SUCCESS")
+            self.assertEqual(payload["successes"], 1)
+            self.assertEqual(payload["skipped"], 1)
+            self.assertIn("50%", note)
+
+    def test_component_aggregate_excludes_bvt_and_allows_tier_skips(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "results"
+            root.mkdir()
+            (root / "cluster-health.xml").write_text(
+                """<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="cluster" tests="1" failures="0" errors="0" skipped="0">
+  <testcase classname="a" name="t1"/>
+</testsuite>
+""",
+                encoding="utf-8",
+            )
+            (root / "distributed-workloads-smoke.xml").write_text(
+                """<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="kfto" tests="51" failures="0" errors="0" skipped="50">
+  <testcase classname="a" name="TestKftoSmoke"/>
+  <testcase classname="a" name="skipped"><skipped/></testcase>
+</testsuite>
+""",
+                encoding="utf-8",
+            )
+            payload, note = build_test_output_payload(
+                root.parent,
+                note_prefix="Component",
+                recursive=True,
+            )
+            self.assertEqual(payload["result"], "SUCCESS")
+            self.assertEqual(payload["successes"], 1)
+            self.assertEqual(payload["skipped"], 50)
+            suite_ids = [str(s.get("id")) for s in payload.get("suites", [])]
+            self.assertNotIn("cluster-health", suite_ids)
+            self.assertIn("distributed-workloads-smoke", suite_ids)
+            self.assertIn("1 passed", note)
+
+    def test_shrink_drops_suites_when_payload_too_large(self) -> None:
+        from steps.summarize_test_output import _shrink_test_output_payload, _TEKTON_TEST_OUTPUT_MAX_BYTES
+
+        suites = [
+            {
+                "id": f"component-{i}",
+                "name": f"Component {i}",
+                "total": 10,
+                "passed": 8,
+                "failed": 2,
+                "skipped": 0,
+            }
+            for i in range(80)
+        ]
+        payload: dict[str, object] = {
+            "result": "FAILURE",
+            "timestamp": "2026-06-21T00:00:00Z",
+            "failures": 160,
+            "warnings": 0,
+            "successes": 640,
+            "skipped": 0,
+            "note": "component: 80% pass rate (640 passed, 160 failed, 0 skipped)",
+            "suites": suites,
+        }
+        self.assertGreater(len(json.dumps(payload, separators=(",", ":")).encode()), _TEKTON_TEST_OUTPUT_MAX_BYTES)
+        shrunk = _shrink_test_output_payload(payload)
+        self.assertNotIn("suites", shrunk)
+        self.assertLessEqual(len(json.dumps(shrunk, separators=(",", ":")).encode()), _TEKTON_TEST_OUTPUT_MAX_BYTES)
+        self.assertIn("per-suite details omitted", str(shrunk.get("note", "")))
+
+if __name__ == "__main__":
+    raise SystemExit(unittest.main())
