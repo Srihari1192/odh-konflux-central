@@ -220,6 +220,39 @@ def _namespace_phase(name: str) -> str:
     return (r.stdout or "").strip()
 
 
+_TERMINATING_FORCE_DELETE_KINDS: tuple[str, ...] = (
+    "pod",
+    "replicaset",
+    "deployment",
+    "statefulset",
+    "job",
+)
+
+
+def _force_delete_terminating_namespace_resources(name: str) -> None:
+    """Delete leftover workload objects that keep a namespace in Terminating."""
+    print(
+        f"Namespace {name} still Terminating - force-deleting remaining workload objects...",
+        flush=True,
+    )
+    for kind in _TERMINATING_FORCE_DELETE_KINDS:
+        oc_run(
+            [
+                "delete",
+                kind,
+                "--all",
+                "-n",
+                name,
+                "--grace-period=0",
+                "--force",
+                "--ignore-not-found",
+            ],
+            check=False,
+            capture_output=True,
+            timeout=120,
+        )
+
+
 def unblock_terminating_namespace(name: str) -> None:
     """Clear finalizers on namespaces stuck Terminating (blocks setup-dependencies KEDA apply)."""
     if _namespace_phase(name) != "Terminating":
@@ -234,6 +267,9 @@ def unblock_terminating_namespace(name: str) -> None:
         capture_output=True,
         timeout=60,
     )
+    if _namespace_phase(name) != "Terminating":
+        return
+    _force_delete_terminating_namespace_resources(name)
     if _namespace_phase(name) != "Terminating":
         return
     get = oc_run(["get", "namespace", name, "-o", "json"], check=False, capture_output=True, timeout=30)
@@ -251,7 +287,18 @@ def unblock_terminating_namespace(name: str) -> None:
         capture_output=True,
         timeout=60,
     )
-    if finalize.returncode != 0 and _namespace_phase(name) == "Terminating":
+    if _namespace_phase(name) != "Terminating":
+        return
+    _force_delete_terminating_namespace_resources(name)
+    if _namespace_phase(name) != "Terminating":
+        return
+    wait = oc_run(
+        ["wait", "--for=delete", f"namespace/{name}", "--timeout=60s"],
+        check=False,
+        capture_output=True,
+        timeout=75,
+    )
+    if wait.returncode != 0 and _namespace_phase(name) == "Terminating":
         err = (finalize.stderr or finalize.stdout or patch.stderr or patch.stdout or "").strip()
         raise RuntimeError(f"Could not unblock Terminating namespace {name}: {err or 'unknown error'}")
 
@@ -290,9 +337,22 @@ def ensure_setup_dependency_namespaces_ready(
             time.sleep(5)
     if pending:
         phases = {ns: _namespace_phase(ns) or "missing" for ns in sorted(pending)}
-        raise RuntimeError(
-            f"Dependency namespaces not ready after {timeout}s: {phases}"
+        strict = os.environ.get("SETUP_NS_READY_STRICT", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
         )
+        terminating = {ns: phase for ns, phase in phases.items() if phase == "Terminating"}
+        if strict or terminating:
+            raise RuntimeError(
+                f"Dependency namespaces not ready after {timeout}s: {phases}"
+            )
+        print(
+            f"WARN: Dependency namespaces not ready after {timeout}s: {phases}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return
     print("✓ setup-dependencies target namespaces ready", flush=True)
 
 

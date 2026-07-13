@@ -10,6 +10,7 @@ from k8s.shift_left_env import (
     is_stageable_smoke_secret_key,
     load_shift_left_env_from_mount,
     promote_shift_left_aws_env,
+    resolve_ci_s3_smoke_fields,
     suppress_ephemeral_jira_env,
 )
 
@@ -58,6 +59,22 @@ class ShiftLeftEnvTests(unittest.TestCase):
             self.assertEqual(env["CI_S3_BUCKET_NAME"], "legacy-bucket")
             self.assertEqual(env["CI_S3_BUCKET_ENDPOINT"], "https://s3.example.com")
             self.assertEqual(env["CI_S3_BUCKET_REGION"], "eu-west-1")
+
+    def test_resolve_ci_s3_smoke_fields_legacy_aws_mapping(self) -> None:
+        fields = resolve_ci_s3_smoke_fields(
+            {
+                "AWS_ACCESS_KEY_ID": "ak",
+                "AWS_SECRET_ACCESS_KEY": "sk",
+                "AWS_S3_BUCKET": "legacy-bucket",
+                "AWS_S3_ENDPOINT": "https://s3.example.com",
+                "AWS_DEFAULT_REGION": "eu-west-1",
+            }
+        )
+        self.assertIsNotNone(fields)
+        assert fields is not None
+        self.assertEqual(fields["NAME"], "legacy-bucket")
+        self.assertEqual(fields["ENDPOINT"], "https://s3.example.com")
+        self.assertEqual(fields["REGION"], "eu-west-1")
 
     def test_promote_shift_left_aws_env_from_mount_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

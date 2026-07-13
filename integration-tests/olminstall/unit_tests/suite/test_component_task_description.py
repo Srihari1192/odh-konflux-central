@@ -48,10 +48,10 @@ class ComponentTaskDescriptionTest(unittest.TestCase):
         self.assertNotIn("OCI upload happens in publish-results", desc)
         self.assertNotIn("Min pass rate for Tekton success: 90%", desc)
 
-    def test_dashboard_cypress_keeps_non_default_pass_rate(self) -> None:
+    def test_dashboard_cypress_uses_default_pass_rate(self) -> None:
         comp = self.catalog.components["dashboard_cypress"]
         desc = build_component_task_description(comp)
-        self.assertIn("Min pass rate for Tekton success: 80%", desc)
+        self.assertNotIn("Min pass rate for Tekton success:", desc)
 
     def test_golang_runner_description_mentions_framework(self) -> None:
         comp = self.catalog.components["ai_pipelines"]

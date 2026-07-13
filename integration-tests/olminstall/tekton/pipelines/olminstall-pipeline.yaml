@@ -3217,7 +3217,6 @@ spec:
         - Smoke command: cypress-parallel.
         - Requires tenant credentials supplied by the pipeline.
         - Timeouts: smoke 25m, tier1 90m.
-        - Min pass rate for Tekton success: 80%.
         - Cypress runs 5 parallel smoke set(s).
       timeout: 125m0s
       workspaces:

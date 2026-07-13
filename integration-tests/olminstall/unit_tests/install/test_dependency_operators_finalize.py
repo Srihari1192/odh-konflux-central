@@ -5,11 +5,12 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, call
 
 from install.dependency_operators import (  # noqa: E402
     ensure_setup_dependency_namespaces_ready,
     finalize_dependency_operators_after_setup_script,
+    unblock_terminating_namespace,
 )
 
 class FinalizeDependencyOperatorsTest(unittest.TestCase):
@@ -126,6 +127,51 @@ class EnsureSetupDependencyNamespacesTest(unittest.TestCase):
             timeout_sec=30,
         )
         unblock.assert_called_once_with("openshift-keda")
+
+    @patch("install.dependency_operators.time.sleep")
+    @patch("install.dependency_operators.unblock_terminating_namespace")
+    @patch("install.dependency_operators._namespace_phase", return_value="Terminating")
+    @patch("install.dependency_operators.time.time", side_effect=[100.0, 100.0, 131.0])
+    def test_raises_when_namespace_stays_terminating(
+        self,
+        _time,
+        _phase,
+        unblock,
+        _sleep,
+    ) -> None:
+        with self.assertRaisesRegex(RuntimeError, "openshift-kueue-operator"):
+            ensure_setup_dependency_namespaces_ready(
+                ("openshift-kueue-operator",),
+                timeout_sec=30,
+            )
+        unblock.assert_called_with("openshift-kueue-operator")
+
+
+class UnblockTerminatingNamespaceTest(unittest.TestCase):
+    @patch("install.dependency_operators.oc_run")
+    @patch(
+        "install.dependency_operators._namespace_phase",
+        side_effect=["Terminating"] * 8 + [""],
+    )
+    def test_force_deletes_workloads_before_finalize(self, _phase: object, oc_run_mock: object) -> None:
+        oc_run_mock.return_value = type(
+            "R",
+            (),
+            {"returncode": 0, "stdout": '{"metadata":{"name":"openshift-kueue-operator"},"spec":{}}', "stderr": ""},
+        )()
+        unblock_terminating_namespace("openshift-kueue-operator")
+        delete_calls = [
+            call.args[0]
+            for call in oc_run_mock.call_args_list
+            if call.args and call.args[0][:2] == ["delete", "pod"]
+        ]
+        self.assertTrue(delete_calls)
+        finalize_calls = [
+            call.args[0]
+            for call in oc_run_mock.call_args_list
+            if call.args and call.args[0][:2] == ["replace", "--raw"]
+        ]
+        self.assertTrue(finalize_calls)
 
 if __name__ == "__main__":
     raise SystemExit(unittest.main())

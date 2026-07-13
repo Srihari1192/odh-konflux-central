@@ -610,21 +610,29 @@ def post_install_rhcl_needed() -> bool:
     return not authorino_workload_tls_ready()
 
 
-def run_post_install_rhcl_operator(*, fatal: bool = False, olm_dir: Path | None = None) -> bool:
+def run_post_install_rhcl_operator(
+    *,
+    fatal: bool = False,
+    olm_dir: Path | None = None,
+    timeout_sec: int | None = None,
+) -> bool:
     """Run olminstall post-install-rhcl-operator.sh (Kuadrant wait + Authorino TLS)."""
     root = olm_dir or resolve_olminstall_dir()
     script = root / "resources" / "post-install-rhcl-operator.sh"
     print(f"Running {script.name} for Kuadrant/Authorino readiness...", flush=True)
-    raw_timeout = os.environ.get("RHCL_POST_INSTALL_TIMEOUT_SEC", "1800").strip()
-    try:
-        timeout = int(raw_timeout)
-    except ValueError:
-        timeout = 1800
-        print(
-            f"WARN: invalid RHCL_POST_INSTALL_TIMEOUT_SEC={raw_timeout!r}; using default {timeout}s",
-            file=sys.stderr,
-            flush=True,
-        )
+    if timeout_sec is not None:
+        timeout = timeout_sec
+    else:
+        raw_timeout = os.environ.get("RHCL_POST_INSTALL_TIMEOUT_SEC", "1800").strip()
+        try:
+            timeout = int(raw_timeout)
+        except ValueError:
+            timeout = 1800
+            print(
+                f"WARN: invalid RHCL_POST_INSTALL_TIMEOUT_SEC={raw_timeout!r}; using default {timeout}s",
+                file=sys.stderr,
+                flush=True,
+            )
     try:
         proc = subprocess.run(
             ["bash", str(script)],
@@ -669,11 +677,42 @@ def ensure_maas_rhcl_dependency_stack(*, olm_dir: Path | None = None) -> None:
     if olm_dir is not None:
         post_kwargs["olm_dir"] = olm_dir
     if run_post_install_rhcl_operator(**post_kwargs):
+        from helpers.gateway_stack_marker import clear_gateway_stack_incomplete_marker
+
+        clear_gateway_stack_incomplete_marker()
         return
     if defer_authorino:
         print(
             "WARN: post-install-rhcl-operator.sh incomplete; "
-            "Kuadrant/AuthPolicy will be retried in component cluster prep",
+            "retrying Kuadrant/Authorino readiness before component tests",
+            file=sys.stderr,
+            flush=True,
+        )
+        retry_raw = os.environ.get("RHCL_POST_INSTALL_RETRY_TIMEOUT_SEC", "300").strip()
+        try:
+            retry_timeout = int(retry_raw)
+        except ValueError:
+            retry_timeout = 300
+            print(
+                f"WARN: invalid RHCL_POST_INSTALL_RETRY_TIMEOUT_SEC={retry_raw!r}; using {retry_timeout}s",
+                file=sys.stderr,
+                flush=True,
+            )
+        retry_kwargs = dict(post_kwargs)
+        retry_kwargs["fatal"] = False
+        retry_kwargs["timeout_sec"] = retry_timeout
+        if run_post_install_rhcl_operator(**retry_kwargs):
+            from helpers.gateway_stack_marker import clear_gateway_stack_incomplete_marker
+
+            clear_gateway_stack_incomplete_marker()
+            print("✓ post-install-rhcl-operator.sh succeeded on retry", flush=True)
+            return
+        from helpers.gateway_stack_marker import write_gateway_stack_incomplete_marker
+
+        write_gateway_stack_incomplete_marker()
+        print(
+            "ERROR: Kuadrant auth stack not ready after post-install retry; "
+            "gateway 503 risk for dashboard_cypress",
             file=sys.stderr,
             flush=True,
         )

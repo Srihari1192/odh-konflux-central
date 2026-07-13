@@ -243,7 +243,9 @@ class RhclDepsTest(unittest.TestCase):
     ) -> None:
         mod.ensure_maas_rhcl_dependency_stack()
         ensure_rhcl.assert_called_once()
-        post_install.assert_called_once_with(fatal=False)
+        self.assertEqual(post_install.call_count, 2)
+        post_install.assert_any_call(fatal=False)
+        post_install.assert_any_call(fatal=False, timeout_sec=300)
 
     @patch.dict(os.environ, {"PRODUCT": "existing", "INSTALL_DEPENDENCIES": "true"}, clear=False)
     @patch("install.rhcl_deps.run_post_install_rhcl_operator", return_value=False)
@@ -255,7 +257,7 @@ class RhclDepsTest(unittest.TestCase):
     ) -> None:
         mod.ensure_maas_rhcl_dependency_stack()
         ensure_rhcl.assert_called_once()
-        post_install.assert_called_once_with(fatal=False)
+        self.assertEqual(post_install.call_count, 2)
 
     @patch.dict(
         os.environ,
@@ -271,7 +273,22 @@ class RhclDepsTest(unittest.TestCase):
     ) -> None:
         mod.ensure_maas_rhcl_dependency_stack()
         ensure_rhcl.assert_called_once()
-        post_install.assert_called_once_with(fatal=False)
+        self.assertEqual(post_install.call_count, 2)
+
+    @patch.dict(os.environ, {"RHCL_POST_INSTALL_RETRY_TIMEOUT_SEC": "120"}, clear=False)
+    @patch("install.dependency_operators.product_install_path", return_value=True)
+    @patch("install.rhcl_deps.run_post_install_rhcl_operator", side_effect=[False, True])
+    @patch("install.rhcl_deps.ensure_rhcl_operator_for_maas")
+    def test_dependency_stack_succeeds_when_post_install_retry_passes(
+        self,
+        ensure_rhcl,
+        post_install,
+        _product_install,
+    ) -> None:
+        mod.ensure_maas_rhcl_dependency_stack()
+        ensure_rhcl.assert_called_once()
+        self.assertEqual(post_install.call_count, 2)
+        post_install.assert_any_call(fatal=False, timeout_sec=120)
 
     @patch(
         "install.rhcl_deps.pick_succeeded_csv_version",

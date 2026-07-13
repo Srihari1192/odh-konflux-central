@@ -141,7 +141,7 @@ LABEL_PAC_PULL_REQUEST = "pipelinesascode.tekton.dev/pull-request"
 
 # olminstall CLI trigger (``olminstall.trigger-type``); Konflux Activity ``event-type`` values.
 TRIGGER_TYPE_MANUAL = "manual"
-# Rh-nightly catalog sync (via ``--enable-its``): playpen Snapshot when OCP-matched catalog digest changes.
+# Rh-nightly auto-trigger annotation (legacy catalog-sync runs; upstream FBC uses Integration Service only).
 TRIGGER_TYPE_RH_NIGHTLY_AUTO = "rh-nightly-auto"
 EVENT_TYPE_INCOMING = "incoming"
 EVENT_TYPE_PULL_REQUEST = "pull_request"

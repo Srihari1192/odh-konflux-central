@@ -225,7 +225,7 @@ def first_snapshot_component_name(snapshot_yaml: str) -> str:
     if not m:
         snippet = snapshot_yaml[:200].replace("\n", " ")
         raise AppError(
-            "Could not locate the first snapshot component name in test-snapshot.yaml "
+            "Could not locate the first snapshot component name in config/test-snapshot.yaml "
             f"(template drift?). Snippet: {snippet!r}"
         )
     return m.group(1)

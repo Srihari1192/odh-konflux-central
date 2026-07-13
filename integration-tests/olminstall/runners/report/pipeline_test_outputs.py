@@ -18,6 +18,21 @@ from runners.report.junit_suite_report import (
     read_gate_sidecar,
     test_output_includes_combined_gates,
 )
+from suite.test_output_pass_rate import classify_result_by_pass_rate
+
+# Workspace sidecar key (``by_gate["smoke"]``) and filename ``.olminstall-smoke-test-output.json``
+# hold aggregated JUnit from every component ``test-*`` task for all selected component
+# phases (smoke, tier1, …) — not smoke-only despite the historical name.
+COMPONENT_AGGREGATE_GATE_KEY = "smoke"
+
+# ``TEST_GATES`` values that share the component aggregate sidecar today. ``tier1`` does not
+# have its own sidecar yet; tier1 tests are included in ``COMPONENT_AGGREGATE_GATE_KEY``.
+COMPONENT_AGGREGATE_REQUEST_GATES = frozenset({"smoke", "tier1"})
+
+
+def component_aggregate_requested(test_gates: str) -> bool:
+    requested = {part.strip().lower() for part in test_gates.split(",") if part.strip()}
+    return bool(requested.intersection(COMPONENT_AGGREGATE_REQUEST_GATES))
 
 
 def gates_from_test_gates_csv(test_gates: str) -> list[str]:
@@ -174,6 +189,63 @@ def build_combined_test_output_payload(
     if merged_suites:
         payload["suites"] = merged_suites
     return payload
+
+
+def _gate_test_output_counts(data: dict[str, object]) -> tuple[int, int, int]:
+    passed = int(data.get("successes", data.get("passed", 0)) or 0)
+    failed = int(data.get("failures", 0) or 0)
+    skipped = int(data.get("skipped", 0) or 0)
+    return passed, failed, skipped
+
+
+def _component_aggregate_counts(
+    by_gate: dict[str, str] | None,
+    payload: dict[str, object],
+) -> tuple[int, int, int]:
+    if by_gate:
+        raw = by_gate.get(COMPONENT_AGGREGATE_GATE_KEY, "").strip()
+        if raw:
+            data = _parse_gate_json(raw)
+            if data is not None:
+                passed, failed, skipped = _gate_test_output_counts(data)
+                if passed or failed or skipped:
+                    return passed, failed, skipped
+    return _gate_test_output_counts(payload)
+
+
+def apply_test_finalize_display_result(
+    payload: dict[str, object],
+    *,
+    by_gate: dict[str, str] | None = None,
+    test_gates: str = "",
+) -> dict[str, object]:
+    """Rewrite ``result`` on test-finalize TEST_OUTPUT for Konflux node color only.
+
+    Component aggregate (all ``test-*`` JUnit for smoke/tier1/…) uses pass-rate tiers.
+    BVT keeps its existing result. Per-component TaskRuns and publish-results unchanged.
+    """
+    gates = gates_from_test_gates_csv(test_gates) if test_gates.strip() else []
+    ranked: list[str] = []
+
+    if by_gate and "bvt" in gates:
+        bvt_data = _parse_gate_json(by_gate.get("bvt", ""))
+        if bvt_data is not None:
+            bvt_result = str(bvt_data.get("result", "")).strip().upper()
+            if _result_rank(bvt_result) >= 0:
+                ranked.append(bvt_result)
+
+    if component_aggregate_requested(test_gates) or not test_gates.strip():
+        passed, failed, skipped = _component_aggregate_counts(by_gate, payload)
+        ranked.append(
+            classify_result_by_pass_rate(passed=passed, failed=failed, skipped=skipped)
+        )
+
+    if not ranked:
+        return payload
+
+    out = dict(payload)
+    out["result"] = min(ranked, key=_result_rank)
+    return out
 
 
 def build_finalize_test_output_from_taskruns(

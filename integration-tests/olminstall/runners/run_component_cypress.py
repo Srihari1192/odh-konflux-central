@@ -46,6 +46,12 @@ from components.dashboard_cypress.runtime import (
     sync_cypress_auth_env_from_config,
     unset_in_cluster_k8s_env,
     verify_dashboard_reachable,
+    verify_gateway_stack_healthy,
+    gateway_auth_stack_ready,
+)
+from helpers.gateway_stack_marker import (
+    clear_gateway_stack_incomplete_marker,
+    gateway_stack_incomplete,
 )
 from install.kubeconfig_cluster_label import cluster_label_from_kubeconfig
 from runners.orchestrator import stage_cypress_cli_tools
@@ -89,6 +95,41 @@ def _prepend_tools_bin(artifacts_dir: Path) -> None:
     payload_root = resolve_tests_payload_root(artifacts_dir.parent)
     tools_bin = tests_payload_tools_bin_dir(payload_root)
     os.environ["PATH"] = f"{tools_bin}:{os.environ.get('PATH', '')}"
+
+
+def _gateway_checks_fail_fast() -> bool:
+    return os.environ.get("RHCL_GATEWAY_FAIL_FAST", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+    )
+
+
+def _gateway_preflight_issues(
+    *,
+    auth_ready: bool,
+    incomplete: bool,
+    healthy: bool,
+) -> list[str]:
+    """Issues that block Cypress when RHCL_GATEWAY_FAIL_FAST is enabled."""
+    issues: list[str] = []
+    if not auth_ready:
+        issues.append("gateway auth stack not ready (MaaS deps or Authorino TLS)")
+    if not healthy:
+        issues.append("gateway deployments not fully ready")
+    if incomplete and not healthy:
+        issues.append(
+            "Kuadrant/Authorino stack incomplete (RHCL post-install retry failed)"
+        )
+    return issues
+
+
+def _fail_or_warn_gateway(msg: str) -> int | None:
+    if _gateway_checks_fail_fast():
+        print(f"ERROR: {msg}", file=sys.stderr, flush=True)
+        return 2
+    print(f"WARN: {msg}", flush=True)
+    return None
 
 
 def main() -> int:
@@ -214,6 +255,29 @@ def main() -> int:
     if not verify_dashboard_reachable(odh_dashboard_url):
         print(f"ERROR: dashboard not reachable at {odh_dashboard_url}", file=sys.stderr)
         return 2
+
+    gateway_healthy = verify_gateway_stack_healthy()
+    # RHCL may leave an incomplete marker during install even when deployments recover.
+    if gateway_stack_incomplete() and gateway_healthy:
+        clear_gateway_stack_incomplete_marker()
+        print(
+            "WARN: cleared stale gateway incomplete marker (deployments ready, dashboard reachable)",
+            flush=True,
+        )
+
+    gateway_issues = _gateway_preflight_issues(
+        auth_ready=gateway_auth_stack_ready(),
+        incomplete=gateway_stack_incomplete(),
+        healthy=gateway_healthy,
+    )
+
+    if gateway_issues:
+        ec = _fail_or_warn_gateway(
+            "; ".join(gateway_issues)
+            + " (set RHCL_GATEWAY_FAIL_FAST=0 for WARN-only and continue Cypress)"
+        )
+        if ec is not None:
+            return ec
 
     try:
         ensure_google_chrome()

@@ -12,6 +12,7 @@ from _bootstrap import ensure_olminstall_path
 ensure_olminstall_path()
 
 from components.dashboard_cypress.verify_route import verify_dashboard_route_for_prepare
+from components.dashboard_cypress.runtime import log_gateway_auth_stack_warnings
 from steps.tests_payload import ensure_tests_payload_layout, resolve_tests_payload_root
 
 _SKIP_MARKER = ".skip-verify-operator-ready"
@@ -86,6 +87,7 @@ def main() -> int:
     except RuntimeError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
+    log_gateway_auth_stack_warnings()
     if tests_shared and url:
         url_file = resolve_tests_payload_root(Path(tests_shared)) / "odh-dashboard-url.txt"
         url_file.parent.mkdir(parents=True, exist_ok=True)

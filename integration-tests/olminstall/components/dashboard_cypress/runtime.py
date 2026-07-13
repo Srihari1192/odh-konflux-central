@@ -55,17 +55,22 @@ _K8S_IN_CLUSTER_ENV = (
 _CI_AUTH_BYPASS_SRC = Path(__file__).with_name("assets") / "ci-auth-bypass.ts"
 _ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _DASHBOARD_OK_HTTP = frozenset({"200", "302", "403"})
+# Shared gateway skip tags (htpasswd HCP vs BYOIDC add cluster-mode suffixes below).
+_SHARED_GATEWAY_CYPRESS_SKIP_TAGS = (
+    "@FeatureStore @FeatureStoreCI @SettingsCI "
+    "@ModelServingCI @KServeCI @ModelServing "
+    "@ProjectsCI @PipelinesCI @Pipelines @ci-dashboard-regression-tags "
+    "@ModelRegistryCI @AutoMLCI @Tier1"
+)
+# Htpasswd ROSA HCP: skip LDAP/RBAC-heavy specs and @AutoML until pooled Jenkins parity.
 _HTPASSWD_HCP_EXTRA_SKIP_TAGS = (
-    "@ModelServingCI @KServeCI @ModelServing @MaaSCI @ProjectsCI @PipelinesCI "
-    "@Pipelines @ci-dashboard-regression-tags @ModelRegistryCI @AutoMLCI @Tier1"
+    f"{_SHARED_GATEWAY_CYPRESS_SKIP_TAGS} "
+    "@NotebookAdministration @MaaS @MaaSCI @MaasSubscriptions @AutoML"
 )
 _BYOIDC_EXTRA_SKIP_TAGS = (
-    "@FeatureStore @FeatureStoreCI @ConnectionTypesCI @SettingsCI "
-    "@MaaSCI @MaasSubscriptions @ODS-327 @ODS-492 "
-    "@ModelServingCI @KServeCI @ModelServing @LLMDServingCI "
-    "@ProjectsCI @PipelinesCI @Pipelines @ci-dashboard-regression-tags "
-    "@ModelRegistryCI @AutoMLCI @Tier1 "
-    "@HardwareProfilesCI @HardwareProfileModelServing"
+    f"{_SHARED_GATEWAY_CYPRESS_SKIP_TAGS} "
+    "@ConnectionTypesCI @MaaS @MaaSCI @MaasSubscriptions @ODS-327 @ODS-492 "
+    "@LLMDServingCI @HardwareProfilesCI @HardwareProfileModelServing"
 )
 _KONFLUX_MANIFEST_EXTRA_SKIP_TAGS = "@ODS-327 @ODS-492"
 
@@ -199,6 +204,7 @@ def prepare_dashboard_worktree(
     _hoist_tslib_for_cypress(dashboard_src)
     _ensure_cypress_binary_installed(dashboard_src, working_dir_rel)
     patch_dashboard_cypress_upstream_tests(dashboard_src)
+    patch_dashboard_cypress_automl_hooks(dashboard_src)
     patch_dashboard_cypress_ldap_gateway_login(dashboard_src)
     os.environ["DASHBOARD_SRC"] = str(dashboard_src)
     return dashboard_src / working_dir_rel, dashboard_src / results_dir_rel
@@ -235,6 +241,46 @@ def patch_dashboard_cypress_upstream_tests(dashboard_src: Path) -> None:
         encoding="utf-8",
     )
     print(f"✓ Patched {about.name} for operator-namespace CSV lookup", flush=True)
+
+
+def patch_dashboard_cypress_automl_hooks(dashboard_src: Path) -> None:
+    """Guard AutoML after() when before() did not finish (skipped SmokeSet4 / missing S3)."""
+    automl = (
+        dashboard_src
+        / "packages/cypress/cypress/tests/e2e/automl/testAutomlBinaryClassification.cy.ts"
+    )
+    if not automl.is_file():
+        return
+    text = automl.read_text(encoding="utf-8")
+    marker = "olminstall-patched-automl-after-guard"
+    if marker in text:
+        return
+    old = """  after(() => {
+    if (!automlWasEnabled) {
+      setAutomlEnabled(false);
+    }
+    deleteS3TestFiles(projectName, testData.awsBucket, `*${uuid}*`);
+"""
+    new = """  after(() => {
+    if (!automlWasEnabled) {
+      setAutomlEnabled(false);
+    }
+    if (!testData?.awsBucket || !projectName) {
+      return;
+    }
+    deleteS3TestFiles(projectName, testData.awsBucket, `*${uuid}*`);
+"""
+    if old not in text:
+        print(
+            f"WARN: skip AutoML after() patch; {automl.name} layout changed",
+            flush=True,
+        )
+        return
+    automl.write_text(
+        f"// {marker}\n" + text.replace(old, new, 1),
+        encoding="utf-8",
+    )
+    print(f"✓ Patched {automl.name} AutoML after() guard", flush=True)
 
 
 def patch_dashboard_cypress_ldap_gateway_login(dashboard_src: Path) -> None:
@@ -480,6 +526,7 @@ from components.dashboard_cypress.auth_overlay import (  # noqa: E402
     _apply_gateway_auth_overlay,
     _deep_merge_dict,
     _load_yaml_dict,
+    _merge_cypress_s3_overlay,
     _merge_test_clusters_into_runtime_config,
     _yaml_scalar,
     dashboard_url_is_local,
@@ -525,12 +572,23 @@ def konflux_olminstall_extra_cypress_skip_tags() -> str:
     return ""
 
 
+def _automl_s3_skip_tags() -> str:
+    """Skip @AutoML specs when CY_TEST_CONFIG has no AWS_PIPELINES (S3 not available)."""
+    cy_config = os.environ.get("CY_TEST_CONFIG", "").strip()
+    if cy_config:
+        doc = _load_yaml_dict(Path(cy_config))
+        if isinstance(doc.get("AWS_PIPELINES"), dict):
+            return ""
+    return "@AutoML @AutoMLCI"
+
+
 def cypress_extra_skip_tags(*, odh_dashboard_url: str) -> str:
     """Merge runtime Cypress skipTags for gateway auth mode and CI environment."""
     parts = [
         htpasswd_hcp_extra_cypress_skip_tags(odh_dashboard_url=odh_dashboard_url),
         byoidc_extra_cypress_skip_tags(odh_dashboard_url=odh_dashboard_url),
         konflux_olminstall_extra_cypress_skip_tags(),
+        _automl_s3_skip_tags(),
     ]
     return " ".join(part for part in parts if part.strip())
 
@@ -556,6 +614,7 @@ def patch_runtime_cy_test_config(
         cluster_label=cluster_label,
         odh_dashboard_url=odh_dashboard_url,
     )
+    _merge_cypress_s3_overlay(runtime_cfg, src)
     overrides = dict(_default_runtime_config_overrides())
     overrides["ODH_DASHBOARD_URL"] = odh_dashboard_url
     if extra_overrides:
@@ -619,14 +678,87 @@ def verify_dashboard_reachable(url: str) -> bool:
     return code in _DASHBOARD_OK_HTTP
 
 
-def _prepend_pythonpath(entry: str) -> None:
-    import sys
+_GATEWAY_DEPLOYMENTS: tuple[tuple[str, str], ...] = (
+    ("deployment/kube-auth-proxy", "openshift-ingress"),
+    ("deployment/data-science-gateway-data-science-gateway-class", "openshift-ingress"),
+)
+_AUTHORINO_GATEWAY_NAMESPACES = ("kuadrant-system", "rh-connectivity-link")
 
-    existing = os.environ.get("PYTHONPATH", "").strip()
-    if entry and entry not in {p for p in existing.split(":") if p}:
-        os.environ["PYTHONPATH"] = f"{entry}:{existing}" if existing else entry
-    if entry and entry not in sys.path:
-        sys.path.insert(0, entry)
+
+def _deployment_ready_replicas(resource: str, namespace: str) -> str:
+    r = oc_run(
+        ["get", resource, "-n", namespace, "-o", "jsonpath={.status.readyReplicas}"],
+        check=False,
+        capture_output=True,
+        timeout=15,
+    )
+    if r.returncode != 0:
+        return ""
+    return (r.stdout or "").strip()
+
+
+def verify_gateway_stack_healthy() -> bool:
+    """Check gateway deployments are ready (not just a transient HTTP 200 from kube-auth-proxy)."""
+    all_ok = True
+    for resource, ns in _GATEWAY_DEPLOYMENTS:
+        ready = _deployment_ready_replicas(resource, ns)
+        if not ready or ready == "0":
+            print(
+                f"WARN: {resource} in {ns} has {ready or 'no'} ready replicas",
+                flush=True,
+            )
+            all_ok = False
+    for ns in _AUTHORINO_GATEWAY_NAMESPACES:
+        exists = oc_run(
+            ["get", "deployment/authorino", "-n", ns],
+            check=False,
+            capture_output=True,
+            timeout=15,
+        )
+        if exists.returncode != 0:
+            continue
+        ready = _deployment_ready_replicas("deployment/authorino", ns)
+        if not ready or ready == "0":
+            print(
+                f"WARN: authorino in {ns} has {ready or 'no'} ready replicas",
+                flush=True,
+            )
+            all_ok = False
+        break
+    return all_ok
+
+
+def gateway_auth_stack_ready() -> bool:
+    """Return False when Kuadrant/Authorino gaps can cause gateway 503 under load."""
+    from install.dependency_operators import maas_dependency_operators_ready
+
+    from components.maas_billing.auth import authorino_workload_tls_ready
+
+    ready = True
+    if not maas_dependency_operators_ready():
+        print(
+            "WARN: MaaS dependency operators not ready - gateway 503 risk for Cypress",
+            flush=True,
+        )
+        ready = False
+    if not authorino_workload_tls_ready():
+        print(
+            "WARN: Authorino TLS not ready - gateway auth stack incomplete",
+            flush=True,
+        )
+        ready = False
+    return ready
+
+
+def log_gateway_auth_stack_warnings() -> None:
+    """Surface Kuadrant/Authorino readiness gaps that can cause gateway 503 under load."""
+    gateway_auth_stack_ready()
+
+
+def _prepend_pythonpath(entry: str) -> None:
+    from helpers.pip_bootstrap import prepend_pythonpath
+
+    prepend_pythonpath(entry)
 
 
 def prepend_staged_python_deps() -> bool:
@@ -647,26 +779,9 @@ def prepend_staged_python_deps() -> bool:
 
 
 def _pip_install_to_target(package: str, target: Path) -> None:
-    target.mkdir(parents=True, exist_ok=True)
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--disable-pip-version-check",
-            "--no-cache-dir",
-            "--target",
-            str(target),
-            package,
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or "").strip()
-        raise RuntimeError(f"pip install {package} to {target} failed: {detail or proc.returncode}")
+    from helpers.pip_bootstrap import pip_install_to_target
+
+    pip_install_to_target(package, target)
 
 
 def _ensure_pyyaml_available() -> None:

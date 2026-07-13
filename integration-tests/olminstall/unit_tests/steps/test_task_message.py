@@ -333,6 +333,101 @@ def test_parse_pipeline_tests_has_trigger_context_results() -> None:
         assert key in names
     assert "TASK_MESSAGE" not in names
 
+def test_test_finalize_declares_gate_summary_results() -> None:
+    doc = yaml.safe_load((_TASKS_DIR / "task-test-finalize.yaml").read_text(encoding="utf-8"))
+    names = [r.get("name") for r in doc["spec"]["results"] if isinstance(r, dict)]
+    assert names == ["TEST_OUTPUT", "TASK_MESSAGE", "TESTS_SUMMARY", "BVT_GATE", "SMOKE_GATE"]
+    summary = next(s for s in doc["spec"]["steps"] if s["name"] == "write-konflux-task-summary")
+    env_names = {e["name"] for e in summary["env"] if isinstance(e, dict)}
+    assert {"BVT_GATE_PATH", "SMOKE_GATE_PATH", "TESTS_SUMMARY_PATH", "TEST_GATES"} <= env_names
+
+def test_finalize_test_finalize_writes_gate_summary_results(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from steps import write_task_message
+
+    combined = {
+        "result": "WARNING",
+        "successes": 40,
+        "failures": 2,
+        "skipped": 0,
+        "note": (
+            "bvt: 100% pass rate (9 passed, 0 failed, 0 skipped)\n"
+            "smoke: 95% pass rate (40 passed, 2 failed, 0 skipped)"
+        ),
+    }
+    bvt_sidecar = {"successes": 9, "failures": 0, "skipped": 0}
+    smoke_sidecar = {"successes": 40, "failures": 2, "skipped": 0}
+    test_output_path = tmp_path / "test-output.json"
+    task_message_path = tmp_path / "task-message.txt"
+    tests_summary_path = tmp_path / "tests-summary.txt"
+    bvt_gate_path = tmp_path / "bvt-gate.txt"
+    smoke_gate_path = tmp_path / "smoke-gate.txt"
+    bvt_sidecar_path = tmp_path / "bvt-sidecar.json"
+    smoke_sidecar_path = tmp_path / "smoke-sidecar.json"
+    test_output_path.write_text(json.dumps(combined, separators=(",", ":")), encoding="utf-8")
+    bvt_sidecar_path.write_text(json.dumps(bvt_sidecar, separators=(",", ":")), encoding="utf-8")
+    smoke_sidecar_path.write_text(json.dumps(smoke_sidecar, separators=(",", ":")), encoding="utf-8")
+
+    monkeypatch.setenv("TEST_OUTPUT_PATH", str(test_output_path))
+    monkeypatch.setenv("TASK_MESSAGE_PATH", str(task_message_path))
+    monkeypatch.setenv("TESTS_SUMMARY_PATH", str(tests_summary_path))
+    monkeypatch.setenv("BVT_GATE_PATH", str(bvt_gate_path))
+    monkeypatch.setenv("SMOKE_GATE_PATH", str(smoke_gate_path))
+    monkeypatch.setenv("BVT_TEST_OUTPUT_PATH", str(bvt_sidecar_path))
+    monkeypatch.setenv("SMOKE_TEST_OUTPUT_PATH", str(smoke_sidecar_path))
+    monkeypatch.setenv("TEST_GATES", "bvt,smoke")
+    monkeypatch.setenv("TEKTON_RESULTS_DIR", str(tmp_path))
+
+    write_task_message._finalize_test_finalize(
+        task_message="smoke: 95% pass rate (40 passed, 2 failed, 0 skipped).",
+    )
+
+    assert bvt_gate_path.read_text(encoding="utf-8").strip() == (
+        "9 passed, 0 failed, 0 skipped, 9 total (100% pass rate)"
+    )
+    assert smoke_gate_path.read_text(encoding="utf-8").strip() == (
+        "40 passed, 2 failed, 0 skipped, 42 total (95% pass rate)"
+    )
+    assert "passed" in tests_summary_path.read_text(encoding="utf-8")
+    assert task_message_path.read_text(encoding="utf-8").startswith(
+        "smoke: 95% pass rate (40 passed, 2 failed, 0 skipped)."
+    )
+
+
+def test_finalize_test_finalize_without_test_output_writes_gate_summaries(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from steps import write_task_message
+
+    bvt_sidecar = {"successes": 9, "failures": 0, "skipped": 0}
+    task_message_path = tmp_path / "task-message.txt"
+    tests_summary_path = tmp_path / "tests-summary.txt"
+    bvt_gate_path = tmp_path / "bvt-gate.txt"
+    smoke_gate_path = tmp_path / "smoke-gate.txt"
+    bvt_sidecar_path = tmp_path / "bvt-sidecar.json"
+    (tmp_path / "bvt-sidecar.json").write_text(
+        json.dumps(bvt_sidecar, separators=(",", ":")), encoding="utf-8"
+    )
+
+    monkeypatch.setenv("TASK_MESSAGE_PATH", str(task_message_path))
+    monkeypatch.setenv("TESTS_SUMMARY_PATH", str(tests_summary_path))
+    monkeypatch.setenv("BVT_GATE_PATH", str(bvt_gate_path))
+    monkeypatch.setenv("SMOKE_GATE_PATH", str(smoke_gate_path))
+    monkeypatch.setenv("BVT_TEST_OUTPUT_PATH", str(bvt_sidecar_path))
+    monkeypatch.setenv("TEST_GATES", "bvt")
+    monkeypatch.setenv("TEKTON_RESULTS_DIR", str(tmp_path))
+
+    write_task_message._finalize_test_finalize(task_message="bvt: 100% pass rate (9 passed, 0 failed, 0 skipped).")
+
+    assert bvt_gate_path.read_text(encoding="utf-8").strip() == (
+        "9 passed, 0 failed, 0 skipped, 9 total (100% pass rate)"
+    )
+    assert task_message_path.read_text(encoding="utf-8").startswith("bvt: 100% pass rate")
+
+
 def test_pipeline_task_specs_have_task_message_in_results() -> None:
     doc = yaml.safe_load(_PIPELINE.read_text(encoding="utf-8"))
     skip_task_message = frozenset({"parse-pipeline-tests", "resolve-component-run-flags"})

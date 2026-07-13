@@ -21,8 +21,9 @@ class VerifyOperatorReadyTest(unittest.TestCase):
             ):
                 self.assertEqual(verify_operator_ready.main(), 0)
 
+    @mock.patch("runners.verify_operator_ready.log_gateway_auth_stack_warnings")
     @mock.patch("runners.verify_operator_ready.verify_dashboard_route_for_prepare", return_value="https://dash.example")
-    def test_runs_when_product_existing(self, verify_mock: mock.MagicMock) -> None:
+    def test_runs_when_product_existing(self, verify_mock: mock.MagicMock, _auth_warn: mock.MagicMock) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.dict(
                 "os.environ",
@@ -31,9 +32,11 @@ class VerifyOperatorReadyTest(unittest.TestCase):
             ):
                 self.assertEqual(verify_operator_ready.main(), 0)
         verify_mock.assert_called_once()
+        _auth_warn.assert_called_once()
 
+    @mock.patch("runners.verify_operator_ready.log_gateway_auth_stack_warnings")
     @mock.patch("runners.verify_operator_ready.verify_dashboard_route_for_prepare", return_value="https://dash.example")
-    def test_writes_dashboard_url_file(self, verify_mock: mock.MagicMock) -> None:
+    def test_writes_dashboard_url_file(self, verify_mock: mock.MagicMock, _auth_warn: mock.MagicMock) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tests_shared = Path(tmp)
             with mock.patch.dict(

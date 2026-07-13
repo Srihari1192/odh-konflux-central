@@ -5,11 +5,11 @@ metadata:
 spec:
   description: >-
     Runs after all component test tasks. Merges per-component JUnit and TEST_OUTPUT
-    from tests-shared into one smoke summary, merges bvt and smoke lines for the UI,
-    checks that test prepare left the shared workspace ready, then enforces bvt/smoke
-    gates. Per-component minPassRateForSuccess from the catalog (typically 90%) is
-    applied in each test-* finalize step; unset means all pytest tests must pass.
-    OCI artifact upload happens later in publish-results.
+    from tests-shared into one component aggregate summary (smoke and tier1 phases),
+    merges bvt and component lines for the UI, checks that test prepare left the shared
+    workspace ready, then enforces bvt (strict) and component (99%/80% pass-rate tiers
+    on executed tests) gates. Per-component minPassRateForSuccess in each test-* task
+    still controls component-test.exit for finalize; OCI upload is in publish-results.
   params:
     - name: COMPONENTS_CSV
       type: string
@@ -45,6 +45,12 @@ spec:
       description: Combined pass/fail summary for all component smoke tests (Konflux TEST_OUTPUT JSON)
     - name: TASK_MESSAGE
       description: Pass/fail summary for Konflux task Results panel
+    - name: TESTS_SUMMARY
+      description: Combined pass/fail totals (separate Konflux Results row)
+    - name: BVT_GATE
+      description: BVT gate stats (separate Konflux Results row; newlines in TASK_MESSAGE are not rendered)
+    - name: SMOKE_GATE
+      description: Component smoke gate stats (separate Konflux Results row)
   steps:
     - name: summarize-test-results
       displayName: Summarize component test results
@@ -67,6 +73,8 @@ spec:
           value: "true"
         - name: WRITE_ARTIFACTS_URL
           value: "false"
+        - name: APPLY_TEST_FINALIZE_PASS_RATE
+          value: "true"
         - name: SCRIPTS_REPO_ROOT
           value: $(workspaces.tests-shared.path)/scripts-repo/integration-tests/olminstall
       script: |
@@ -138,6 +146,15 @@ spec:
       env:
         - {name: TASK_MESSAGE_PATH, value: $(results.TASK_MESSAGE.path)}
         - {name: TEST_OUTPUT_PATH, value: $(results.TEST_OUTPUT.path)}
+        - {name: TESTS_SUMMARY_PATH, value: $(results.TESTS_SUMMARY.path)}
+        - {name: BVT_GATE_PATH, value: $(results.BVT_GATE.path)}
+        - {name: SMOKE_GATE_PATH, value: $(results.SMOKE_GATE.path)}
+        - name: SMOKE_TEST_OUTPUT_PATH
+          value: $(workspaces.tests-shared.path)/tests-payload/.olminstall-smoke-test-output.json
+        - name: BVT_TEST_OUTPUT_PATH
+          value: $(workspaces.tests-shared.path)/tests-payload/.olminstall-bvt-test-output.json
+        - name: TEST_GATES
+          value: $(params.TEST_GATES)
         - name: PIPELINE_TASK
           valueFrom:
             fieldRef:

@@ -581,7 +581,7 @@ components:
       description: >
         Open Data Hub dashboard Cypress E2E smoke tests.
       artifactPrefix: dashboard-cypress-smoke
-      minPassRateForSuccess: 0.8
+      minPassRateForSuccess: 0.9
       componentTestTimeoutByGate:
         smoke: 25m
         tier1: 90m
