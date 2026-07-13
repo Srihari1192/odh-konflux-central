@@ -117,17 +117,61 @@ def ok_cases() -> list[OkCase]:
         ),
         OkCase(
             ["--enable-its", "odh-olminstall-testops-rh-nightly"],
-            check=lambda a: _checks(a.enable_its == "odh-olminstall-testops-rh-nightly", not a.disable_its),
+            check=lambda a: _checks(
+                a.enable_its == "odh-olminstall-testops-rh-nightly",
+                not a.konflux_app_explicit,
+                a.app == "rhoai-fbc-fragment-ocp-420",
+                not a.disable_its,
+            ),
             id="enable-its-rh-nightly",
         ),
         OkCase(
-            ["--enable-its", "odh-olminstall-testops-rh-nightly", "--run-now"],
+            [
+                "--run-its",
+                "integration-tests/olminstall/tekton/its/its-olminstall-testops-rh-nightly.yaml",
+            ],
+            check=lambda a: _checks(
+                a.run_its.endswith("its-olminstall-testops-rh-nightly.yaml"),
+                a.its_scenario_name == "odh-olminstall-testops-rh-nightly",
+                a.app == "rhoai-fbc-fragment-ocp-420",
+            ),
+            id="run-its-rh-nightly-by-path",
+        ),
+        OkCase(
+            [
+                "--enable-its",
+                "tekton/its/its-olminstall-testops-rh-nightly.yaml",
+            ],
+            check=lambda a: _checks(
+                a.enable_its == "tekton/its/its-olminstall-testops-rh-nightly.yaml",
+                a.its_scenario_name == "odh-olminstall-testops-rh-nightly",
+            ),
+            id="enable-its-by-olminstall-relative-path",
+        ),
+        OkCase(
+            [
+                "--run-its",
+                "odh-olminstall-testops-rh-nightly",
+                "--tests",
+                "smoke",
+                "--components",
+                "dashboard_cypress",
+            ],
+            check=lambda a: _checks(
+                a.run_its == "odh-olminstall-testops-rh-nightly",
+                a.tests == "smoke",
+                a.components == "dashboard_cypress",
+            ),
+            id="run-its-scoped-smoke",
+        ),
+        OkCase(
+            ["--enable-its", "odh-olminstall-testops-rh-nightly", "--konflux-app", "testops-playpen"],
             check=lambda a: _checks(
                 a.enable_its == "odh-olminstall-testops-rh-nightly",
-                a.run_now,
-                not a.disable_its,
+                a.konflux_app_explicit,
+                a.app == "testops-playpen",
             ),
-            id="enable-its-run-now",
+            id="enable-its-rh-nightly-playpen-debug",
         ),
         OkCase(
             ["--disable-its", "odh-olminstall-testops-rh-nightly"],
@@ -273,11 +317,35 @@ def err_cases() -> list[ErrCase]:
             "mutually exclusive",
             id="enable-disable-its",
         ),
-        ErrCase(["--run-now"], "--run-now requires --enable-its", id="run-now-without-enable"),
         ErrCase(
-            ["--disable-its", "odh-olminstall-testops-rh-nightly", "--run-now"],
-            "--run-now cannot be used with --disable-its",
-            id="run-now-with-disable",
+            ["--enable-its", "odh-olminstall-testops-rh-nightly", "--run-its", "odh-olminstall-testops-rh-nightly"],
+            "mutually exclusive",
+            id="enable-run-its",
+        ),
+        ErrCase(
+            ["--disable-its", "odh-olminstall-testops-rh-nightly", "--run-its", "odh-olminstall-testops-rh-nightly"],
+            "cannot be used with --disable-its",
+            id="run-its-with-disable",
+        ),
+        ErrCase(
+            [
+                "--enable-its",
+                "odh-olminstall-testops-rh-nightly",
+                "--external-kubeconfig",
+                "/etc/hosts",
+            ],
+            "accepts only Konflux rollout flags",
+            id="enable-its-external-kubeconfig",
+        ),
+        ErrCase(
+            [
+                "--enable-its",
+                "odh-olminstall-testops-rh-nightly",
+                "--components",
+                "dashboard_cypress",
+            ],
+            "accepts only Konflux rollout flags",
+            id="enable-its-components",
         ),
         ErrCase(["-l", "--enable-its", "odh-olminstall-testops-eaas"], "mutually exclusive", id="list-enable-its"),
         ErrCase(

@@ -48,6 +48,142 @@ from .runner_support import (
 
 class RunnerTriggerMixin:
     @staticmethod
+    def _yq_upsert_its_param(path: Path | str, name: str, value: str) -> None:
+        """Replace one ITS ``spec.params`` entry by name (delete then append)."""
+        path_str = str(path)
+        env_key = f"YQ_{name}"
+        run_cmd(
+            ["yq", "e", f'del(.spec.params[] | select(.name == "{name}"))', "-i", path_str],
+            capture=True,
+            check=True,
+        )
+        run_cmd(
+            [
+                "yq",
+                "e",
+                f'.spec.params += [{{"name":"{name}","value":strenv({env_key})}}]',
+                "-i",
+                path_str,
+            ],
+            capture=True,
+            check=True,
+            env={**os.environ, env_key: value},
+        )
+
+    def _yq_patch_its_konflux_git(
+        self,
+        tmp_path: Path | str,
+        *,
+        konflux_repo: str = "",
+        konflux_branch: str = "",
+    ) -> None:
+        """Patch resolverRef and SCRIPTS_REPO_* params on a staged ITS manifest."""
+        path_str = str(tmp_path)
+        if konflux_repo:
+            run_cmd(
+                [
+                    "yq",
+                    "e",
+                    '(.spec.resolverRef.params[] | select(.name == "url")).value = strenv(YQ_KONFLUX_REPO)',
+                    "-i",
+                    path_str,
+                ],
+                capture=True,
+                check=True,
+                env={**os.environ, "YQ_KONFLUX_REPO": konflux_repo},
+            )
+            self._yq_upsert_its_param(tmp_path, "SCRIPTS_REPO_URL", konflux_repo)
+        if konflux_branch:
+            run_cmd(
+                [
+                    "yq",
+                    "e",
+                    '(.spec.resolverRef.params[] | select(.name == "revision")).value = strenv(YQ_KONFLUX_BRANCH)',
+                    "-i",
+                    path_str,
+                ],
+                capture=True,
+                check=True,
+                env={**os.environ, "YQ_KONFLUX_BRANCH": konflux_branch},
+            )
+            self._yq_upsert_its_param(tmp_path, "SCRIPTS_REPO_REVISION", konflux_branch)
+
+    def _patch_its_cli_override_params(
+        self, tmp_path: Path | str, odh_overrides: bool
+    ) -> tuple[str, dict[str, str], str, str]:
+        """Upsert CLUSTER_SOURCE, version display, and optional test/cluster params on ITS tmp."""
+        cluster_source = self._cluster_source_for_its()
+        validate_cluster_source(cluster_source)
+
+        rhoai_fbc_name = self._effective_rhoai_fbc_name(odh_overrides=odh_overrides)
+        rhoai_fbc_image = self._effective_rhoai_fbc_image(odh_overrides=odh_overrides)
+        update_channel, _channel_explicit = self._effective_update_channel(
+            its_param_path=tmp_path
+        )
+        effective_ocp = (self.args.ocp_version or "").strip() or (
+            getattr(self, "resolved_ocp_minor", "") or ""
+        ).strip()
+        version_display = resolve_version_display_params(
+            product=self.args.product,
+            cli_version=self.args.version or "",
+            resolved_app=self.resolved_app or "",
+            update_channel=update_channel,
+            cluster_source=cluster_source,
+            cli_ocp=effective_ocp,
+            ocp_explicit=bool(effective_ocp),
+            rhoai_fbc_name=rhoai_fbc_name,
+            fbc_image=rhoai_fbc_image,
+            fbc_image_explicit=bool((self.args.image or "").strip()),
+        )
+        components_csv = (getattr(self.args, "components", "") or "").strip()
+        slack_channel = (self.args.slack_channel_id or "").strip()
+
+        for name, value in (
+            ("CLUSTER_SOURCE", cluster_source),
+            ("OCP_VERSION", version_display["OCP_VERSION"]),
+            ("PRODUCT", self.args.product),
+            ("RHOAI_VERSION", version_display["RHOAI_VERSION"]),
+            ("UPDATE_CHANNEL", update_channel),
+            ("RHOAI_FBC_IMAGE", version_display["RHOAI_FBC_IMAGE"]),
+        ):
+            self._yq_upsert_its_param(tmp_path, name, value)
+
+        if odh_overrides:
+            for name, value in (
+                ("OPERATOR_NAME", "rhods-operator"),
+                ("OPERATOR_NAMESPACE", "redhat-ods-operator"),
+                ("RHOAI_FBC_NAME", "odh-operator-catalog"),
+            ):
+                self._yq_upsert_its_param(tmp_path, name, value)
+        elif rhoai_fbc_name:
+            self._yq_upsert_its_param(tmp_path, "RHOAI_FBC_NAME", rhoai_fbc_name)
+
+        for active, name, value in (
+            (bool(effective_ocp), "OCP_VERSION_PREFIX", effective_ocp),
+            (self._cleanup_its_override(), "CLEANUP", "true"),
+            (getattr(self.args, "install_dependencies", False), "INSTALL_DEPENDENCIES", "true"),
+            (self._tests_its_override(), "TEST_GATES", self.args.tests),
+            (self._components_its_override() and bool(components_csv), "COMPONENTS", components_csv),
+            (self._test_timeout_its_override(), "COMPONENT_TEST_TIMEOUT", self.args.test_timeout),
+            (self._test_tags_its_override(), "TEST_TAGS", self.args.test_tags),
+            (bool(slack_channel), "SLACK_CHANNEL_ID", slack_channel),
+            (
+                self._tests_version_its_override(),
+                "OLMINSTALL_TESTS_VERSION_OVERRIDE",
+                self.args.tests_rhoai_version.strip(),
+            ),
+        ):
+            if active:
+                self._yq_upsert_its_param(tmp_path, name, value)
+
+        if self._smoke_aws_its_override():
+            smoke_aws_secret = self._resolve_smoke_aws_secret()
+            if smoke_aws_secret:
+                self._yq_upsert_its_param(tmp_path, "SMOKE_AWS_SECRET", smoke_aws_secret)
+
+        return cluster_source, version_display, rhoai_fbc_name, update_channel
+
+    @staticmethod
     def _yq_append_its_param(tmp_path: str, name: str, value: str) -> None:
         run_cmd(
             [
@@ -194,14 +330,14 @@ class RunnerTriggerMixin:
         img_match = re.search(r"(?m)^\s+containerImage:\s+(\S+)", snap_text)
         return img_match.group(1).strip() if img_match else ""
 
-    def _run_now_pinned_fbcf_fallback(self) -> str:
+    def _run_its_pinned_fbcf_fallback(self) -> str:
         return (
-            (getattr(self, "_run_now_pinned_fbcf_image", "") or "").strip()
+            (getattr(self, "_run_its_pinned_fbcf_image", "") or "").strip()
             or self._snapshot_yaml_container_image()
         )
 
     def _apply_pinned_fbcf_fallback(self, *, reason: str) -> None:
-        pinned = self._run_now_pinned_fbcf_fallback()
+        pinned = self._run_its_pinned_fbcf_fallback()
         if not pinned or self.image:
             return
         print(f"WARN {reason} — using pinned fallback from snapshot YAML: {pinned}")
@@ -484,73 +620,10 @@ class RunnerTriggerMixin:
             self._yq_set_resolver_ref_param(
                 self.its_apply_tmp, "revision", "YQ_RESOLVER_REV", self.args.konflux_branch
             )
-        cluster_source = self._cluster_source_for_its()
-        validate_cluster_source(cluster_source)
-        self._yq_append_its_param(self.its_apply_tmp, "CLUSTER_SOURCE", cluster_source)
-        rhoai_fbc_name = self._effective_rhoai_fbc_name(odh_overrides=odh_overrides)
-        rhoai_fbc_image = self._effective_rhoai_fbc_image(odh_overrides=odh_overrides)
-        update_channel, _channel_explicit = self._effective_update_channel()
-        effective_ocp = (self.args.ocp_version or "").strip() or (
-            getattr(self, "resolved_ocp_minor", "") or ""
-        ).strip()
-        version_display = resolve_version_display_params(
-            product=self.args.product,
-            cli_version=self.args.version or "",
-            resolved_app=self.resolved_app or "",
-            update_channel=update_channel,
-            cluster_source=cluster_source,
-            cli_ocp=effective_ocp,
-            ocp_explicit=bool(effective_ocp),
-            rhoai_fbc_name=rhoai_fbc_name,
-            fbc_image=rhoai_fbc_image,
-            fbc_image_explicit=bool((self.args.image or "").strip()),
+        cluster_source, version_display, rhoai_fbc_name, update_channel = (
+            self._patch_its_cli_override_params(self.its_apply_tmp, odh_overrides)
         )
-        self._yq_append_its_param(self.its_apply_tmp, "OCP_VERSION", version_display["OCP_VERSION"])
-        if effective_ocp:
-            self._yq_append_its_param(self.its_apply_tmp, "OCP_VERSION_PREFIX", effective_ocp)
-        if self._cleanup_its_override():
-            self._yq_append_its_param(self.its_apply_tmp, "CLEANUP", "true")
-        self._yq_append_its_param(self.its_apply_tmp, "PRODUCT", self.args.product)
-        if getattr(self.args, "install_dependencies", False):
-            self._yq_append_its_param(self.its_apply_tmp, "INSTALL_DEPENDENCIES", "true")
-        self._yq_append_its_param(self.its_apply_tmp, "RHOAI_VERSION", version_display["RHOAI_VERSION"])
-        self._yq_append_its_param(self.its_apply_tmp, "UPDATE_CHANNEL", update_channel)
-        if odh_overrides:
-            for name, value in (
-                ("OPERATOR_NAME", "rhods-operator"),
-                ("OPERATOR_NAMESPACE", "redhat-ods-operator"),
-                ("RHOAI_FBC_NAME", "odh-operator-catalog"),
-            ):
-                self._yq_append_its_param(self.its_apply_tmp, name, value)
-        elif rhoai_fbc_name:
-            self._yq_append_its_param(self.its_apply_tmp, "RHOAI_FBC_NAME", rhoai_fbc_name)
-        self._yq_append_its_param(
-            self.its_apply_tmp,
-            "RHOAI_FBC_IMAGE",
-            version_display["RHOAI_FBC_IMAGE"],
-        )
-        if self._tests_its_override():
-            self._yq_append_its_param(self.its_apply_tmp, "TEST_GATES", self.args.tests)
-        if self._components_its_override() and (getattr(self.args, "components", "") or "").strip():
-            self._yq_append_its_param(self.its_apply_tmp, "COMPONENTS", self.args.components)
-        if self._test_timeout_its_override():
-            self._yq_append_its_param(self.its_apply_tmp, "COMPONENT_TEST_TIMEOUT", self.args.test_timeout)
-        if self._test_tags_its_override():
-            self._yq_append_its_param(self.its_apply_tmp, "TEST_TAGS", self.args.test_tags)
         slack_channel = (self.args.slack_channel_id or "").strip()
-        if slack_channel:
-            self._yq_append_its_param(self.its_apply_tmp, "SLACK_CHANNEL_ID", slack_channel)
-        if self._smoke_aws_its_override():
-            smoke_aws_secret = self._resolve_smoke_aws_secret()
-            if smoke_aws_secret:
-                self._yq_append_its_param(self.its_apply_tmp, "SMOKE_AWS_SECRET", smoke_aws_secret)
-        if self._tests_version_its_override():
-            self._yq_append_its_param(
-                self.its_apply_tmp,
-                "OLMINSTALL_TESTS_VERSION_OVERRIDE",
-                self.args.tests_rhoai_version.strip(),
-            )
-
         generate_prefix = build_olminstall_generate_prefix(
             product=self.args.product,
             version=(self.args.version or "").strip() or version_display["RHOAI_VERSION"],
@@ -607,21 +680,28 @@ class RunnerTriggerMixin:
         )
 
 
-    def _read_its_param(self, name: str) -> str:
+    def _read_its_param(self, name: str, *, path: Path | str | None = None) -> str:
+        source = path if path is not None else self.its_file
         proc = run_cmd(
-            ["yq", "e", f'(.spec.params[] | select(.name == "{name}") | .value) // ""', str(self.its_file)],
+            ["yq", "e", f'(.spec.params[] | select(.name == "{name}") | .value) // ""', str(source)],
             capture=True,
             check=True,
         )
         return proc.stdout.strip().strip('"')
 
 
-    def _effective_update_channel(self) -> tuple[str, bool]:
+    def _effective_update_channel(
+        self, *, its_param_path: Path | str | None = None
+    ) -> tuple[str, bool]:
         explicit = bool((self.args.channel or "").strip())
         if explicit:
             return (self.args.channel or "").strip(), True
         if self.update_channel_override:
             return self.update_channel_override, False
+        if its_param_path is not None:
+            from_staged = self._read_its_param("UPDATE_CHANNEL", path=its_param_path)
+            if from_staged:
+                return from_staged, False
         return self._read_its_param("UPDATE_CHANNEL") or "stable", False
 
 
@@ -780,6 +860,9 @@ class RunnerTriggerMixin:
         snapshot_json = self._build_snapshot_json(odh_overrides)
         self._trigger_snapshot_spec = json.loads(snapshot_json)
         its_params = self._read_its_params_from_tmp()
+        cluster_source = self._cluster_source_for_its()
+        if cluster_source:
+            its_params["CLUSTER_SOURCE"] = cluster_source
         resolver_url, resolver_rev = self._read_its_resolver_ref()
         generate_prefix = getattr(self, "_pipelinerun_generate_prefix", "olminstall-")
 
@@ -787,11 +870,6 @@ class RunnerTriggerMixin:
         for pname, pvalue in its_params.items():
             pr_params.append({"name": pname, "value": pvalue})
 
-        cluster_source = ""
-        for param in pr_params:
-            if param.get("name") == "CLUSTER_SOURCE":
-                cluster_source = str(param.get("value") or "").strip()
-                break
         force_cluster = bool(getattr(self.args, "force_cluster_run", False))
         wait_for_external_cluster_idle(
             namespace=self.args.namespace,

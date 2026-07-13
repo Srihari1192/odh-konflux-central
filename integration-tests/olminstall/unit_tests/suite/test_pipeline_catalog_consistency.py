@@ -101,7 +101,7 @@ _TRIGGER_CONTEXT_SAMPLE = {
     "FBC": "rhoai-fbc-fragment-ocp-420 @ sha256:d9f54f26",
     "CLUSTER": "rh-nightly-pm",
     "RUN": "product=rhoai, tests=bvt,smoke",
-    "TRIGGER_CMD": "python3 integration-tests/olminstall/olm_pipeline.py --run-now",
+    "TRIGGER_CMD": "python3 integration-tests/olminstall/olm_pipeline.py --run-its odh-olminstall-testops-rh-nightly",
 }
 
 

@@ -13,9 +13,10 @@ from suite.component_plan import validate_and_normalize_components_csv
 from suite.constants import default_tests_config_path
 from suite.errors import AppError
 from suite.its_registry import (
-    resolve_integration_test_scenario_manifest,
-    resolve_integration_test_scenario_run_now_snapshot,
-    validate_integration_test_scenario_name,
+    integration_test_scenario_application,
+    integration_test_scenario_default_konflux_app,
+    resolve_integration_test_scenario_ref,
+    resolve_integration_test_scenario_run_its_snapshot,
 )
 from suite.tests_config import load_tests_catalog
 from suite.tests_plan import (
@@ -59,10 +60,63 @@ def _normalize_test_timeout(raw: str) -> str:
     return "".join(out_parts)
 
 
+_ENABLE_ITS_ALLOWED_TRIGGER_FLAGS = frozenset({"--konflux-repo", "--konflux-branch"})
+
+
+def _trigger_options_incompatible_with_query(
+    args: argparse.Namespace, *, list_ocp_on: bool = False
+) -> list[str]:
+    """Trigger/install flags that cannot be combined with query/maintenance modes."""
+    checks: list[tuple[bool, str]] = [
+        (bool(args.image), "--image"),
+        (bool(args.version), "--rhoai-version"),
+        (bool(args.channel), "--channel"),
+        (bool(args.konflux_repo), "--konflux-repo"),
+        (bool(args.konflux_branch), "--konflux-branch"),
+        (bool(args.ocp_version) and not list_ocp_on, "--ocp-version"),
+        (getattr(args, "tests_explicit", False), "--tests"),
+        (bool((args.tests_config or "").strip()), "--tests-config"),
+        (getattr(args, "components_explicit", False), "--components"),
+        (getattr(args, "test_timeout_explicit", False), "--test-timeout"),
+        (bool(args.external_kubeconfig), "--external-kubeconfig"),
+        (bool(args.external_kubeconfig_secret), "--external-kubeconfig-secret"),
+        (getattr(args, "cleanup", False), "--cleanup"),
+        (getattr(args, "install_dependencies", False), "--install-dependencies"),
+        (bool((args.tests_rhoai_version or "").strip()), "--tests-rhoai-version"),
+        (bool(args.slack_channel_id), "--slack-channel-id"),
+        (getattr(args, "product_explicit", False), "--product"),
+    ]
+    return [flag for active, flag in checks if active]
+
+
+def _enable_its_forbidden_flags(args: argparse.Namespace) -> list[str]:
+    """Cluster/test/install flags rejected with --enable-its (Konflux rollout only)."""
+    return [
+        flag
+        for flag in _trigger_options_incompatible_with_query(args)
+        if flag not in _ENABLE_ITS_ALLOWED_TRIGGER_FLAGS
+    ]
+
+
+def _filter_trigger_flags_for_its_admin(
+    flags: list[str], *, enable_its: bool, run_its: bool
+) -> list[str]:
+    """Relax incompatible-flag checks for ITS admin modes."""
+    if run_its:
+        return []
+    if enable_its:
+        return [flag for flag in flags if flag not in _ENABLE_ITS_ALLOWED_TRIGGER_FLAGS]
+    return flags
+
+
 def parse_cli_args(parser: CliArgumentParser, argv: list[str]) -> argparse.Namespace:
     tests_explicit = any(x == "--tests" or x.startswith("--tests=") for x in argv)
     components_explicit = any(x == "--components" or x.startswith("--components=") for x in argv)
     test_timeout_explicit = any(x == "--test-timeout" or x.startswith("--test-timeout=") for x in argv)
+    product_explicit = any(x == "--product" or x.startswith("--product=") for x in argv)
+    konflux_app_explicit = any(
+        x == "--konflux-app" or x.startswith("--konflux-app=") for x in argv
+    )
     args = parser.parse_args(argv)
 
     if args.version and args.product != "rhoai":
@@ -151,6 +205,15 @@ def parse_cli_args(parser: CliArgumentParser, argv: list[str]) -> argparse.Names
                 2,
             )
 
+    if args.enable_its and (forbidden := _enable_its_forbidden_flags(args)):
+        joined = ", ".join(forbidden)
+        raise AppError(
+            f"--enable-its accepts only Konflux rollout flags (--konflux-repo, "
+            f"--konflux-branch, --konflux-app); not allowed: {joined}. "
+            "Use --run-its for one-shot debug runs with cluster/test overrides.",
+            2,
+        )
+
     args.external_kubeconfig = (args.external_kubeconfig or "").strip()
     args.external_kubeconfig_secret = (args.external_kubeconfig_secret or "").strip()
     if args.external_kubeconfig and args.external_kubeconfig_secret:
@@ -189,21 +252,41 @@ def parse_cli_args(parser: CliArgumentParser, argv: list[str]) -> argparse.Names
 
     args.enable_its = (getattr(args, "enable_its", "") or "").strip()
     args.disable_its = (getattr(args, "disable_its", "") or "").strip()
-    args.run_now = bool(getattr(args, "run_now", False))
+    args.run_its = (getattr(args, "run_its", "") or "").strip()
+    args.konflux_app_explicit = konflux_app_explicit
+    args.product_explicit = product_explicit
     if args.enable_its and args.disable_its:
         raise AppError("--enable-its and --disable-its are mutually exclusive.", 2)
-    if args.run_now and args.disable_its:
-        raise AppError("--run-now cannot be used with --disable-its.", 2)
-    if args.run_now and not args.enable_its:
-        raise AppError("--run-now requires --enable-its NAME.", 2)
-    its_admin_on = bool(args.enable_its or args.disable_its)
+    if args.enable_its and args.run_its:
+        raise AppError("--enable-its and --run-its are mutually exclusive.", 2)
+    if args.run_its and args.disable_its:
+        raise AppError("--run-its cannot be used with --disable-its.", 2)
+    if args.enable_its and getattr(args, "force_cluster_run", False):
+        raise AppError(
+            "--force-cluster-run cannot be used with --enable-its; use --run-its for debug runs.",
+            2,
+        )
+    its_admin_on = bool(args.enable_its or args.disable_its or args.run_its)
     if its_admin_on:
-        its_name = validate_integration_test_scenario_name(args.enable_its or args.disable_its)
-        if args.enable_its:
-            olminstall_root = Path(__file__).resolve().parent.parent.parent
-            resolve_integration_test_scenario_manifest(olminstall_root, its_name)
-            if args.run_now:
-                resolve_integration_test_scenario_run_now_snapshot(olminstall_root, its_name)
+        its_ref = args.enable_its or args.disable_its or args.run_its
+        olminstall_root = Path(__file__).resolve().parent.parent.parent
+        manifest_path, scenario_name = resolve_integration_test_scenario_ref(olminstall_root, its_ref)
+        args.its_manifest_path = manifest_path
+        args.its_scenario_name = scenario_name
+        if args.run_its:
+            snap_path = resolve_integration_test_scenario_run_its_snapshot(
+                olminstall_root, scenario_name
+            )
+            if snap_path is not None:
+                args.run_its_snapshot_path = snap_path
+        if not konflux_app_explicit:
+            mapped_app = integration_test_scenario_default_konflux_app(scenario_name)
+            if mapped_app:
+                args.app = mapped_app
+            else:
+                manifest_app = integration_test_scenario_application(manifest_path)
+                if manifest_app:
+                    args.app = manifest_app
 
     list_pipelines_on = bool(args.list_pipelines)
     list_ocp_on = bool(args.list_supported_ocp)
@@ -215,7 +298,8 @@ def parse_cli_args(parser: CliArgumentParser, argv: list[str]) -> argparse.Names
     if query_modes > 1:
         raise AppError(
             "-l, -w, --delete-pending-pipelines, --list-supported-ocp, "
-            "--enable-its, and --disable-its are mutually exclusive (pick one query/maintenance mode).",
+            "--enable-its, --disable-its, and --run-its are mutually exclusive "
+            "(pick one query/maintenance mode).",
             2,
         )
 
@@ -227,64 +311,26 @@ def parse_cli_args(parser: CliArgumentParser, argv: list[str]) -> argparse.Names
                 2,
             )
 
-    def _trigger_options_incompatible_with_query() -> list[str]:
-        bad: list[str] = []
-        if args.image:
-            bad.append("--image")
-        if args.version:
-            bad.append("--rhoai-version")
-        if args.channel:
-            bad.append("--channel")
-        if args.konflux_repo:
-            bad.append("--konflux-repo")
-        if args.konflux_branch:
-            bad.append("--konflux-branch")
-        if args.ocp_version and not list_ocp_on:
-            bad.append("--ocp-version")
-        if getattr(args, "tests_explicit", False):
-            bad.append("--tests")
-        if (args.tests_config or "").strip():
-            bad.append("--tests-config")
-        if getattr(args, "components_explicit", False):
-            bad.append("--components")
-        if getattr(args, "test_timeout_explicit", False):
-            bad.append("--test-timeout")
-        if args.external_kubeconfig:
-            bad.append("--external-kubeconfig")
-        if args.external_kubeconfig_secret:
-            bad.append("--external-kubeconfig-secret")
-        if getattr(args, "cleanup", False):
-            bad.append("--cleanup")
-        if getattr(args, "install_dependencies", False):
-            bad.append("--install-dependencies")
-        if (args.tests_rhoai_version or "").strip():
-            bad.append("--tests-rhoai-version")
-        if args.slack_channel_id:
-            bad.append("--slack-channel-id")
-        return bad
-
-    if query_modes and (bad := _trigger_options_incompatible_with_query()):
-        if args.enable_its:
-            bad = [item for item in bad if item not in ("--konflux-repo", "--konflux-branch")]
-        if args.run_now:
-            bad = [
-                item
-                for item in bad
-                if item not in ("--image", "--rhoai-version", "--ocp-version", "--channel")
-            ]
-        if bad:
-            joined = ", ".join(bad)
-            raise AppError(
-                f"Trigger/install options cannot be used with -l, --list-supported-ocp, "
-                f"-w, --delete-pending-pipelines, --enable-its, or "
-                f"--disable-its: {joined}. "
-                "Use only Konflux context flags (e.g. --konflux-namespace, --konflux-app, --ka-host, "
-                "--konflux-ui; with --enable-its you may add "
-                "--konflux-repo / --konflux-branch) for list/watch/delete/ITS admin; "
-                "with --list-supported-ocp you may add --ocp-version to verify it appears in the "
-                "supported list.",
-                2,
-            )
+    if query_modes and (
+        bad := _filter_trigger_flags_for_its_admin(
+            _trigger_options_incompatible_with_query(args, list_ocp_on=list_ocp_on),
+            enable_its=bool(args.enable_its),
+            run_its=bool(args.run_its),
+        )
+    ):
+        joined = ", ".join(bad)
+        raise AppError(
+            f"Trigger/install options cannot be used with -l, --list-supported-ocp, "
+            f"-w, --delete-pending-pipelines, --enable-its, --disable-its, or "
+            f"--run-its: {joined}. "
+            "Use only Konflux context flags (e.g. --konflux-namespace, --konflux-app, --ka-host, "
+            "--konflux-ui; with --enable-its you may add "
+            "--konflux-repo / --konflux-branch / --konflux-app) for list/watch/delete/ITS admin; "
+            "use --run-its for one-shot debug runs with cluster/test overrides; "
+            "with --list-supported-ocp you may add --ocp-version to verify it appears in the "
+            "supported list.",
+            2,
+        )
 
     if getattr(args, "stop_owned_running", False) and not delete_pipelines_on:
         raise AppError("--stop-owned-running requires --delete-pending-pipelines.", 2)

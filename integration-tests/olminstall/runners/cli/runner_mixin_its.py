@@ -3,20 +3,16 @@
 from __future__ import annotations
 
 import os
-import re
 import shutil
 import sys
 import tempfile
 from pathlib import Path
 
 from k8s.oc_util import filter_warning_lines, run_cmd
-from suite.constants import OLMINSTALL_RH_NIGHTLY_ITS_NAME
 from suite.errors import AppError
 from suite.its_registry import (
     integration_test_scenario_application,
-    resolve_integration_test_scenario_manifest,
-    resolve_integration_test_scenario_run_now_snapshot,
-    validate_integration_test_scenario_name,
+    its_manifest_param,
 )
 from suite.its_trigger_params import CLUSTER_SOURCE_EAAS, is_external_cluster_source
 from suite.pipelinerun_naming import build_olminstall_generate_prefix
@@ -25,22 +21,22 @@ from .runner_support import format_olm_pipeline_watch_cli
 
 class RunnerItsAdminMixin:
     def enable_integration_test_scenario(self) -> int:
-        name = validate_integration_test_scenario_name(self.args.enable_its)
-        self._apply_integration_test_scenario(name)
-        if name == OLMINSTALL_RH_NIGHTLY_ITS_NAME:
-            return self.sync_rh_nightly_catalog(skip_its_apply=True, wait_for_run=False)
+        manifest = Path(self.args.its_manifest_path)
+        name = self.args.its_scenario_name
+        self._apply_integration_test_scenario(name, manifest_path=manifest)
         return 0
 
-    def enable_integration_test_scenario_run_now(self) -> int:
-        """One-shot run: direct PipelineRun with ITS manifest params and dynamic generateName."""
-        name = validate_integration_test_scenario_name(self.args.enable_its)
-        manifest = resolve_integration_test_scenario_manifest(self.script_dir, name)
-        snap_path = resolve_integration_test_scenario_run_now_snapshot(self.script_dir, name)
+    def run_integration_test_scenario(self) -> int:
+        """One-shot debug run: direct PipelineRun with ITS manifest params and dynamic generateName."""
+        manifest = Path(self.args.its_manifest_path)
+        snap_path = getattr(self.args, "run_its_snapshot_path", None)
         self._stage_its_manifest_tmp(manifest, push_context=False)
-        self.snapshot_file = snap_path
-        self._apply_run_now_manifest_defaults(manifest)
-        self._apply_konflux_git_inference_from_clone_or_env()
+        if snap_path is not None:
+            self.snapshot_file = snap_path
+        self._apply_run_its_manifest_defaults(manifest)
         odh_overrides = self.args.product == "odh"
+        self._apply_run_its_cli_overrides(odh_overrides)
+        self._apply_konflux_git_inference_from_clone_or_env()
         items_by_name = {
             item.get("metadata", {}).get("name", ""): item
             for item in self.get_pipelineruns(self.args.namespace)
@@ -52,7 +48,7 @@ class RunnerItsAdminMixin:
             items_by_name=items_by_name,
         )
         self.resolve_image(odh_overrides)
-        self._pipelinerun_generate_prefix = self._run_now_generate_prefix(manifest)
+        self._pipelinerun_generate_prefix = self._run_its_generate_prefix(manifest)
         print(f"  pipelinerun_prefix={self._pipelinerun_generate_prefix!r}")
         self.create_direct_pipelinerun(odh_overrides)
         watch_hint = format_olm_pipeline_watch_cli(
@@ -65,66 +61,60 @@ class RunnerItsAdminMixin:
         return 0
 
     def disable_integration_test_scenario(self) -> int:
-        name = validate_integration_test_scenario_name(self.args.disable_its)
-        self._remove_integration_test_scenario(name)
+        name = self.args.its_scenario_name
+        manifest = Path(self.args.its_manifest_path)
+        self._remove_integration_test_scenario(name, manifest_path=manifest)
         return 0
 
-    @staticmethod
-    def _its_manifest_param(manifest: Path, param_name: str) -> str:
-        try:
-            import yaml
-        except ImportError as exc:
-            raise AppError("PyYAML is required to read ITS manifests.", 1) from exc
-        doc = yaml.safe_load(manifest.read_text(encoding="utf-8"))
-        if not isinstance(doc, dict):
-            return ""
-        spec = doc.get("spec")
-        if not isinstance(spec, dict):
-            return ""
-        params = spec.get("params")
-        if not isinstance(params, list):
-            return ""
-        for item in params:
-            if isinstance(item, dict) and item.get("name") == param_name:
-                return str(item.get("value", "")).strip()
-        return ""
-
-    def _apply_run_now_manifest_defaults(self, manifest: Path) -> None:
-        product = self._its_manifest_param(manifest, "PRODUCT")
-        if product:
-            self.args.product = product
-        tests = self._its_manifest_param(manifest, "TEST_GATES")
-        if tests:
-            self.args.tests = tests
-        fbc_name = self._its_manifest_param(manifest, "RHOAI_FBC_NAME")
+    def _apply_run_its_manifest_defaults(self, manifest: Path) -> None:
+        if not getattr(self.args, "product_explicit", False):
+            product = its_manifest_param(manifest, "PRODUCT")
+            if product:
+                self.args.product = product
+        if not getattr(self.args, "tests_explicit", False):
+            tests = its_manifest_param(manifest, "TEST_GATES")
+            if tests:
+                self.args.tests = tests
+        fbc_name = its_manifest_param(manifest, "RHOAI_FBC_NAME")
         if fbc_name:
             self.resolved_rhoai_fbc_name = fbc_name
-        cluster_source = self._its_manifest_param(manifest, "CLUSTER_SOURCE")
-        if is_external_cluster_source(cluster_source):
+        cluster_source = its_manifest_param(manifest, "CLUSTER_SOURCE")
+        if is_external_cluster_source(cluster_source) and not self._external_kubeconfig_its_override():
             self.external_kubeconfig_secret = cluster_source
-        ocp_version = self._its_manifest_param(manifest, "OCP_VERSION")
-        if ocp_version and not (getattr(self.args, "ocp_version", "") or "").strip():
-            self.args.ocp_version = ocp_version
+        if not (getattr(self.args, "ocp_version", "") or "").strip():
+            ocp_version = its_manifest_param(manifest, "OCP_VERSION")
+            if ocp_version:
+                self.args.ocp_version = ocp_version
         # Konflux lookup in resolve_image(); snapshot pin is offline fallback only.
-        self._run_now_pinned_fbcf_image = self._snapshot_yaml_container_image()
+        self._run_its_pinned_fbcf_image = self._snapshot_yaml_container_image()
 
-    def _run_now_generate_prefix(self, manifest: Path) -> str:
-        cluster_source = self._its_manifest_param(manifest, "CLUSTER_SOURCE")
-        cluster_label = ""
-        target_type = "stub"
+    def _apply_run_its_cli_overrides(self, odh_overrides: bool) -> None:
+        """Patch staged ITS tmp with CLI cluster/test/install overrides (--run-its only)."""
+        if self.its_apply_tmp:
+            self._patch_its_cli_override_params(self.its_apply_tmp, odh_overrides)
+
+    def _run_its_generate_prefix(self, manifest: Path) -> str:
+        cluster_source = self._cluster_source_for_its()
+        if not cluster_source:
+            cluster_source = its_manifest_param(manifest, "CLUSTER_SOURCE")
         if is_external_cluster_source(cluster_source):
             target_type = "external"
-            if cluster_source:
-                cluster_label = self._cluster_label_for_external_secret(cluster_source)
+            cluster_label = (
+                self._cluster_label_for_external_secret(cluster_source) if cluster_source else ""
+            )
         elif cluster_source == CLUSTER_SOURCE_EAAS:
             target_type = "eaas"
+            cluster_label = ""
+        else:
+            target_type = "stub"
+            cluster_label = ""
         return build_olminstall_generate_prefix(
-            product=self._its_manifest_param(manifest, "PRODUCT") or self.args.product,
-            version=self._its_manifest_param(manifest, "RHOAI_VERSION"),
+            product=its_manifest_param(manifest, "PRODUCT") or self.args.product,
+            version=its_manifest_param(manifest, "RHOAI_VERSION"),
             cluster_source=cluster_source,
             cluster_label=cluster_label,
             target_type=target_type,
-            tests_csv=self._its_manifest_param(manifest, "TEST_GATES") or self.args.tests,
+            tests_csv=self.args.tests,
             run_owner=self.run_owner,
         )
 
@@ -138,100 +128,78 @@ class RunnerItsAdminMixin:
                 [
                     "yq",
                     "e",
-                    '.spec.contexts = [{"name": "push", "description": "Manual Snapshot (--run-now)"}]',
+                    '.spec.contexts = [{"name": "push", "description": "Manual Snapshot (--run-its)"}]',
                     "-i",
                     str(tmp_path),
                 ],
                 capture=True,
                 check=True,
             )
-        konflux_repo = (getattr(self.args, "konflux_repo", "") or "").strip()
-        konflux_branch = (getattr(self.args, "konflux_branch", "") or "").strip()
-        if konflux_repo:
-            run_cmd(
-                [
-                    "yq",
-                    "e",
-                    '(.spec.resolverRef.params[] | select(.name == "url")).value = strenv(YQ_KONFLUX_REPO)',
-                    "-i",
-                    str(tmp_path),
-                ],
-                capture=True,
-                check=True,
-                env={**os.environ, "YQ_KONFLUX_REPO": konflux_repo},
-            )
-            self._yq_upsert_its_param(tmp_path, "SCRIPTS_REPO_URL", konflux_repo)
-        if konflux_branch:
-            run_cmd(
-                [
-                    "yq",
-                    "e",
-                    '(.spec.resolverRef.params[] | select(.name == "revision")).value = strenv(YQ_KONFLUX_BRANCH)',
-                    "-i",
-                    str(tmp_path),
-                ],
-                capture=True,
-                check=True,
-                env={**os.environ, "YQ_KONFLUX_BRANCH": konflux_branch},
-            )
-            self._yq_upsert_its_param(tmp_path, "SCRIPTS_REPO_REVISION", konflux_branch)
+        self._yq_patch_its_konflux_git(
+            tmp_path,
+            konflux_repo=(getattr(self.args, "konflux_repo", "") or "").strip(),
+            konflux_branch=(getattr(self.args, "konflux_branch", "") or "").strip(),
+        )
         self.its_apply_tmp = str(tmp_path)
 
-    def _apply_integration_test_scenario(
-        self, name: str, *, param_overrides: dict[str, str] | None = None
-    ) -> None:
-        manifest = resolve_integration_test_scenario_manifest(self.script_dir, name)
-        manifest_app = integration_test_scenario_application(manifest)
-        if manifest_app and manifest_app != self.args.app:
-            raise AppError(
-                f"ITS {name!r} targets application {manifest_app!r}, not "
-                f"--konflux-app {self.args.app!r}.",
-                2,
+    def _resolve_its_apply_application(self, manifest_app: str) -> tuple[str, str]:
+        """Return (apply application label, patch value when staging is required)."""
+        manifest = (manifest_app or "").strip()
+        cli_app = (self.args.app or "").strip()
+        explicit = bool(getattr(self.args, "konflux_app_explicit", False))
+        if explicit:
+            apply_app = cli_app or manifest
+        else:
+            apply_app = manifest or cli_app
+            if not apply_app:
+                raise AppError(
+                    "ITS manifest missing spec.application and --konflux-app is unset.",
+                    2,
+                )
+        patch = apply_app if explicit and manifest and apply_app != manifest else ""
+        if patch:
+            print(
+                f"WARN --konflux-app {apply_app!r}: patching ITS spec.application "
+                f"(manifest default is {manifest!r}).",
+                file=sys.stderr,
             )
+        return apply_app, patch
+
+    def _apply_integration_test_scenario(
+        self,
+        name: str,
+        *,
+        manifest_path: Path | None = None,
+        param_overrides: dict[str, str] | None = None,
+    ) -> None:
+        manifest = manifest_path or Path(self.args.its_manifest_path)
+        apply_app, patch_application = self._resolve_its_apply_application(
+            integration_test_scenario_application(manifest)
+        )
         konflux_repo = (getattr(self.args, "konflux_repo", "") or "").strip()
         konflux_branch = (getattr(self.args, "konflux_branch", "") or "").strip()
         apply_path = manifest
         tmp_path: Path | None = None
-        if konflux_repo or konflux_branch or param_overrides:
+        needs_staging = bool(konflux_repo or konflux_branch or param_overrides or patch_application)
+        if needs_staging:
             tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
             tmp_path = Path(tmp.name)
             tmp.close()
             shutil.copyfile(manifest, tmp_path)
-            if konflux_repo:
-                run_cmd(
-                    [
-                        "yq",
-                        "e",
-                        '(.spec.resolverRef.params[] | select(.name == "url")).value = strenv(YQ_KONFLUX_REPO)',
-                        "-i",
-                        str(tmp_path),
-                    ],
-                    capture=True,
-                    check=True,
-                    env={**os.environ, "YQ_KONFLUX_REPO": konflux_repo},
-                )
-                self._yq_upsert_its_param(tmp_path, "SCRIPTS_REPO_URL", konflux_repo)
-            if konflux_branch:
-                run_cmd(
-                    [
-                        "yq",
-                        "e",
-                        '(.spec.resolverRef.params[] | select(.name == "revision")).value = strenv(YQ_KONFLUX_BRANCH)',
-                        "-i",
-                        str(tmp_path),
-                    ],
-                    capture=True,
-                    check=True,
-                    env={**os.environ, "YQ_KONFLUX_BRANCH": konflux_branch},
-                )
-                self._yq_upsert_its_param(tmp_path, "SCRIPTS_REPO_REVISION", konflux_branch)
+            if patch_application:
+                self._yq_set_its_application(tmp_path, patch_application)
+            self._yq_patch_its_konflux_git(
+                tmp_path,
+                konflux_repo=konflux_repo,
+                konflux_branch=konflux_branch,
+            )
             if param_overrides:
                 for param_name, param_value in param_overrides.items():
                     self._yq_upsert_its_param(tmp_path, param_name, param_value)
             apply_path = tmp_path
         print(
             f"Applying IntegrationTestScenario {name!r} to namespace {self.args.namespace!r} "
-            f"(application {manifest_app or self.args.app!r})..."
+            f"(application {apply_app!r})..."
         )
         try:
             proc = run_cmd(
@@ -249,10 +217,16 @@ class RunnerItsAdminMixin:
             raise AppError(f"oc apply failed for IntegrationTestScenario {name!r}.", 1)
         print(f"IntegrationTestScenario {name!r} enabled.")
 
-    def _remove_integration_test_scenario(self, name: str) -> None:
+    def _remove_integration_test_scenario(
+        self, name: str, *, manifest_path: Path | None = None
+    ) -> None:
+        manifest = manifest_path or Path(self.args.its_manifest_path)
+        apply_app, _ = self._resolve_its_apply_application(
+            integration_test_scenario_application(manifest)
+        )
         print(
             f"Deleting IntegrationTestScenario {name!r} from namespace {self.args.namespace!r} "
-            f"(application {self.args.app!r})..."
+            f"(application {apply_app!r})..."
         )
         proc = run_cmd(
             [
@@ -275,22 +249,17 @@ class RunnerItsAdminMixin:
         print(f"IntegrationTestScenario {name!r} disabled (removed from cluster).")
 
     @staticmethod
-    def _yq_upsert_its_param(path: Path, name: str, value: str) -> None:
-        env_key = f"YQ_{name}"
-        run_cmd(
-            ["yq", "e", f'del(.spec.params[] | select(.name == "{name}"))', "-i", str(path)],
-            capture=True,
-            check=True,
-        )
+    def _yq_set_its_application(path: Path, application: str) -> None:
         run_cmd(
             [
                 "yq",
                 "e",
-                f'.spec.params += [{{"name":"{name}","value":strenv({env_key})}}]',
+                ".spec.application = strenv(YQ_ITS_APPLICATION)",
                 "-i",
                 str(path),
             ],
             capture=True,
             check=True,
-            env={**os.environ, env_key: value},
+            env={**os.environ, "YQ_ITS_APPLICATION": application},
         )
+
