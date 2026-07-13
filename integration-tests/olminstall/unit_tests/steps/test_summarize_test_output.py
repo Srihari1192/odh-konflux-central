@@ -457,5 +457,38 @@ class EmitComponentTestOutputTest(unittest.TestCase):
         self.assertLessEqual(len(json.dumps(shrunk, separators=(",", ":")).encode()), _TEKTON_TEST_OUTPUT_MAX_BYTES)
         self.assertIn("per-suite details omitted", str(shrunk.get("note", "")))
 
+    def test_component_aggregate_applies_finalize_pass_rate_when_env_set(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            passed_cases = "\n".join(
+                f'  <testcase classname="a" name="t{i}"/>' for i in range(995)
+            )
+            failed_cases = "\n".join(
+                f'  <testcase classname="a" name="f{i}"><failure message="x"/></testcase>'
+                for i in range(5)
+            )
+            (root / "aggregate-smoke.xml").write_text(
+                f"""<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="aggregate" tests="1000" failures="5" errors="0" skipped="0">
+{passed_cases}
+{failed_cases}
+</testsuite>
+""",
+                encoding="utf-8",
+            )
+            payload_default, _ = build_test_output_payload(
+                root,
+                note_prefix="Component",
+                recursive=True,
+            )
+            self.assertEqual(payload_default["result"], "WARNING")
+            with patch.dict(os.environ, {"APPLY_TEST_FINALIZE_PASS_RATE": "true"}, clear=False):
+                payload_finalize, _ = build_test_output_payload(
+                    root,
+                    note_prefix="Component",
+                    recursive=True,
+                )
+            self.assertEqual(payload_finalize["result"], "SUCCESS")
+
 if __name__ == "__main__":
     raise SystemExit(unittest.main())

@@ -68,11 +68,11 @@ class PipelineRunContextTest(unittest.TestCase):
             cluster_source="olminstall-kubeconfig-rh-nightly-pm",
             product="rhoai",
             test_gates="bvt,smoke",
-            trigger_command="python3 integration-tests/olminstall/olm_pipeline.py --run-now",
+            trigger_command="python3 integration-tests/olminstall/olm_pipeline.py --run-its odh-olminstall-testops-rh-nightly",
         )
         self.assertIn("CLI direct", msg)
         self.assertIn("Incoming", msg)
-        self.assertIn("--run-now", msg)
+        self.assertIn("--run-its", msg)
 
     def test_cli_direct_trigger_context_results(self) -> None:
         results = build_pipeline_run_context_results(
@@ -83,13 +83,13 @@ class PipelineRunContextTest(unittest.TestCase):
             cluster_source="olminstall-kubeconfig-rh-nightly-pm",
             product="rhoai",
             test_gates="bvt,smoke",
-            trigger_command="python3 integration-tests/olminstall/olm_pipeline.py --run-now",
+            trigger_command="python3 integration-tests/olminstall/olm_pipeline.py --run-its odh-olminstall-testops-rh-nightly",
         )
         self.assertEqual(tuple(results.keys()), TRIGGER_CONTEXT_RESULT_NAMES)
         self.assertIn("CLI direct", results["TRIGGER"])
         self.assertIn("Incoming", results["KONFLUX_EVENT"])
         self.assertIn("rhoai-fbc-fragment-ocp-420", results["FBC"])
-        self.assertIn("--run-now", results["TRIGGER_CMD"])
+        self.assertIn("--run-its", results["TRIGGER_CMD"])
 
     def test_its_only_upstream_task_message(self) -> None:
         msg = build_pipeline_run_context_message(

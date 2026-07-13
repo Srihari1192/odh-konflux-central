@@ -30,6 +30,7 @@ from _bootstrap import ensure_olminstall_path
 ensure_olminstall_path()
 
 from suite.component_junit import junit_counts
+from suite.test_output_pass_rate import gate_test_output_with_pass_rate_result
 from steps.tests_payload import (
     gate_test_output_sidecar_path,
     junit_xml_for_component,
@@ -324,6 +325,8 @@ def build_test_output_payload(
     }
     if suites:
         payload["suites"] = suites
+    if _truthy("APPLY_TEST_FINALIZE_PASS_RATE") and prefix_upper == "COMPONENT":
+        payload = gate_test_output_with_pass_rate_result(payload)
     return payload, note
 
 

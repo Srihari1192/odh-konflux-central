@@ -232,6 +232,25 @@ def resolve_gateway_auth_overlay(
                 else ""
             )
             if admin_auth and not admin_auth.startswith("oidc"):
+                test_auth = str(test_user.get("AUTH_TYPE") or "").lower()
+                if (
+                    test_auth.startswith("ldap")
+                    and admin_auth.lower().startswith("htpasswd")
+                    and isinstance(admin_user, dict)
+                ):
+                    htpasswd_user = {
+                        k: str(admin_user.get(k) or "").strip()
+                        for k in ("AUTH_TYPE", "USERNAME", "PASSWORD")
+                    }
+                    overlay: dict[str, object] = {
+                        "CLUSTER_AUTH": admin_auth,
+                        "TEST_USER": htpasswd_user,
+                        "OCP_ADMIN_USER": htpasswd_user,
+                    }
+                    _patch_secondary_users_for_htpasswd(
+                        overlay, vault_doc, entry, htpasswd_user
+                    )
+                    return overlay
                 return {}
             idp = str(test_user.get("AUTH_TYPE") or "htpasswd-cluster-admin").strip()
             htpasswd_user = {k: str(test_user.get(k) or "").strip() for k in ("AUTH_TYPE", "USERNAME", "PASSWORD")}
@@ -350,6 +369,59 @@ def sync_cypress_auth_env_from_config(config_path: str | Path) -> None:
         os.environ["CLUSTER_AUTH"] = htpasswd_idp or os.environ.get(
             "HTPASSWD_IDP_NAME", "htpasswd-cluster-admin"
         )
+
+
+def _aws_pipelines_overlay_from_env() -> dict[str, object] | None:
+    """Build Jenkins-style AWS_PIPELINES for Cypress from shift-left / vault env."""
+    from k8s.shift_left_env import resolve_ci_s3_smoke_fields
+
+    fields = resolve_ci_s3_smoke_fields()
+    if not fields:
+        return None
+    bucket_details = {
+        "NAME": fields["NAME"],
+        "REGION": fields["REGION"],
+        "ENDPOINT": fields["ENDPOINT"],
+    }
+    # Mirrors vault CY_TEST_CONFIG AWS_PIPELINES (Jenkins dashboard-e2e parity).
+    return {
+        "AWS_PIPELINES": {
+            "AWS_ACCESS_KEY_ID": fields["AWS_ACCESS_KEY_ID"],
+            "AWS_SECRET_ACCESS_KEY": fields["AWS_SECRET_ACCESS_KEY"],
+            "BUCKET_2": dict(bucket_details),
+            "BUCKET_3": dict(bucket_details),
+        }
+    }
+
+
+def _merge_cypress_s3_overlay(runtime_cfg: Path, vault_src: Path) -> None:
+    """Ensure CY_TEST_CONFIG exposes AWS_PIPELINES for AutoML/pipeline Cypress specs."""
+    doc = _load_yaml_dict(runtime_cfg)
+    if isinstance(doc.get("AWS_PIPELINES"), dict):
+        return
+    vault_doc = _load_yaml_dict(vault_src)
+    pipelines = vault_doc.get("AWS_PIPELINES")
+    if isinstance(pipelines, dict):
+        overlay: dict[str, object] = {"AWS_PIPELINES": pipelines}
+    else:
+        built = _aws_pipelines_overlay_from_env()
+        if not built:
+            print(
+                "WARN: skipping AWS_PIPELINES overlay; vault/env S3 fields incomplete",
+                file=sys.stderr,
+                flush=True,
+            )
+            return
+        overlay = built
+    _ensure_pyyaml_available()
+    import yaml
+
+    merged = _deep_merge_dict(doc, overlay)
+    runtime_cfg.write_text(
+        yaml.safe_dump(merged, default_flow_style=False, sort_keys=False),
+        encoding="utf-8",
+    )
+    print("✓ Merged AWS_PIPELINES into Cypress runtime config", flush=True)
 
 
 def _test_clusters_entry(doc: dict[str, object], cluster_label: str) -> dict[str, object]:

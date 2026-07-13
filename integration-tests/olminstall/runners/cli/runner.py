@@ -66,7 +66,6 @@ from k8s.smoke_aws_credentials import (
     ensure_router_ca_in_smoke_secret,
 )
 from .runner_mixin_delete import RunnerDeleteMixin
-from .runner_auto_rh_nightly import RunnerAutoRhNightlyMixin
 from .runner_mixin_its import RunnerItsAdminMixin
 from .runner_mixin_list import RunnerListMixin
 from .runner_mixin_trigger import RunnerTriggerMixin
@@ -92,7 +91,6 @@ __all__ = [
 class OLMInstallRunner(
     RunnerListMixin,
     RunnerDeleteMixin,
-    RunnerAutoRhNightlyMixin,
     RunnerTriggerMixin,
     RunnerWatchMixin,
     RunnerItsAdminMixin,
@@ -835,9 +833,9 @@ class OLMInstallRunner(
 
         self.ensure_konflux_cluster()
 
+        if (self.args.run_its or "").strip():
+            return self.run_integration_test_scenario()
         if (self.args.enable_its or "").strip():
-            if self.args.run_now:
-                return self.enable_integration_test_scenario_run_now()
             return self.enable_integration_test_scenario()
         if (self.args.disable_its or "").strip():
             return self.disable_integration_test_scenario()

@@ -92,11 +92,8 @@ def _ensure_yaml_loader() -> None:
         return
     except ImportError:
         pass
-    from components.dashboard_cypress.runtime import (
-        _pip_install_to_target,
-        _prepend_pythonpath,
-        prepend_staged_python_deps,
-    )
+    from helpers.pip_bootstrap import pip_install_to_target, prepend_pythonpath
+    from components.dashboard_cypress.runtime import prepend_staged_python_deps
 
     if prepend_staged_python_deps():
         try:
@@ -110,8 +107,8 @@ def _ensure_yaml_loader() -> None:
 
     target = tests_payload_tools_python_dir(resolve_tests_payload_root(artifacts))
     print(f"Installing PyYAML to {target} (component pytest)...", flush=True)
-    _pip_install_to_target("pyyaml", target)
-    _prepend_pythonpath(str(target))
+    pip_install_to_target("pyyaml", target)
+    prepend_pythonpath(str(target))
     import yaml  # noqa: F401
 
 
@@ -516,13 +513,6 @@ def _run_one_component(
             maas_skip = skip_fn()
             if maas_skip:
                 extra = _merge_pytest_k_skip(extra, maas_skip)
-    if cid == "model_runtime":
-        from k8s.smoke_ci_s3_test_dir import model_runtime_pytest_extra_args
-
-        # Static skip only; vLLM skips are merged after S3 seed (shift-left creds block below).
-        runtime_skip = model_runtime_pytest_extra_args(skip_vllm_probe=True)
-        if runtime_skip:
-            extra = _merge_pytest_k_skip(extra, runtime_skip)
     if cid == "ogx":
         extra = _apply_ogx_pytest_extra_args(extra)
         _ensure_olminstall_on_pythonpath()
@@ -627,64 +617,22 @@ def _run_one_component(
             refresh_test_output()
             return tekton_ec
         if cid == "model_server":
-            try:
-                from k8s.smoke_ci_s3_test_dir import ensure_model_server_ci_s3_test_dir
+            from k8s.smoke_ci_s3_test_dir import log_model_server_ci_s3_layout
 
-                ensure_model_server_ci_s3_test_dir()
-            except Exception as exc:
-                msg = f"model_server CI S3 test-dir seed failed: {exc}"
-                print(f"ERROR: {msg}", file=sys.stderr, flush=True)
-                _write_single_failure_junit(
-                    comp,
-                    artifacts_dir=artifacts_dir,
-                    testcase_name="model_server_s3_test_dir_seed",
-                    message=msg,
-                    outcome="failure",
-                )
-                prefix_by_id[cid] = comp["artifact_prefix"]
-                strict_ec, tekton_ec = resolve_component_exit_codes(
-                    comp,
-                    raw_ec=1,
-                    artifacts_dir=artifacts_dir,
-                )
-                if _filter_component_id():
-                    _accumulate_exit_file(strict_ec)
-                refresh_test_output()
-                return tekton_ec
+            log_model_server_ci_s3_layout()
         if cid == "model_runtime":
-            try:
-                from k8s.smoke_ci_s3_test_dir import (
-                    ensure_model_runtime_ci_s3_models,
-                    model_runtime_pytest_extra_args,
-                )
+            from k8s.smoke_ci_s3_test_dir import (
+                log_model_runtime_ci_s3_layout,
+                model_runtime_pytest_extra_args,
+            )
 
-                ensure_model_runtime_ci_s3_models()
-                runtime_skip = model_runtime_pytest_extra_args(skip_vllm_probe=False)
-                if runtime_skip:
-                    extra = _merge_pytest_k_skip(
-                        os.environ.get("PYTEST_EXTRA_ARGS", extra), runtime_skip
-                    )
-                    os.environ["PYTEST_EXTRA_ARGS"] = extra
-            except Exception as exc:
-                msg = f"model_runtime CI S3 seed failed: {exc}"
-                print(f"ERROR: {msg}", file=sys.stderr, flush=True)
-                _write_single_failure_junit(
-                    comp,
-                    artifacts_dir=artifacts_dir,
-                    testcase_name="model_runtime_s3_seed",
-                    message=msg,
-                    outcome="failure",
+            log_model_runtime_ci_s3_layout()
+            runtime_skip = model_runtime_pytest_extra_args()
+            if runtime_skip:
+                extra = _merge_pytest_k_skip(
+                    os.environ.get("PYTEST_EXTRA_ARGS", extra), runtime_skip
                 )
-                prefix_by_id[cid] = comp["artifact_prefix"]
-                strict_ec, tekton_ec = resolve_component_exit_codes(
-                    comp,
-                    raw_ec=1,
-                    artifacts_dir=artifacts_dir,
-                )
-                if _filter_component_id():
-                    _accumulate_exit_file(strict_ec)
-                refresh_test_output()
-                return tekton_ec
+                os.environ["PYTEST_EXTRA_ARGS"] = extra
     if not collect_only and cid == "ogx":
         _materialize_ogx_ea_conftest(artifacts_dir)
         _ensure_olminstall_on_pythonpath()

@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import os
 import unittest
-from pathlib import Path
 from unittest import mock
 
-from k8s import smoke_ci_s3_test_dir as s3_seed
+from k8s import smoke_ci_s3_test_dir as s3_probe
 
 
-class TestEnsureModelServerCiS3TestDir(unittest.TestCase):
+class TestResolveCiBucket(unittest.TestCase):
     def setUp(self) -> None:
         self.env = mock.patch.dict(
             os.environ,
@@ -25,28 +24,30 @@ class TestEnsureModelServerCiS3TestDir(unittest.TestCase):
         self.env.start()
         self.addCleanup(self.env.stop)
 
-    def test_uploads_missing_ir_objects_under_version_dir(self) -> None:
-        client = mock.Mock()
-        client.head_object.side_effect = _client_error("404")
-        with mock.patch.object(s3_seed, "_s3_client", return_value=client):
-            self.assertTrue(s3_seed.ensure_model_server_ci_s3_test_dir())
-        uploaded_keys = {call.args[2] for call in client.upload_file.call_args_list}
-        self.assertIn("test-dir/1/mnist.xml", uploaded_keys)
-        self.assertIn("test-dir/1/mnist.bin", uploaded_keys)
-        self.assertIn("openvino/model_repository/onnx/1/mnist.xml", uploaded_keys)
-        self.assertIn("openvino/model_repository/onnx/1/mnist.bin", uploaded_keys)
-
-    def test_skips_when_objects_exist(self) -> None:
-        client = mock.Mock()
-        with mock.patch.object(s3_seed, "_s3_client", return_value=client):
-            self.assertTrue(s3_seed.ensure_model_server_ci_s3_test_dir())
-        client.upload_file.assert_not_called()
-
     def test_raises_when_bucket_unset(self) -> None:
         os.environ.pop("CI_S3_BUCKET_NAME", None)
         os.environ.pop("MODELS_S3_BUCKET_NAME", None)
         with self.assertRaisesRegex(Exception, "CI_S3_BUCKET_NAME unset"):
-            s3_seed.ensure_model_server_ci_s3_test_dir()
+            s3_probe._resolve_ci_bucket()
+
+
+class TestLogCiS3Layout(unittest.TestCase):
+    def test_log_model_server_warns_on_missing_markers(self) -> None:
+        client = mock.Mock()
+        client.head_object.side_effect = _client_error("404")
+        with (
+            mock.patch.object(
+                s3_probe,
+                "_resolve_ci_bucket",
+                return_value=("b", "us-east-1", None, "k", "s"),
+            ),
+            mock.patch.object(s3_probe, "_s3_client", return_value=client),
+            mock.patch("builtins.print") as print_mock,
+        ):
+            s3_probe.log_model_server_ci_s3_layout()
+        printed = " ".join(str(c.args[0]) for c in print_mock.call_args_list)
+        self.assertIn("WARN: CI S3 layout missing", printed)
+        self.assertIn("test-dir/1/mnist.xml", printed)
 
 
 class TestModelRuntimePytestExtraArgs(unittest.TestCase):
@@ -54,17 +55,35 @@ class TestModelRuntimePytestExtraArgs(unittest.TestCase):
         client = mock.Mock()
         client.head_object.side_effect = _client_error("404")
         with (
-            mock.patch.object(s3_seed, "_resolve_ci_bucket", return_value=("b", "us-east-1", None, "k", "s")),
-            mock.patch.object(s3_seed, "_s3_client", return_value=client),
+            mock.patch.object(
+                s3_probe,
+                "_resolve_ci_bucket",
+                return_value=("b", "us-east-1", None, "k", "s"),
+            ),
+            mock.patch.object(s3_probe, "_s3_client", return_value=client),
         ):
-            extra = s3_seed.model_runtime_pytest_extra_args()
+            extra = s3_probe.model_runtime_pytest_extra_args()
         self.assertIn("TestVllmCpuX86S3Inference", extra)
         self.assertIn("TestTritonGRPC", extra)
 
-    def test_skip_vllm_probe_defers_vllm_skips(self) -> None:
-        extra = s3_seed.model_runtime_pytest_extra_args(skip_vllm_probe=True)
-        self.assertIn("TestTritonGRPC", extra)
-        self.assertNotIn("TestVllmCpuX86S3Inference", extra)
+    def test_skip_s3_probe_defers_all_s3_skips(self) -> None:
+        extra = s3_probe.model_runtime_pytest_extra_args(skip_s3_probe=True)
+        self.assertEqual(extra, "")
+
+    def test_allows_triton_grpc_when_inception_model_present(self) -> None:
+        client = mock.Mock()
+        client.head_object.return_value = {}
+        with (
+            mock.patch.object(
+                s3_probe,
+                "_resolve_ci_bucket",
+                return_value=("b", "us-east-1", None, "k", "s"),
+            ),
+            mock.patch.object(s3_probe, "_s3_client", return_value=client),
+            mock.patch.object(s3_probe, "ci_s3_object_ready", side_effect=[True, True]),
+        ):
+            extra = s3_probe.model_runtime_pytest_extra_args()
+        self.assertNotIn("TestTritonGRPC", extra)
 
 
 def _client_error(code: str):

@@ -208,12 +208,12 @@ def format_olm_pipeline_watch_cli(
 
 
 def first_snapshot_component_name(snapshot_yaml: str) -> str:
-    """Template components[].name from integration-tests/olminstall/test-snapshot.yaml."""
+    """Template components[].name from integration-tests/olminstall/config/test-snapshot.yaml."""
     m = re.search(r"(?m)^\s+-\s+name:\s+(\S+)\s*$", snapshot_yaml)
     if not m:
         snippet = snapshot_yaml[:200].replace("\n", " ")
         raise AppError(
-            "Could not locate the first snapshot component name in test-snapshot.yaml "
+            "Could not locate the first snapshot component name in config/test-snapshot.yaml "
             f"(template drift?). Snippet: {snippet!r}"
         )
     return m.group(1)
@@ -232,7 +232,7 @@ class OLMInstallRunner:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
         self.script_dir = Path(__file__).resolve().parent.parent
-        self.snapshot_file = self.script_dir / "test-snapshot.yaml"
+        self.snapshot_file = self.script_dir / "config" / "test-snapshot.yaml"
         self.its_file = self.script_dir / "tekton" / "its" / "its-olminstall-testops-eaas.yaml"
         self.konflux_ui = args.konflux_ui or ""
         self.ka_host = args.ka_host or ""

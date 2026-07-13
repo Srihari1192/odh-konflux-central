@@ -80,9 +80,13 @@ _SKIP_HINT_KEYS = frozenset({"TASK_MESSAGE", "DIAGNOSTICS_MANIFEST"})
 
 _MULTILINE_RESULT_KEYS = frozenset({"TEST_OUTPUT"})
 
-_TEST_FINALIZE_RESULT_PRIORITY: tuple[str, ...] = ("TEST_OUTPUT", "TASK_MESSAGE")
-
 _PUBLISH_GATE_RESULT_NAMES: tuple[str, ...] = ("TESTS_SUMMARY", "BVT_GATE", "SMOKE_GATE")
+
+_TEST_FINALIZE_RESULT_PRIORITY: tuple[str, ...] = (
+    "TEST_OUTPUT",
+    "TASK_MESSAGE",
+    *_PUBLISH_GATE_RESULT_NAMES,
+)
 
 _PUBLISH_RESULT_PATH_ENVS: tuple[tuple[str, str], ...] = (
     ("TEST_OUTPUT", "TEST_OUTPUT_PATH"),
@@ -93,6 +97,10 @@ _PUBLISH_RESULT_PATH_ENVS: tuple[tuple[str, str], ...] = (
     ("CLUSTER", "CLUSTER_PATH"),
     ("OPERATOR_VERSION", "OPERATOR_VERSION_PATH"),
     ("ARTIFACTS_URL", "ARTIFACTS_URL_PATH"),
+)
+
+_TEST_FINALIZE_RESULT_PATH_ENVS: tuple[tuple[str, str], ...] = tuple(
+    (name, f"{name}_PATH") for name in _TEST_FINALIZE_RESULT_PRIORITY
 )
 
 
@@ -452,13 +460,17 @@ def build_task_message(*, pipeline_task: str = "", results: dict[str, str] | Non
     return _emit_task_message(msg, max_bytes=_task_message_max_bytes(task_label))
 
 
-def _publish_result_paths() -> dict[str, str]:
+def _result_paths(path_envs: tuple[tuple[str, str], ...]) -> dict[str, str]:
     paths: dict[str, str] = {}
-    for name, env_name in _PUBLISH_RESULT_PATH_ENVS:
+    for name, env_name in path_envs:
         raw = os.environ.get(env_name, "").strip()
         if raw and "$(" not in raw:
             paths[name] = raw
     return paths
+
+
+def _publish_result_paths() -> dict[str, str]:
+    return _result_paths(_PUBLISH_RESULT_PATH_ENVS)
 
 
 def _merge_gate_summaries(
@@ -636,30 +648,40 @@ def _finalize_publish_results() -> None:
         print("WARN: publish-results missing TEST_OUTPUT or TASK_MESSAGE after finalize", file=sys.stderr)
 
 
-def _test_finalize_result_paths() -> dict[str, str]:
-    paths: dict[str, str] = {}
-    for name, env_name in (("TEST_OUTPUT", "TEST_OUTPUT_PATH"), ("TASK_MESSAGE", "TASK_MESSAGE_PATH")):
-        raw = os.environ.get(env_name, "").strip()
-        if raw and "$(" not in raw:
-            paths[name] = raw
-    return paths
-
-
-def _finalize_test_finalize(*, task_message: str) -> None:
-    paths = _test_finalize_result_paths()
-    sibling = read_tekton_results_at_paths(paths) if paths else read_tekton_task_result_files()
-    sibling["TASK_MESSAGE"] = task_message
-    if sibling.get("TEST_OUTPUT", "").strip():
-        sibling["TEST_OUTPUT"] = slim_test_output_for_tekton(sibling["TEST_OUTPUT"])
-    fitted = fit_tekton_task_results(
-        sibling,
-        priority=_TEST_FINALIZE_RESULT_PRIORITY,
-    )
+def _write_fitted_task_results(fitted: dict[str, str], paths: dict[str, str]) -> None:
     if paths:
         write_tekton_results_at_paths(fitted, paths)
     else:
         write_tekton_task_result_files(fitted)
-    size = tekton_results_termination_payload_size(fitted)
+
+
+def _finalize_test_finalize(*, task_message: str) -> None:
+    paths = _result_paths(_TEST_FINALIZE_RESULT_PATH_ENVS)
+    sibling = read_tekton_results_at_paths(paths) if paths else read_tekton_task_result_files()
+    sibling["TASK_MESSAGE"] = task_message
+    test_output = sibling.get("TEST_OUTPUT", "").strip()
+    if test_output:
+        sibling["TEST_OUTPUT"] = slim_test_output_for_tekton(test_output)
+
+    gate_summaries = _build_publish_gate_summaries_for_sibling(sibling)
+
+    fitted_core = fit_tekton_task_results(
+        {key: value for key, value in sibling.items() if key not in _PUBLISH_GATE_RESULT_NAMES},
+        priority=("TEST_OUTPUT", "TASK_MESSAGE"),
+    )
+    _write_fitted_task_results(fitted_core, paths)
+
+    authoritative = {
+        "TEST_OUTPUT": sibling.get("TEST_OUTPUT", ""),
+        "TASK_MESSAGE": task_message,
+        **gate_summaries,
+    }
+    if paths:
+        write_tekton_results_at_paths(authoritative, paths)
+    else:
+        write_tekton_task_result_files(authoritative)
+
+    size = tekton_results_termination_payload_size({**fitted_core, **authoritative})
     print(
         f"test-finalize Tekton results payload: {size}/{_TEKTON_TASK_RESULTS_BUDGET_BYTES} bytes",
         flush=True,

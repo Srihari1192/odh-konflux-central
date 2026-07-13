@@ -30,12 +30,12 @@ Run rules:
   • Default = trigger (always creates a new PipelineRun).
   • Default --product existing without --external-kubeconfig: BVT placeholder only; smoke needs a cluster.
   • Default --tests bvt,smoke with existing: pass --external-kubeconfig for component smoke.
-  • -w / --watch, -l / --list-pipelines, --delete-pending-pipelines, --enable-its, --disable-its = Konflux query/maintenance (pick one).
+  • -w / --watch, -l / --list-pipelines, --delete-pending-pipelines, --enable-its, --disable-its, --run-its = Konflux query/maintenance (pick one).
   • --enable-its / --disable-its apply or remove an in-tree IntegrationTestScenario by name (uses --konflux-namespace / --konflux-app).
-  • --enable-its odh-olminstall-testops-rh-nightly also runs catalog sync once (skip if digest unchanged).
-  • --enable-its NAME --run-now: direct PipelineRun from ITS manifest params (descriptive generateName; no ITS on cluster).
+  • --enable-its applies spec.application from the ITS manifest; pass --konflux-app to patch. Only Konflux rollout flags allowed.
+  • --run-its NAME: one-shot debug PipelineRun from ITS manifest params (cluster/test overrides allowed; no ITS apply).
   • --list-supported-ocp = supported OCP query (product & catalog; pick alone or with --ocp-version).
-  • Do not mix trigger-only flags with -w, -l, --delete-pending-pipelines, --enable-its, --disable-its, or --list-supported-ocp.
+  • Do not mix trigger-only flags with -w, -l, --delete-pending-pipelines, --enable-its, --disable-its, --run-its, or --list-supported-ocp.
   • --ocp-version may accompany --list-supported-ocp or a trigger run.
 
 Examples:
@@ -46,7 +46,7 @@ Examples:
   %(prog)s --delete-pending-pipelines          # stop stuck/incomplete live runs
   %(prog)s --delete-pending-pipelines --delete-pending-dry-run
   %(prog)s --enable-its odh-olminstall-testops-rh-nightly
-  %(prog)s --enable-its odh-olminstall-testops-rh-nightly --run-now
+  %(prog)s --run-its odh-olminstall-testops-rh-nightly --tests smoke --components dashboard_cypress
   %(prog)s --enable-its odh-olminstall-testops-eaas
   %(prog)s --disable-its odh-olminstall-testops-rh-nightly
   %(prog)s --list-supported-ocp --ocp-version 4.19

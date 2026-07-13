@@ -103,7 +103,7 @@ The `BUILD` node is the entry point for both **automatic** and **manual** runs (
 | [`tekton/pipelines/olminstall-pipeline.yaml`](tekton/pipelines/olminstall-pipeline.yaml) | Tekton pipeline: setup → cluster/install → prepare → test gates → `finally` reporting |
 | [`tekton/tasks/task-bvt-health-checks.yaml`](tekton/tasks/task-bvt-health-checks.yaml) | BVT `cluster_health` + `operator_health` pytest (or placeholder when `PRODUCT=existing`) |
 | [`tekton/tasks/task-component-pytest.yaml`](tekton/tasks/task-component-pytest.yaml) | One component pytest step (`test-*` pipeline tasks; `component-test-plan.json`) |
-| [`tekton/tasks/task-test-finalize.yaml`](tekton/tasks/task-test-finalize.yaml) | Aggregate smoke `TEST_OUTPUT` and component pytest exit check |
+| [`tekton/tasks/task-test-finalize.yaml`](tekton/tasks/task-test-finalize.yaml) | Aggregate component `TEST_OUTPUT`, gate rows (`BVT_GATE`, `SMOKE_GATE`, `TESTS_SUMMARY`), and pytest exit check |
 | [`tekton/tasks/task-install-operator.yaml`](tekton/tasks/task-install-operator.yaml) | Reusable Tekton Task for OLM install + CSV verify (`install-rhoai` / `install-odh`) |
 | [`tekton/tasks/task-install-dep-operators.yaml`](tekton/tasks/task-install-dep-operators.yaml) | Reusable Tekton Task: `setup-dependencies.sh`, RHCL CSV pin + `post-install-rhcl-operator.sh` on EaaS or external clusters (`install-dep-operators`; fails pipeline on error) |
 | [`install/rhcl_deps.py`](install/rhcl_deps.py) | RHCL CSV pin from olminstall manifest, `post-install-rhcl-operator.sh`, Authorino readiness (`ensure_maas_rhcl_dependency_stack`) |
@@ -129,8 +129,8 @@ The canonical runnable pipeline is [`tekton/pipelines/olminstall-pipeline.yaml`]
 | [`install/patch_cluster_pull_secret.py`](install/patch_cluster_pull_secret.py) | Tekton step: injects `quay.io/rhoai` credentials into the [EaaS](../../doc/contributing-konflux-testing-rhoai.md#eaas) cluster at all required levels |
 | [`tekton/its/its-olminstall-open-data-hub-tenant.yaml`](tekton/its/its-olminstall-open-data-hub-tenant.yaml) | [ITS](../../doc/contributing-konflux-testing-rhoai.md#its) `odh-olminstall` for [ODH](../../doc/contributing-konflux-testing-rhoai.md#odh) (`open-data-hub-tenant`, `odh-operator-catalog` component) |
 | [`tekton/its/its-olminstall-testops-eaas.yaml`](tekton/its/its-olminstall-testops-eaas.yaml) | [ITS](../../doc/contributing-konflux-testing-rhoai.md#its) `odh-olminstall-testops-eaas` — EaaS sandbox (`CLUSTER_SOURCE=EAAS`, `component_rhoai-fbc-fragment-ocp-421`) |
-| [`tekton/its/its-olminstall-testops-rh-nightly.yaml`](tekton/its/its-olminstall-testops-rh-nightly.yaml) | Auto [ITS](../../doc/contributing-konflux-testing-rhoai.md#its) on `component_rhoai-fbc-fragment-ocp-420` for external rh-nightly cluster (`optional: true`) |
-| [`config/test-snapshot-rh-nightly.yaml`](config/test-snapshot-rh-nightly.yaml) | Offline FBC pin for `--run-now` when Konflux lookup fails (rh-nightly ITS) |
+| [`tekton/its/its-olminstall-testops-rh-nightly.yaml`](tekton/its/its-olminstall-testops-rh-nightly.yaml) | Auto [ITS](../../doc/contributing-konflux-testing-rhoai.md#its) on **`rhoai-fbc-fragment-ocp-420`** for external rh-nightly cluster (`optional: true`) |
+| [`config/test-snapshot-rh-nightly.yaml`](config/test-snapshot-rh-nightly.yaml) | Offline FBC pin for `--run-its` when Konflux lookup fails (rh-nightly ITS) |
 | [`suite/its_registry.py`](suite/its_registry.py) | Resolve in-tree ITS YAML by `metadata.name` for `--enable-its` / `--disable-its` |
 | [`suite/tests_plan.py`](suite/tests_plan.py) | Validates/normalizes `TESTS` strings using [`config/olminstall-tests-config.yaml`](config/olminstall-tests-config.yaml) (or `--tests-config`) |
 | [`install/install_and_verify.py`](install/install_and_verify.py) | Tekton step: creates [OLM](../../doc/contributing-konflux-testing-rhoai.md#olm) resources, waits for [CSV](../../doc/contributing-konflux-testing-rhoai.md#csv) `Succeeded`, writes `INSTALL_STATUS` |
@@ -285,71 +285,70 @@ python3 integration-tests/olminstall/olm_pipeline.py -w --konflux-namespace rhoa
 
 For generic Konflux testing (login, namespaces, [PipelineRun](../../doc/contributing-konflux-testing-rhoai.md#pipelinerun) vs [Snapshot](../../doc/contributing-konflux-testing-rhoai.md#snapshot)/[ITS](../../doc/contributing-konflux-testing-rhoai.md#its); [manual vs ITS vs PAC](../../doc/contributing-konflux-testing-rhoai.md#how-integration-runs-are-triggered)), see [contributing guide](../../doc/contributing-konflux-testing-rhoai.md#terms-and-abbreviations).
 
-### IntegrationTestScenario admin (`--enable-its` / `--disable-its` / `--run-now`)
+### IntegrationTestScenario admin (`--enable-its` / `--disable-its` / `--run-its`)
 
-`testops-playpen` has **two** olminstall ITS profiles — enable both for steady state (420 → rh-nightly-pm, 421 → EaaS); contexts are split so single-component Snapshots do not double-fire.
+Rh-nightly and EaaS olminstall ITS live on the **FBC fragment Applications** (native Konflux auto-trigger on component build Snapshots), not on `testops-playpen`.
 
-| ITS name | Cluster | `CLUSTER_SOURCE` | Auto-trigger context | ITS PipelineRun prefix |
-|----------|---------|------------------|----------------------|-------------------------|
-| `odh-olminstall-testops-rh-nightly` | rh-nightly-pm (external) | `olminstall-kubeconfig-rh-nightly-pm` | `push`, `component_rhoai-fbc-fragment-ocp-420` | `olminstall-its-rh-nightly-pm-bvt-smoke-*` |
-| `odh-olminstall-testops-eaas` | EaaS (ephemeral) | `EAAS` | `component_rhoai-fbc-fragment-ocp-421` | `olminstall-its-eaas-bvt-smoke-*` |
+| ITS name | Konflux Application | Cluster | `CLUSTER_SOURCE` | Auto-trigger context | ITS PipelineRun prefix |
+|----------|---------------------|---------|------------------|----------------------|-------------------------|
+| `odh-olminstall-testops-rh-nightly` | **`rhoai-fbc-fragment-ocp-420`** | rh-nightly-pm (external) | `olminstall-kubeconfig-rh-nightly-pm` | `component_rhoai-fbc-fragment-ocp-420` | `olminstall-its-rh-nightly-pm-bvt-smoke-*` |
+| `odh-olminstall-testops-eaas` | `testops-playpen` (→ **421** later) | EaaS (ephemeral) | `EAAS` | `component_rhoai-fbc-fragment-ocp-421` | `olminstall-its-eaas-bvt-smoke-*` |
 
-Use [`olm_pipeline.py`](olm_pipeline.py) to apply or remove in-tree [ITS](../../doc/contributing-konflux-testing-rhoai.md#its) manifests by `metadata.name`. **`--enable-its odh-olminstall-testops-rh-nightly`** also runs **catalog sync once** (skip if digest unchanged). **`--run-now`** creates a direct CLI PipelineRun (`olminstall-cli-*`, Konflux **Incoming**) without applying ITS.
+Use [`olm_pipeline.py`](olm_pipeline.py) to apply or remove in-tree [ITS](../../doc/contributing-konflux-testing-rhoai.md#its) manifests by **`metadata.name`**, **olminstall-relative path** (preferred, e.g. `tekton/its/its-olminstall-testops-rh-nightly.yaml`), **repo-relative path** (e.g. `integration-tests/olminstall/tekton/its/…`), or **absolute path** under the repository root. **`--enable-its`** applies the ITS only (launch-and-forget); only Konflux rollout flags are allowed (`--konflux-repo`, `--konflux-branch`, `--konflux-app`). **`--run-its`** creates a one-shot direct CLI PipelineRun (`olminstall-cli-*`, Konflux **Incoming**) without applying ITS; cluster and test overrides (`--components`, `--tests`, `--external-kubeconfig`, etc.) are allowed.
 
-**Steady state (both profiles):**
+**Debug on playpen:** pass **`--konflux-app testops-playpen`** on `--enable-its` or `--run-its` to patch `spec.application` at apply time (does not auto-trigger on upstream FBC builds — playpen Snapshots only). Pass **`--external-kubeconfig PATH`** on **`--run-its`** to run on a pooled cluster instead of `olminstall-kubeconfig-rh-nightly-pm`. Omit both flags to use manifest defaults (`rhoai-fbc-fragment-ocp-420` + rh-nightly-pm secret for rh-nightly).
+
+**Steady state (rh-nightly on ocp-420 FBC app):**
 
 ```bash
 python3 integration-tests/olminstall/olm_pipeline.py \
   --enable-its odh-olminstall-testops-rh-nightly \
   --konflux-repo https://github.com/<you>/odh-konflux-central.git \
-  --konflux-branch olminstall_smoke \
-  --konflux-namespace rhoai-tenant --konflux-app testops-playpen
+  --konflux-branch <branch> \
+  --konflux-namespace rhoai-tenant
 python3 integration-tests/olminstall/olm_pipeline.py \
   --enable-its odh-olminstall-testops-eaas \
   --konflux-namespace rhoai-tenant --konflux-app testops-playpen
 ```
 
-**Ops/cron catalog poll** — re-run **`--enable-its odh-olminstall-testops-rh-nightly`** when you want to poll for a new catalog digest (skips if unchanged; same as the one-time sync on enable).
+Tenant secret **`olminstall-kubeconfig-rh-nightly-pm`** must exist before rh-nightly runs. Both ITS use `optional: true` so failures do not block FBC release.
 
-Tenant secret **`olminstall-kubeconfig-rh-nightly-pm`** must exist before rh-nightly runs. Both ITS use `optional: true` so failures do not block playpen release.
+**Autonomous external login (RHOAIENG-57718):** store durable htpasswd credentials in tenant Secret **`olminstall-external-rh-nightly-pm-credentials`** (`HTPASSWD_USER`, `HTPASSWD_PASS`, `API_SERVER`). The pipeline step **`refresh-external-kubeconfig`** (in **`external-cluster-ready`**) logs in with those credentials, refreshes the bearer token, writes the kubeconfig back to **`CLUSTER_SOURCE`** (step fails if write-back fails), and stages it for downstream tasks.
 
-**Autonomous external login (RHOAIENG-57718):** store durable htpasswd credentials in tenant Secret **`olminstall-external-rh-nightly-pm-credentials`** (`HTPASSWD_USER`, `HTPASSWD_PASS`, `API_SERVER`). The pipeline step **`refresh-external-kubeconfig`** (in **`external-cluster-ready`**) logs in with those credentials, refreshes the bearer token, writes the kubeconfig back to **`CLUSTER_SOURCE`** (step fails if write-back fails), and stages it for downstream tasks. **`--enable-its`** catalog sync uses the same refresh and write-back when reading the bootstrap kubeconfig secret.
-
-**Shared external cluster:** unlike EaaS (one cluster per run), each physical external cluster allows only **one active olminstall PipelineRun** at a time (matched by `olminstall.cluster` / `CLUSTER_SOURCE`). The CLI **waits** before FBC resolution and **refuses** a second trigger when your owned run still holds the same cluster (pass **`--force-cluster-run`** to override). The pipeline task **`external-cluster-ready`** polls in **`assert-external-cluster-idle`** before install (covers Integration Service / PAC auto-triggers). EAAS is never serialized.
+**Shared external cluster:** unlike EaaS (one cluster per run), each physical external cluster allows only **one active olminstall PipelineRun** at a time (matched by `olminstall.cluster` / `CLUSTER_SOURCE`). The CLI **waits** before manual FBC resolution / trigger and **refuses** a second trigger when your owned run still holds the same cluster (pass **`--force-cluster-run`** to override). The pipeline task **`external-cluster-ready`** polls in **`assert-external-cluster-idle`** before install (covers Integration Service / PAC auto-triggers). EAAS is never serialized.
 
 | Goal | Command |
 |------|---------|
-| Enable rh-nightly ITS + catalog sync once | `--enable-its odh-olminstall-testops-rh-nightly` |
+| Enable rh-nightly ITS (FBC app, auto on upstream builds) | `--enable-its odh-olminstall-testops-rh-nightly` (manifest app) |
+| Debug rh-nightly ITS on playpen (manual Snapshots only) | `--enable-its odh-olminstall-testops-rh-nightly --konflux-app testops-playpen` |
+| Debug rh-nightly ITS cluster on playpen | add `--external-kubeconfig ~/.kube/<cluster>` to **`--run-its`** |
 | Enable EaaS ITS (421 component builds) | `--enable-its odh-olminstall-testops-eaas` |
-| Run rh-nightly now (direct CLI PR) | `--enable-its odh-olminstall-testops-rh-nightly --run-now` |
-| Poll catalog digest (re-enable rh-nightly ITS) | `--enable-its odh-olminstall-testops-rh-nightly` |
+| Run rh-nightly now (direct CLI PR) | `--run-its odh-olminstall-testops-rh-nightly` |
+| Scoped smoke debug | `--run-its odh-olminstall-testops-rh-nightly --tests smoke --components dashboard_cypress` |
 | Disable a profile | `--disable-its NAME` |
-
-**Catalog sync** (on **`--enable-its odh-olminstall-testops-rh-nightly`**) polls Konflux for the rh-nightly cluster’s OCP-matched `rhoai-fbc-fragment-ocp-4XX` catalog image (RHOAI >= 3.5). When the **digest** changes, it creates a **testops-playpen** Snapshot so Integration Service starts `odh-olminstall-testops-rh-nightly`. State: `~/.cache/olminstall/rh-nightly-last-triggered.json`.
 
 **How to tell how a PipelineRun was started** (Konflux Activity **Trigger** is always **Push** for Snapshot-driven runs — use name + annotations instead):
 
 | Path | PipelineRun name prefix | Konflux **Trigger** | `olminstall.trigger-type` |
 |------|-------------------------|---------------------|----------------------------|
-| **CLI direct** (`--run-now`, default trigger without ITS) | `olminstall-cli-<user>-*` | **Incoming** | `manual` |
-| **Rh-nightly catalog sync** (`--enable-its` when digest new) | `olminstall-its-rh-nightly-pm-bvt-smoke-*` | **Push** | `rh-nightly-auto` |
-| **Integration Service only** (FBC/component Snapshot, no olminstall CLI) | `olminstall-its-rh-nightly-pm-bvt-smoke-*` or `olminstall-its-eaas-bvt-smoke-*` | **Push** | *(absent)* |
+| **CLI direct** (`--run-its`, default trigger without ITS) | `olminstall-cli-<user>-*` | **Incoming** | `manual` |
+| **Integration Service** (upstream FBC build Snapshot) | `olminstall-its-rh-nightly-pm-bvt-smoke-*` or `olminstall-its-eaas-bvt-smoke-*` | **Push** | *(absent)* |
 
-Snapshot name `rh-nightly-snap-*` plus annotation `olminstall.trigger-type=rh-nightly-auto` marks **catalog sync via enable**. **`parse-pipeline-tests`** step **`print-run-context`** logs trigger/FBC details and writes **separate Results rows** (`TRIGGER`, `KONFLUX_EVENT`, `FBC`, `CLUSTER`, `RUN`, `TRIGGER_CMD`, …). **`olm_pipeline.py -w PIPELINERUN`** prints **Trigger context** (annotations) at the end of the watch summary.
+**`parse-pipeline-tests`** step **`print-run-context`** logs trigger/FBC details and writes **separate Results rows** (`TRIGGER`, `KONFLUX_EVENT`, `FBC`, `CLUSTER`, `RUN`, `TRIGGER_CMD`, …). **`olm_pipeline.py -w PIPELINERUN`** prints **Trigger context** (annotations) at the end of the watch summary.
 
-**Example Results (rh-nightly catalog sync):**
+**Example Results (upstream FBC build — Integration Service):**
 
 | Result | Value |
 |--------|-------|
-| `TRIGGER` | rh-nightly catalog sync (ITS Snapshot) |
+| `TRIGGER` | Integration Service (upstream FBC build) |
 | `KONFLUX_EVENT` | Push — Integration Service (Snapshot / ITS) |
-| `SNAPSHOT` | rh-nightly-snap-4mh9f |
-| `FBC` | rhoai-fbc-fragment-ocp-420 @ sha256:d9f54f26a526… |
+| `SNAPSHOT` | rhoai-fbc-fragment-ocp-420-on-push-xyz |
+| `FBC` | rhoai-fbc-fragment-ocp-420 @ sha256:ab0042e79c99… |
 | `CLUSTER` | rh-nightly-pm |
 | `RUN` | product=rhoai, tests=bvt,smoke |
-| `TRIGGER_CMD` | python3 integration-tests/olminstall/olm_pipeline.py --enable-its … |
+| `TRIGGER_CMD` | (none — upstream component build; Integration Service only) |
 
-**Example Results (CLI direct `--run-now`):**
+**Example Results (CLI direct `--run-its`):**
 
 | Result | Value |
 |--------|-------|
@@ -358,26 +357,14 @@ Snapshot name `rh-nightly-snap-*` plus annotation `olminstall.trigger-type=rh-ni
 | `FBC` | rhoai-fbc-fragment-ocp-420 @ sha256:d9f54f26a526… |
 | `CLUSTER` | rh-nightly-pm |
 | `RUN` | product=rhoai, tests=bvt,smoke |
-| `TRIGGER_CMD` | python3 integration-tests/olminstall/olm_pipeline.py … --run-now … |
+| `TRIGGER_CMD` | python3 integration-tests/olminstall/olm_pipeline.py … --run-its … |
 
-**Example Results (upstream ITS only — real FBC component build):**
-
-| Result | Value |
-|--------|-------|
-| `TRIGGER` | Integration Service (upstream FBC build or playpen Snapshot) |
-| `KONFLUX_EVENT` | Push — Integration Service (Snapshot / ITS) |
-| `SNAPSHOT` | rhoai-fbc-fragment-ocp-420-on-push-xyz |
-| `FBC` | rhoai-fbc-fragment-ocp-420 @ sha256:ab0042e79c99… |
-| `CLUSTER` | rh-nightly-pm |
-| `RUN` | product=rhoai, tests=bvt,smoke |
-| `TRIGGER_CMD` | (none — upstream component build or manual Snapshot; Integration Service only) |
-
-**`--run-now`** creates a **direct PipelineRun** using params from the ITS manifest (`olminstall-cli-{user}-…` prefix; Konflux **Trigger: Incoming**). It resolves the **latest Konflux snapshot** for the ITS `RHOAI_FBC_NAME` (e.g. `rhoai-fbc-fragment-ocp-420` on rh-nightly); the offline snapshot YAML is a **fallback** only when lookup fails. It does **not** apply the ITS to the cluster or use Integration Service. Steady `--enable-its` uses Integration Service; rh-nightly runs get prefix `olminstall-its-rh-nightly-pm-bvt-smoke-*` via [`olminstall-pipelinerun-rh-nightly.yaml`](tekton/pipelines/olminstall-pipelinerun-rh-nightly.yaml); EaaS ITS runs use `olminstall-its-eaas-bvt-smoke-*` via [`olminstall-pipelinerun-eaas.yaml`](tekton/pipelines/olminstall-pipelinerun-eaas.yaml).
+**`--run-its`** creates a **direct PipelineRun** using params from the ITS manifest (`olminstall-cli-{user}-…` prefix; Konflux **Trigger: Incoming**). It resolves the **latest Konflux snapshot** for the ITS `RHOAI_FBC_NAME` (e.g. `rhoai-fbc-fragment-ocp-420` on rh-nightly); the offline snapshot YAML is a **fallback** only when lookup fails. It does **not** apply the ITS to the cluster or use Integration Service. Steady `--enable-its` uses Integration Service; rh-nightly runs get prefix `olminstall-its-rh-nightly-pm-bvt-smoke-*` via [`olminstall-pipelinerun-rh-nightly.yaml`](tekton/pipelines/olminstall-pipelinerun-rh-nightly.yaml); EaaS ITS runs use `olminstall-its-eaas-bvt-smoke-*` via [`olminstall-pipelinerun-eaas.yaml`](tekton/pipelines/olminstall-pipelinerun-eaas.yaml).
 
 ```bash
 # One-shot verify via direct CLI PipelineRun (fork branch until merged to main)
 python3 integration-tests/olminstall/olm_pipeline.py \
-  --enable-its odh-olminstall-testops-rh-nightly --run-now \
+  --run-its odh-olminstall-testops-rh-nightly \
   --konflux-namespace rhoai-tenant --konflux-app testops-playpen \
   --konflux-repo https://github.com/<you>/odh-konflux-central.git \
   --konflux-branch olminstall_smoke
@@ -466,7 +453,7 @@ python3 integration-tests/olminstall/olm_pipeline.py \
   --enable-its odh-olminstall-testops-rh-nightly \
   --konflux-namespace rhoai-tenant --konflux-app testops-playpen
 python3 integration-tests/olminstall/olm_pipeline.py \
-  --enable-its odh-olminstall-testops-rh-nightly --run-now \
+  --run-its odh-olminstall-testops-rh-nightly \
   --konflux-namespace rhoai-tenant --konflux-app testops-playpen
 python3 integration-tests/olminstall/olm_pipeline.py \
   --disable-its odh-olminstall-testops-rh-nightly \

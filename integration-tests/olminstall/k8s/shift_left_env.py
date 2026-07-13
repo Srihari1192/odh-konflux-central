@@ -200,6 +200,37 @@ def _apply_legacy_aws_to_ci_s3_mapping(env: MutableMapping[str, str]) -> None:
             env["CI_S3_BUCKET_REGION"] = region
 
 
+def resolve_ci_s3_smoke_fields(
+    environ: MutableMapping[str, str] | None = None,
+) -> dict[str, str] | None:
+    """Return normalized S3 smoke creds for Cypress AWS_PIPELINES overlays."""
+    source = dict(os.environ if environ is None else environ)
+    _apply_legacy_aws_to_ci_s3_mapping(source)
+    access_key = source.get("AWS_ACCESS_KEY_ID", "").strip()
+    secret_key = source.get("AWS_SECRET_ACCESS_KEY", "").strip()
+    bucket_name = (
+        source.get("CI_S3_BUCKET_NAME", "").strip()
+        or source.get("MODELS_S3_BUCKET_NAME", "").strip()
+    )
+    region = (
+        source.get("CI_S3_BUCKET_REGION", "").strip()
+        or source.get("MODELS_S3_BUCKET_REGION", "").strip()
+    )
+    endpoint = (
+        source.get("CI_S3_BUCKET_ENDPOINT", "").strip()
+        or source.get("MODELS_S3_BUCKET_ENDPOINT", "").strip()
+    )
+    if not all((access_key, secret_key, bucket_name, region, endpoint)):
+        return None
+    return {
+        "AWS_ACCESS_KEY_ID": access_key,
+        "AWS_SECRET_ACCESS_KEY": secret_key,
+        "NAME": bucket_name,
+        "REGION": region,
+        "ENDPOINT": endpoint,
+    }
+
+
 _AWS_ENV_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("AWS_ACCESS_KEY_ID", ("aws-access-key-id", "AWS_ACCESS_KEY", "S3_ACCESS_KEY_ID")),
     ("AWS_SECRET_ACCESS_KEY", ("aws-secret-access-key", "AWS_SECRET_KEY", "S3_SECRET_ACCESS_KEY")),

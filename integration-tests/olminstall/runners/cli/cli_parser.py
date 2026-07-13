@@ -23,6 +23,10 @@ from suite.constants import (
 )
 
 # When user passes ``--ka-host`` with no URL, read KA_HOST from the environment.
+_ITS_REF_HELP = (
+    "metadata.name, olminstall-relative path (e.g. tekton/its/…), "
+    "repo-relative path (integration-tests/olminstall/…), or absolute path under the repo root"
+)
 _KA_HOST_FROM_ENV = "__KA_HOST_FROM_ENV__"
 
 
@@ -297,31 +301,34 @@ def _add_konflux_group(parser: CliArgumentParser) -> None:
     )
     konflux.add_argument(
         "--enable-its",
-        metavar="NAME",
+        metavar="NAME_OR_PATH",
         default="",
         help=(
-            "Apply an in-tree IntegrationTestScenario manifest by metadata.name "
-            "(under tekton/its/). Uses --konflux-namespace and --konflux-app; "
-            "manifest spec.application must match --konflux-app when set. "
-            "Rh-nightly ITS also runs catalog sync once (skip if digest unchanged). "
-            "With --run-now: one direct PipelineRun from ITS params (does not apply ITS)."
+            f"Apply an in-tree IntegrationTestScenario manifest by {_ITS_REF_HELP}. "
+            "Uses --konflux-namespace; spec.application comes from the manifest unless "
+            "--konflux-app is passed. Only Konflux rollout flags are allowed "
+            "(--konflux-repo, --konflux-branch, --konflux-app). Cluster and test scope "
+            "flags are rejected; use --run-its for debug."
         ),
     )
     konflux.add_argument(
         "--disable-its",
-        metavar="NAME",
+        metavar="NAME_OR_PATH",
         default="",
         help=(
-            "Delete IntegrationTestScenario NAME from --konflux-namespace "
+            f"Delete IntegrationTestScenario from --konflux-namespace by {_ITS_REF_HELP} "
             "(stops auto/integration triggers for that scenario)."
         ),
     )
     konflux.add_argument(
-        "--run-now",
-        action="store_true",
+        "--run-its",
+        metavar="NAME_OR_PATH",
+        default="",
         help=(
-            "With --enable-its only: create one direct PipelineRun from the ITS manifest "
-            "(descriptive generateName; does not apply the ITS to the cluster)."
+            f"One-shot debug run: create a direct PipelineRun from the ITS manifest ({_ITS_REF_HELP}; "
+            "descriptive generateName; does not apply the ITS to the cluster). Accepts cluster and "
+            "test overrides (--components, --tests, --external-kubeconfig, etc.) in addition to "
+            "Konflux flags."
         ),
     )
     konflux.add_argument(

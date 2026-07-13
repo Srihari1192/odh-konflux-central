@@ -23,6 +23,7 @@ from components.dashboard_cypress.runtime import (
     inject_ci_auth_bypass,
     load_component_vault_env,
     patch_dashboard_cypress_upstream_tests,
+    patch_dashboard_cypress_automl_hooks,
     patch_dashboard_cypress_ldap_gateway_login,
     patch_gateway_envoyfilter_if_needed,
     patch_runtime_cy_test_config,
@@ -405,6 +406,79 @@ class DashboardCypressRuntimeTest(unittest.TestCase):
             self.assertEqual(merged.get("CLUSTER_AUTH"), "oidc")
             self.assertEqual(merged.get("TEST_USER"), byoidc_user)
 
+    def test_resolve_gateway_auth_overlay_ldap_test_user_htpasswd_admin_uses_htpasswd(self) -> None:
+        """ENV-2: Jenkins parity - Cypress uses OCP_ADMIN_USER (htpasswd) on LDAP clusters."""
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "vault.yml"
+            vault.write_text(
+                "\n".join(
+                    [
+                        "CLUSTER_AUTH: oidc",
+                        "TEST_CLUSTERS:",
+                        "  ods-qe-psi-07:",
+                        "    TEST_USER:",
+                        "      AUTH_TYPE: ldap-provider-qe",
+                        "      USERNAME: ldap-admin1",
+                        "      PASSWORD: ldap-secret",
+                        "    OCP_ADMIN_USER:",
+                        "      AUTH_TYPE: htpasswd-cluster-admin",
+                        "      USERNAME: htpasswd-cluster-admin-user",
+                        "      PASSWORD: htpw",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            with mock.patch(
+                "install.ldap._cluster_is_byoidc",
+                return_value=False,
+            ):
+                overlay = resolve_gateway_auth_overlay(
+                    vault,
+                    "ods-qe-psi-07",
+                    odh_dashboard_url="https://rh-ai.apps.ods-qe-psi-07.osp.rh-ods.com",
+                )
+            self.assertEqual(overlay.get("CLUSTER_AUTH"), "htpasswd-cluster-admin")
+            test_user = overlay.get("TEST_USER")
+            self.assertIsInstance(test_user, dict)
+            assert isinstance(test_user, dict)
+            self.assertEqual(test_user.get("USERNAME"), "htpasswd-cluster-admin-user")
+            self.assertEqual(test_user.get("AUTH_TYPE"), "htpasswd-cluster-admin")
+
+    def test_resolve_gateway_auth_overlay_ldap_test_user_ldap_admin_no_overlay(self) -> None:
+        """Both TEST_USER and OCP_ADMIN_USER are LDAP - no htpasswd override."""
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "vault.yml"
+            vault.write_text(
+                "\n".join(
+                    [
+                        "CLUSTER_AUTH: oidc",
+                        "TEST_CLUSTERS:",
+                        "  cluster-x:",
+                        "    TEST_USER:",
+                        "      AUTH_TYPE: ldap-provider-qe",
+                        "      USERNAME: ldap-admin1",
+                        "      PASSWORD: ldap-secret",
+                        "    OCP_ADMIN_USER:",
+                        "      AUTH_TYPE: ldap-provider-qe",
+                        "      USERNAME: ldap-admin2",
+                        "      PASSWORD: ldap-secret",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            with mock.patch(
+                "install.ldap._cluster_is_byoidc",
+                return_value=False,
+            ):
+                overlay = resolve_gateway_auth_overlay(
+                    vault,
+                    "cluster-x",
+                    odh_dashboard_url="https://rh-ai.apps.cluster-x.example.com",
+                )
+            self.assertEqual(overlay, {})
+
     def test_resolve_gateway_auth_overlay_pooled_psi_non_byoidc_prefers_vault_ldap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp) / "vault.yml"
@@ -540,6 +614,11 @@ class DashboardCypressRuntimeTest(unittest.TestCase):
             )
         self.assertIn("@ModelServingCI", extra)
         self.assertIn("@ProjectsCI", extra)
+        self.assertIn("@FeatureStore", extra)
+        self.assertIn("@SettingsCI", extra)
+        self.assertIn("@NotebookAdministration", extra)
+        self.assertIn("@MaaS", extra)
+        self.assertIn("@AutoML", extra)
 
     def test_htpasswd_hcp_extra_cypress_skip_tags_skips_when_ldap_present(self) -> None:
         with mock.patch(
@@ -582,6 +661,32 @@ class DashboardCypressRuntimeTest(unittest.TestCase):
             )
         self.assertIn("@FeatureStore", extra)
         self.assertIn("@ODS-327", extra)
+
+    def test_automl_s3_skip_tags_when_no_s3(self) -> None:
+        """ENV-3: @AutoML skipped when CY_TEST_CONFIG has no AWS_PIPELINES."""
+        from components.dashboard_cypress.runtime import _automl_s3_skip_tags
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Path(tmp) / "runtime.yml"
+            cfg.write_text("ODH_DASHBOARD_URL: https://dash.example\n", encoding="utf-8")
+            with mock.patch.dict(os.environ, {"CY_TEST_CONFIG": str(cfg)}, clear=False):
+                tags = _automl_s3_skip_tags()
+        self.assertIn("@AutoML", tags)
+        self.assertIn("@AutoMLCI", tags)
+
+    def test_automl_s3_skip_tags_when_s3_present(self) -> None:
+        """ENV-3: No AutoML skip when AWS_PIPELINES exists in config."""
+        from components.dashboard_cypress.runtime import _automl_s3_skip_tags
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Path(tmp) / "runtime.yml"
+            cfg.write_text(
+                "AWS_PIPELINES:\n  AWS_ACCESS_KEY_ID: ak\n  BUCKET_2:\n    NAME: b\n",
+                encoding="utf-8",
+            )
+            with mock.patch.dict(os.environ, {"CY_TEST_CONFIG": str(cfg)}, clear=False):
+                tags = _automl_s3_skip_tags()
+        self.assertEqual(tags, "")
 
     def test_patch_runtime_applies_htpasswd_overlay(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -678,6 +783,105 @@ class DashboardCypressRuntimeTest(unittest.TestCase):
             self.assertNotIn("retryableBefore(async () =>", text)
             self.assertIn("return getInstalledProductName(Cypress.env('OPERATOR_NAMESPACE')", text)
             self.assertIn("return getCsvByDisplayName(productName, Cypress.env('OPERATOR_NAMESPACE')", text)
+
+    def test_patch_dashboard_cypress_automl_hooks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            automl = (
+                root
+                / "packages/cypress/cypress/tests/e2e/automl/testAutomlBinaryClassification.cy.ts"
+            )
+            automl.parent.mkdir(parents=True)
+            automl.write_text(
+                "describe('x', () => {\n"
+                "  after(() => {\n"
+                "    if (!automlWasEnabled) {\n"
+                "      setAutomlEnabled(false);\n"
+                "    }\n"
+                "    deleteS3TestFiles(projectName, testData.awsBucket, `*${uuid}*`);\n"
+                "  });\n"
+                "});\n",
+                encoding="utf-8",
+            )
+            patch_dashboard_cypress_automl_hooks(root)
+            text = automl.read_text(encoding="utf-8")
+            self.assertIn("olminstall-patched-automl-after-guard", text)
+            self.assertIn("if (!testData?.awsBucket || !projectName)", text)
+            self.assertLess(
+                text.index("setAutomlEnabled(false)"),
+                text.index("if (!testData?.awsBucket"),
+            )
+
+    def test_merge_cypress_s3_overlay_from_env(self) -> None:
+        from components.dashboard_cypress.auth_overlay import _merge_cypress_s3_overlay
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime = root / "runtime.yml"
+            vault = root / "vault.yml"
+            runtime.write_text("ODH_DASHBOARD_URL: https://dash.example\n", encoding="utf-8")
+            vault.write_text("CLUSTER_AUTH: htpasswd\n", encoding="utf-8")
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "AWS_ACCESS_KEY_ID": "ak",
+                    "AWS_SECRET_ACCESS_KEY": "sk",
+                    "CI_S3_BUCKET_NAME": "ods-ci-s3",
+                    "CI_S3_BUCKET_REGION": "us-east-1",
+                    "CI_S3_BUCKET_ENDPOINT": "https://s3.us-east-1.amazonaws.com",
+                },
+                clear=False,
+            ):
+                _merge_cypress_s3_overlay(runtime, vault)
+            text = runtime.read_text(encoding="utf-8")
+            self.assertIn("AWS_PIPELINES:", text)
+            self.assertIn("BUCKET_2:", text)
+            self.assertIn("ods-ci-s3", text)
+
+    def test_merge_cypress_s3_overlay_from_vault(self) -> None:
+        from components.dashboard_cypress.auth_overlay import _merge_cypress_s3_overlay
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime = root / "runtime.yml"
+            vault = root / "vault.yml"
+            runtime.write_text("ODH_DASHBOARD_URL: https://dash.example\n", encoding="utf-8")
+            vault.write_text(
+                "\n".join(
+                    [
+                        "AWS_PIPELINES:",
+                        "  AWS_ACCESS_KEY_ID: vault-ak",
+                        "  AWS_SECRET_ACCESS_KEY: vault-sk",
+                        "  BUCKET_2:",
+                        "    NAME: vault-bucket",
+                        "    REGION: us-west-2",
+                        "    ENDPOINT: https://s3.us-west-2.amazonaws.com",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            _merge_cypress_s3_overlay(runtime, vault)
+            text = runtime.read_text(encoding="utf-8")
+            self.assertIn("vault-ak", text)
+            self.assertIn("vault-bucket", text)
+
+    def test_merge_cypress_s3_overlay_skips_when_present(self) -> None:
+        from components.dashboard_cypress.auth_overlay import _merge_cypress_s3_overlay
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime = root / "runtime.yml"
+            vault = root / "vault.yml"
+            runtime.write_text(
+                "AWS_PIPELINES:\n  BUCKET_2:\n    NAME: existing\n",
+                encoding="utf-8",
+            )
+            vault.write_text("AWS_PIPELINES:\n  BUCKET_2:\n    NAME: vault-only\n", encoding="utf-8")
+            _merge_cypress_s3_overlay(runtime, vault)
+            text = runtime.read_text(encoding="utf-8")
+            self.assertIn("existing", text)
+            self.assertNotIn("vault-only", text)
 
     def test_resolve_cypress_support_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

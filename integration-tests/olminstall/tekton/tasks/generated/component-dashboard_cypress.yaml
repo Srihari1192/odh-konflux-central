@@ -13,7 +13,6 @@ spec:
     - Smoke command: cypress-parallel.
     - Requires tenant credentials supplied by the pipeline.
     - Timeouts: smoke 25m, tier1 90m.
-    - Min pass rate for Tekton success: 80%.
     - Cypress runs 5 parallel smoke set(s).
   params:
   - name: COMPONENT_ID
@@ -130,6 +129,8 @@ spec:
     - name: UV_THREADPOOL_SIZE
       value: '4'
     - name: ELECTRON_NO_ATTACH_CONSOLE
+      value: '1'
+    - name: RHCL_GATEWAY_FAIL_FAST
       value: '1'
     script: "#!/usr/bin/env python3\nimport os, sys\nfrom pathlib import Path\nrepo = Path(os.environ[\"SCRIPTS_REPO_ROOT\"\
       ])\nif not repo.is_dir():\n    print(f\"ERROR: {repo} missing\", file=sys.stderr)\n    sys.exit(2)\nos.chdir(repo)\n\

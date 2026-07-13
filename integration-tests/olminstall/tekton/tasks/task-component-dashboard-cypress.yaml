@@ -130,6 +130,8 @@ spec:
           value: "4"
         - name: ELECTRON_NO_ATTACH_CONSOLE
           value: "1"
+        - name: RHCL_GATEWAY_FAIL_FAST
+          value: "1"
       script: |
         #!/usr/bin/env python3
         import os, sys
