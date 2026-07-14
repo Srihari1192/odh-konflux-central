@@ -115,7 +115,7 @@
   },
   "mcp-lifecycle-operator": {
     "odh-mcp-lifecycle-operator-ci": "opendatahub/odh-mcp-lifecycle-operator",
-    "odh-mcp-lifecycle-operator-e2e-ci": "opendatahub/odh-mcp-lifecycle-operator/e2e"
+    "odh-mcp-lifecycle-operator-e2e-ci": "opendatahub/odh-mcp-lifecycle-operator-e2e"
   },
   "ml-metadata": {
     "odh-mlmd-grpc-server-ci": "opendatahub/mlmd-grpc-server"
