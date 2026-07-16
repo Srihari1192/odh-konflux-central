@@ -14,7 +14,7 @@ COMPONENT_TEST_TIMEOUT_SECS_ENV = "COMPONENT_TEST_TIMEOUT_SECS"
 _EAAS_COMPONENT_TIMEOUT_CAP_BY_ID: dict[str, str] = {
     "platform": "30m",
     "mlflow": "15m",
-    "ogx": "12m",
+    "ogx": "20m",
 }
 
 

@@ -12,7 +12,8 @@ from runners.cli.runner import OLMInstallRunner
 
 _ROOT = Path(__file__).resolve().parents[2]
 _RH_NIGHTLY_SNAP = _ROOT / "config" / "test-snapshot-rh-nightly.yaml"
-_RH_NIGHTLY_ITS = _ROOT / "tekton" / "its" / "its-olminstall-testops-rh-nightly.yaml"
+_RH_NIGHTLY_ITS = _ROOT / "tekton" / "its" / "its-rhoai-e2e-rh-nightly-pm-ocp420.yaml"
+_EAAS_ITS = _ROOT / "tekton" / "its" / "its-rhoai-e2e-eaas-ocp421.yaml"
 _ODH_ITS = _ROOT / "tekton" / "its" / "its-olminstall-open-data-hub-tenant.yaml"
 _PINNED_420 = (
     "quay.io/rhoai/rhoai-fbc-fragment@sha256:"
@@ -29,7 +30,7 @@ class RunItsManifestDefaultsTest(unittest.TestCase):
         parser = make_parser()
         args = parse_cli_args(
             parser,
-            ["--run-its", "odh-olminstall-testops-rh-nightly"],
+            ["--run-its", "rhoai-e2e-rh-nightly-pm-ocp420"],
         )
         runner = OLMInstallRunner(args)
         runner.snapshot_file = _RH_NIGHTLY_SNAP
@@ -43,6 +44,14 @@ class RunItsManifestDefaultsTest(unittest.TestCase):
         self.assertEqual(runner.resolved_rhoai_fbc_name, "rhoai-fbc-fragment-ocp-420")
         self.assertEqual(runner._run_its_pinned_fbcf_image, _PINNED_420)
         self.assertEqual(runner.image, "")
+
+    def test_run_its_eaas_does_not_set_ocp_prefix_from_latest_default_label(self) -> None:
+        parser = make_parser()
+        args = parse_cli_args(parser, ["--run-its", "rhoai-e2e-eaas-ocp421"])
+        runner = OLMInstallRunner(args)
+        runner._apply_run_its_manifest_defaults(_EAAS_ITS)
+        self.assertEqual(runner.args.ocp_version, "")
+        self.assertEqual(runner.resolved_rhoai_fbc_name, "rhoai-fbc-fragment-ocp-421")
 
     def test_run_its_keeps_manifest_cluster_source_without_cli_override(self) -> None:
         runner = self._runner()
@@ -84,6 +93,45 @@ class RunItsUpdateChannelTest(unittest.TestCase):
         self.assertEqual(proc.stdout.strip().strip('"'), "odh-stable")
 
 
+class ResolveRhoaiFbcForItsApplicationTest(unittest.TestCase):
+    def _runner(self, *, run_its: str = "rhoai-e2e-eaas-ocp421") -> OLMInstallRunner:
+        parser = make_parser()
+        args = parse_cli_args(parser, ["--run-its", run_its])
+        runner = OLMInstallRunner(args)
+        runner.resolved_rhoai_fbc_name = "rhoai-fbc-fragment-ocp-421"
+        return runner
+
+    def test_uses_fast_lookup_on_its_application_only(self) -> None:
+        runner = self._runner()
+        with patch.object(
+            runner,
+            "latest_named_component_image_on_application",
+            return_value=("2026-07-10T00:00:00Z", _LATEST_420, {"name": "snap-1"}),
+        ) as mock_fast:
+            runner._resolve_rhoai_fbc_for_its_application(
+                "rhoai-fbc-fragment-ocp-421",
+                "rhoai-fbc-fragment-ocp-421",
+            )
+        mock_fast.assert_called_once()
+        self.assertEqual(runner.image, _LATEST_420)
+        self.assertEqual(runner.resolved_app, "rhoai-fbc-fragment-ocp-421")
+
+    def test_resolve_image_run_its_calls_its_application_path(self) -> None:
+        runner = self._runner()
+        runner.args.product = "rhoai"
+        runner.resolved_rhoai_fbc_name = "rhoai-fbc-fragment-ocp-421"
+        with patch.object(
+            runner,
+            "_resolve_rhoai_fbc_for_its_application",
+        ) as mock_its, patch.object(
+            runner,
+            "_resolve_rhoai_fbc_latest_for_component",
+        ) as mock_full:
+            runner.resolve_image(odh_overrides=False)
+        mock_its.assert_called_once_with("rhoai-fbc-fragment-ocp-421", "rhoai-fbc-fragment-ocp-421")
+        mock_full.assert_not_called()
+
+
 class ResolveRhoaiFbcLatestForComponentTest(unittest.TestCase):
     def _runner(self) -> OLMInstallRunner:
         parser = make_parser()
@@ -103,7 +151,8 @@ class ResolveRhoaiFbcLatestForComponentTest(unittest.TestCase):
         ) -> tuple[str, str, dict | None]:
             del namespace, component_name, image_pattern
             images = {
-                "rhoai-v3-4-foo": ("2026-07-01T00:00:00Z", "quay.io/rhoai/rhoai-fbc-fragment@sha256:3400"),
+                "rhoai-fbc-fragment-ocp-420": ("2026-07-01T00:00:00Z", _PINNED_420),
+                "rhoai-v3-4-foo": ("2026-07-02T00:00:00Z", "quay.io/rhoai/rhoai-fbc-fragment@sha256:3400"),
                 "rhoai-v3-5-ea-2": ("2026-07-08T00:00:00Z", _LATEST_420),
             }
             ts, img = images.get(app, ("", ""))
@@ -114,6 +163,53 @@ class ResolveRhoaiFbcLatestForComponentTest(unittest.TestCase):
                 runner._resolve_rhoai_fbc_latest_for_component("rhoai-fbc-fragment-ocp-420")
         self.assertEqual(runner.image, _LATEST_420)
         self.assertEqual(runner.resolved_app, "rhoai-v3-5-ea-2")
+
+    def test_prefers_fbc_fragment_app_when_newest(self) -> None:
+        runner = self._runner()
+        _FBC_APP_IMG = (
+            "quay.io/rhoai/rhoai-fbc-fragment@sha256:"
+            "abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabca"
+        )
+
+        def fake_latest(
+            namespace: str,
+            app: str,
+            component_name: str,
+            image_pattern: str,
+        ) -> tuple[str, str, dict | None]:
+            del namespace, component_name, image_pattern
+            images = {
+                "rhoai-fbc-fragment-ocp-420": ("2026-07-10T00:00:00Z", _FBC_APP_IMG),
+                "rhoai-v3-5-ea-2": ("2026-07-08T00:00:00Z", _LATEST_420),
+            }
+            ts, img = images.get(app, ("", ""))
+            return ts, img, None
+
+        with patch.object(runner, "get_applications", return_value=["rhoai-v3-5-ea-2"]):
+            with patch.object(runner, "latest_named_component_image", side_effect=fake_latest):
+                runner._resolve_rhoai_fbc_latest_for_component("rhoai-fbc-fragment-ocp-420")
+        self.assertEqual(runner.image, _FBC_APP_IMG)
+        self.assertEqual(runner.resolved_app, "rhoai-fbc-fragment-ocp-420")
+
+    def test_fbc_fragment_app_only_when_no_rhoai_v_apps(self) -> None:
+        runner = self._runner()
+
+        def fake_latest(
+            namespace: str,
+            app: str,
+            component_name: str,
+            image_pattern: str,
+        ) -> tuple[str, str, dict | None]:
+            del namespace, component_name, image_pattern
+            if app == "rhoai-fbc-fragment-ocp-420":
+                return "2026-07-03T00:00:00Z", _LATEST_420, None
+            return "", "", None
+
+        with patch.object(runner, "get_applications", return_value=[]):
+            with patch.object(runner, "latest_named_component_image", side_effect=fake_latest):
+                runner._resolve_rhoai_fbc_latest_for_component("rhoai-fbc-fragment-ocp-420")
+        self.assertEqual(runner.image, _LATEST_420)
+        self.assertEqual(runner.resolved_app, "rhoai-fbc-fragment-ocp-420")
 
     def test_falls_back_to_snapshot_pin_when_konflux_empty(self) -> None:
         runner = self._runner()
@@ -137,3 +233,30 @@ class RhoaiAppVersionKeyTest(unittest.TestCase):
             OLMInstallRunner._rhoai_app_version_key("rhoai-v3-4-foo"),
             (3, 4),
         )
+
+
+class RunItsPostTriggerWatchTest(unittest.TestCase):
+    def test_run_its_returns_post_trigger_watch_exit_code(self) -> None:
+        parser = make_parser()
+        args = parse_cli_args(
+            parser,
+            ["--run-its", "rhoai-e2e-rh-nightly-pm-ocp420"],
+        )
+        runner = OLMInstallRunner(args)
+        with patch.object(runner, "_stage_its_manifest_tmp"), patch.object(
+            runner, "_apply_run_its_manifest_defaults"
+        ), patch.object(runner, "_print_effective_trigger_context"), patch.object(
+            runner, "_apply_run_its_cli_overrides"
+        ), patch.object(
+            runner, "_apply_konflux_git_inference_from_clone_or_env"
+        ), patch.object(runner, "get_pipelineruns", return_value=[]), patch.object(
+            runner, "find_owned_live_watch_pr", return_value=""
+        ), patch.object(
+            runner, "_guard_external_cluster_before_trigger"
+        ), patch.object(runner, "resolve_image"), patch.object(
+            runner, "_run_its_generate_prefix", return_value="e2e-cli-"
+        ), patch.object(runner, "create_direct_pipelinerun"), patch.object(
+            runner, "_run_post_trigger_watch", return_value=0
+        ) as mock_watch:
+            self.assertEqual(runner.run_integration_test_scenario(), 0)
+        mock_watch.assert_called_once()

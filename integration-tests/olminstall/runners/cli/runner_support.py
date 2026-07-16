@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Callable, TextIO
 
 from suite.constants import PENDING_REASONS, olminstall_smoke_only_pipelinerun
+from suite.pipelinerun_naming import is_olminstall_pipelinerun_name
 from suite.errors import AppError
 from k8s.oc_util import run_cmd, ts_now
 
@@ -275,22 +276,21 @@ def filter_pipelinerun_items(
     *,
     app: str,
     olminstall_only: bool = False,
+    olminstall_family_only: bool = False,
     name_substr: str | None = None,
     skip_smoke: bool = True,
 ) -> list[dict[str, Any]]:
-    """Filter Tekton PipelineRun objects for ``--app`` (optional olminstall name gate)."""
+    """Filter Tekton PipelineRun objects for ``--app`` (optional E2E/olminstall name gate)."""
     out: list[dict[str, Any]] = []
     for item in items:
         md = item.get("metadata") or {}
         labels = md.get("labels") or {}
         name = md.get("name", "")
         app_label = labels.get("appstudio.openshift.io/application", "")
-        if olminstall_only:
-            if "olminstall" not in name:
+        if olminstall_only or olminstall_family_only:
+            if not is_olminstall_pipelinerun_name(name):
                 continue
-            if app_label and app_label != app:
-                continue
-        elif app_label != app:
+        if app_label != app:
             continue
         if name_substr is not None and name_substr not in name:
             continue
@@ -407,7 +407,7 @@ def pipelinerun_delete_candidate(
     name = item.get("metadata", {}).get("name", "")
     labels = item.get("metadata", {}).get("labels", {}) or {}
     app_label = labels.get("appstudio.openshift.io/application", "")
-    if "olminstall" not in name:
+    if not is_olminstall_pipelinerun_name(name):
         return False, ""
     status = item.get("status") if isinstance(item.get("status"), dict) else {}
     if status.get("completionTime"):

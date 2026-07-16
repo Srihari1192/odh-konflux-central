@@ -583,7 +583,8 @@ components:
       artifactPrefix: dashboard-cypress-smoke
       minPassRateForSuccess: 0.9
       componentTestTimeoutByGate:
-        smoke: 25m
+        # Cap concurrent SmokeSets (maxParallel/auto rh-ai) lengthens wall clock vs 5-way parallel.
+        smoke: 45m
         tier1: 90m
       runner:
         type: cypress-dashboard
@@ -602,6 +603,8 @@ components:
           skipTags: "@Bug @Maintain @Featureflagged"
           testTimeoutSeconds: "480"
           parallelStaggerSec: 15
+          # Limit concurrent browsers on RHCL gateway (rh-ai.*) to cut Authorino 503s.
+          maxParallel: 2
           displayBase: 99
           runConfig: numTestsKeptInMemory=0,experimentalMemoryManagement=true,video=false,viewportWidth=1920,viewportHeight=1080
           gates:

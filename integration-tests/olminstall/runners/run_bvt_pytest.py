@@ -539,6 +539,7 @@ def run_health_suite() -> int:
 
     artifacts_path = Path(os.environ.get("ARTIFACTS_DIR", "/artifacts").strip() or "/artifacts")
     mlflow_op_prior: int | None = None
+    apps_cronjobs_suspended: list[str] | None = None
     worst = 0
 
     def _run_marker(marker: str, prefix: str, subdir: str, *, extra_args: str = "-svv") -> int:
@@ -555,10 +556,16 @@ def run_health_suite() -> int:
             if ec == 124:
                 return ec
 
+        from steps.prepare_bvt_dsc_ready import prepare_bvt_dsc_ready
+
+        dsc_ec = prepare_bvt_dsc_ready()
+        if dsc_ec != 0:
+            return dsc_ec
+
         if external:
             from steps.prepare_bvt_apps_namespace import (
                 pause_mlflow_operator_reconcile_for_bvt,
-                resume_mlflow_operator_reconcile,
+                suspend_apps_cronjobs_for_bvt,
             )
 
             ec = _run_marker(
@@ -571,6 +578,16 @@ def run_health_suite() -> int:
                 worst = ec if worst == 0 else max(worst, ec)
                 if ec == 124:
                     return ec
+
+            try:
+                apps_cronjobs_suspended = suspend_apps_cronjobs_for_bvt()
+            except Exception as exc:
+                print(
+                    f"WARN: apps CronJob/Job-pod cleanup before BVT failed ({exc}); continuing",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                apps_cronjobs_suspended = None
 
             try:
                 mlflow_op_prior = pause_mlflow_operator_reconcile_for_bvt()
@@ -618,6 +635,17 @@ def run_health_suite() -> int:
         )
         return tekton_ec
     finally:
+        if apps_cronjobs_suspended is not None:
+            try:
+                from steps.prepare_bvt_apps_namespace import resume_apps_cronjobs
+
+                resume_apps_cronjobs(apps_cronjobs_suspended)
+            except Exception as exc:
+                print(
+                    f"WARN: failed to restore apps CronJobs after BVT ({exc})",
+                    file=sys.stderr,
+                    flush=True,
+                )
         if mlflow_op_prior is not None:
             try:
                 from steps.prepare_bvt_apps_namespace import resume_mlflow_operator_reconcile

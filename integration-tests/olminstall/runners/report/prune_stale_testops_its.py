@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Delete legacy IntegrationTestScenario CRs before raw ``oc create -f test-snapshot.yaml``.
+"""Delete retired IntegrationTestScenario CRs before raw ``oc create -f test-snapshot.yaml``.
 
-Deletes ``STALE_TESTOPS_PLAYPEN_ITS_NAMES`` (``suite/constants.py`` / ``config/olminstall-stale-its.yaml``) — the same set
-``OLMInstallRunner.prune_stale_integration_test_scenarios`` removes before Snapshot create.
+Deletes ``STALE_TESTOPS_PLAYPEN_ITS_NAMES`` (``suite/constants.py`` / ``config/olminstall-stale-its.yaml``).
+Use on testops-playpen before manual Snapshot create so only intended ITS scenarios fan out.
 
 Exit code 1 if any ``oc delete`` returned non-zero (best-effort per object; failures are surfaced).
 

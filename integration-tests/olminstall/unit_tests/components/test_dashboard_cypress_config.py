@@ -100,6 +100,27 @@ class DashboardCypressConfigTest(unittest.TestCase):
         self.assertIn("wait;", cmd)
         self.assertNotIn(" && CY_RESULTS_DIR", cmd)
         self.assertIn('--config "video=false"', cmd)
+        self.assertNotIn("mkfifo", cmd)
+
+    def test_cypress_parallel_command_caps_concurrency(self) -> None:
+        with patch.dict(os.environ, {"CYPRESS_MAX_PARALLEL": "2"}, clear=False):
+            cmd = cypress_parallel_sets_command(
+                sets=(
+                    CypressParallelSet("@SmokeSet1", "SmokeSet1"),
+                    CypressParallelSet("@SmokeSet2", "SmokeSet2"),
+                    CypressParallelSet("@SmokeSet3", "SmokeSet3"),
+                ),
+                skip_tags="@Bug",
+                test_timeout_seconds="480",
+                run_config="video=false",
+                parallel_stagger_sec=15,
+                display_base=99,
+                max_parallel=2,
+            )
+        self.assertIn("mkfifo", cmd)
+        self.assertIn("read -u 3", cmd)
+        self.assertIn("echo >&3", cmd)
+        self.assertEqual(cmd.count("read -u 3"), 3)
 
     def test_normalize_cypress_run_config_collapses_yaml_fold_whitespace(self) -> None:
         folded = (

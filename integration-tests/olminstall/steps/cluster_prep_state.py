@@ -11,6 +11,7 @@ _DEP_OPERATORS_MARKER = ".dep-operators-done"
 _MAAS_SURFACE_MARKER = ".maas-smoke-surface-done"
 _MAAS_PREP_ATTEMPTED_MARKER = ".maas-smoke-prep-attempted"
 _MAAS_GATEWAY_MAS_MARKER = ".maas-gateway-mas-done"
+_MAAS_GATEWAY_HTTPS_FAILED_MARKER = ".maas-gateway-https-failed"
 _IDP_ATTEMPTED_MARKER = ".identity-providers-attempted"
 _DEFAULT_MARKER_MAX_AGE_SEC = 48 * 3600
 
@@ -124,6 +125,7 @@ def clear_cluster_prep_markers(artifacts_dir: Path | None = None) -> None:
         _MAAS_SURFACE_MARKER,
         _MAAS_PREP_ATTEMPTED_MARKER,
         _MAAS_GATEWAY_MAS_MARKER,
+        _MAAS_GATEWAY_HTTPS_FAILED_MARKER,
         _IDP_ATTEMPTED_MARKER,
     ):
         try:
@@ -205,6 +207,60 @@ def mark_maas_gateway_mas_done(artifacts_dir: Path | None = None) -> None:
         return
     root.mkdir(parents=True, exist_ok=True)
     _write_marker(root / _MAAS_GATEWAY_MAS_MARKER)
+
+
+_MAAS_GATEWAY_HTTPS_NOT_READY = "MaaS gateway HTTPS service not ready"
+
+
+def maas_gateway_https_failed_reason(artifacts_dir: Path | None = None) -> str:
+    """Non-empty when a prior MaaS gateway HTTPS wait failed this PipelineRun."""
+    root = resolve_artifacts_dir(artifacts_dir)
+    if root is None:
+        return ""
+    path = root / _MAAS_GATEWAY_HTTPS_FAILED_MARKER
+    if not _marker_valid(path):
+        return ""
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    for line in text.splitlines():
+        if line.startswith("reason="):
+            return line.split("=", 1)[1].strip()
+    return text.splitlines()[0].strip() if text else ""
+
+
+def mark_maas_gateway_https_failed(reason: str, artifacts_dir: Path | None = None) -> None:
+    """Record that MaaS gateway HTTPS wait failed so later tasks fail fast."""
+    root = resolve_artifacts_dir(artifacts_dir)
+    if root is None:
+        return
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / _MAAS_GATEWAY_HTTPS_FAILED_MARKER
+    run_id = _current_pipelinerun_id()
+    snippet = (reason or "MaaS gateway HTTPS not ready").strip().replace("\n", " ")[:400]
+    lines = [f"ts={time.time():.0f}", f"reason={snippet}"]
+    if run_id:
+        lines.append(f"pipelinerun={run_id}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def maas_gateway_https_blocked_reason() -> str:
+    """Infra reason when Kuadrant stack or a prior HTTPS wait blocks MaaS prep."""
+    from helpers.gateway_stack_marker import reconcile_gateway_stack_incomplete_marker
+
+    # Clear stale incomplete marker when live Kuadrant/Authorino recovered after reinstall.
+    if not reconcile_gateway_stack_incomplete_marker():
+        return (
+            "MaaS gateway HTTPS service not ready — Kuadrant auth stack incomplete "
+            "(install-dep-operators)"
+        )
+    prior = maas_gateway_https_failed_reason()
+    if prior:
+        if prior.lower().startswith(_MAAS_GATEWAY_HTTPS_NOT_READY.lower()):
+            return prior
+        return f"{_MAAS_GATEWAY_HTTPS_NOT_READY} — {prior}"
+    return ""
 
 
 def identity_providers_already_attempted(artifacts_dir: Path | None = None) -> bool:

@@ -24,11 +24,14 @@ from _bootstrap import ensure_olminstall_path
 
 ensure_olminstall_path()
 
+from helpers.log_redact import redact_command_for_log
 from suite.component_dsc_gate import smoke_component_prereq_unavailable
+from suite.cluster_api_health import cluster_smoke_infra_blocked_reason
 from suite.dsc_baseline import reconcile_baseline_dsc_before_component
 from suite.component_version_gate import resolve_operator_version_for_gates
 from suite.component_test_timeout import (
     apply_cluster_source_timeout_cap,
+    parse_component_timeout_seconds,
     resolve_component_test_timeout_raw,
 )
 from suite.test_slice_filter import filter_cypress_config_by_slice_ids
@@ -43,13 +46,13 @@ from components.dashboard_cypress.config import (
 from components.dashboard_cypress.source_ref import resolve_dashboard_git_source
 from runners.orchestrator import stage_cypress_cli_tools
 from runners.component_prereqs import prepare_component_for_smoke, _external_existing_cluster, run_pooled_external_smoke_prep
+from runners.component_junit import prereq_junit_outcome
 from runners.run_component_pytest import (
     _accumulate_exit_file,
     _artifacts_dir,
     _write_single_failure_junit,
     _filter_component_id,
     _iter_components_from_plan,
-    _parse_component_timeout_seconds,
     _plan_component_test_phases,
     _plan_gate_timeout_defaults,
     _truthy_env,
@@ -145,6 +148,7 @@ def _write_skip_golang_env(
     test_timeout_sec: float,
     source_repo: str,
     source_ref: str,
+    outcome: str = "skip",
 ) -> int:
     print(f"SKIP {filter_id}: {message}", flush=True)
     _write_single_failure_junit(
@@ -152,7 +156,7 @@ def _write_skip_golang_env(
         artifacts_dir=artifacts_dir,
         testcase_name=testcase_name,
         message=message,
-        outcome="skip",
+        outcome=outcome,
     )
     skip_path.write_text(f"{skip_tag}\n", encoding="ascii")
     _write_env_file(
@@ -348,13 +352,35 @@ def main() -> int:
         timeout_raw=timeout_raw,
     )
     try:
-        test_timeout_sec = _parse_component_timeout_seconds(timeout_raw)
+        test_timeout_sec = parse_component_timeout_seconds(timeout_raw)
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
     env_path = component_golang_env_path(artifacts_dir, filter_id)
     skip_path = artifacts_dir / f"component-golang-{filter_id}.skip"
+
+    api_reason = cluster_smoke_infra_blocked_reason()
+    if api_reason:
+        print(f"FAIL golang {filter_id}: {api_reason}", flush=True)
+        return _write_skip_golang_env(
+            comp=comp,
+            filter_id=filter_id,
+            skip_tag="api_unreachable",
+            testcase_name="cluster_smoke_infra_blocked",
+            message=api_reason,
+            artifacts_dir=artifacts_dir,
+            env_path=env_path,
+            skip_path=skip_path,
+            working_dir=working_dir,
+            results_dir=results_dir,
+            run_command=run_command,
+            env_defaults=env_defaults,
+            test_timeout_sec=test_timeout_sec or 0.0,
+            source_repo=source_repo,
+            source_ref=source_ref,
+            outcome="failure",
+        )
 
     version_skip = str(comp.get("version_skip_reason") or "").strip()
     if version_skip:
@@ -431,6 +457,7 @@ def main() -> int:
                 test_timeout_sec=test_timeout_sec,
                 source_repo=source_repo,
                 source_ref=source_ref,
+                outcome=prereq_junit_outcome(reason),
             )
 
     skip_path.unlink(missing_ok=True)
@@ -486,7 +513,7 @@ def main() -> int:
     )
     print(
         f"=== golang component {filter_id}: phases={','.join(component_phases)} "
-        f"command={run_command!r} ===",
+        f"command={redact_command_for_log(run_command)!r} ===",
         flush=True,
     )
     return 0

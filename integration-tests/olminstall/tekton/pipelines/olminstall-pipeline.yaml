@@ -11,7 +11,7 @@ metadata:
     olminstall.konflux.dev/snippets: config/olminstall-pipeline-snippets.yaml (see README.md#pipeline-snippets-olminstall-pipeline-snippetsyaml)
 spec:
   description: >-
-    ODH/RHOAI Konflux integration test: optionally provision an EaaS cluster,
+    End-to-end (E2E) RHOAI/ODH test on Konflux: optionally provision an EaaS cluster,
     install the operator from the snapshot FBC catalog image, run BVT health
     checks, then optional per-component smoke tests. Reporting and artifact
     upload run in the finally block after tests complete.
@@ -138,8 +138,9 @@ spec:
 
     - name: MIN_RHOAI_VERSION
       description: |
-        Minimum RHOAI release for PRODUCT=rhoai installs (FBC component naming gate).
-        Skipped when PRODUCT=existing.
+        Minimum RHOAI catalog line for PRODUCT=rhoai ITS auto-runs. Enforced in wait-for-conforma
+        from Snapshot PAC metadata (e.g. rhoai-2.25 vs rhoai-3.5-ea.2). Skipped when PRODUCT=existing
+        or when catalog line cannot be determined (manual snapshots).
       type: string
       default: "3.5"
 
@@ -179,6 +180,18 @@ spec:
         still run. Set "false" to run full pytest without the prereq probe.
       type: string
       default: "true"
+
+    - name: WAIT_FOR_CONFORMA
+      description: |
+        When "true", wait for Enterprise Contract (conforma) on the same Snapshot before
+        provisioning a cluster or running e2e smoke. Emits WARNING TEST_OUTPUT when skipped.
+      type: string
+      default: "true"
+
+    - name: CONFORMA_GATE_TIMEOUT_SEC
+      description: Max seconds to wait for conforma PipelineRuns on the triggering Snapshot
+      type: string
+      default: "1800"
 
     - name: TEST_GATES
       description: |
@@ -546,6 +559,8 @@ spec:
             displayName: Emit parse task results
             image: quay.io/konflux-ci/konflux-test:stable@sha256:09328e5f47da168ffe951ec9c4242cd6761e61e0a235df1bba3f5158e757446d
             env:
+              - name: REPO_ROOT
+                value: $(workspaces.tests-shared.path)/scripts-repo
               - name: RUN_CONFIG_DIR
                 value: $(workspaces.tests-shared.path)/run-config
               - name: COMPONENTS_CSV_PATH
@@ -556,23 +571,51 @@ spec:
                 value: $(results.SMOKE_AWS_SECRET.path)
             script: |
               #!/usr/bin/env python3
-              import os
-              from pathlib import Path
+              import os, sys
 
-              run_config = Path(os.environ["RUN_CONFIG_DIR"])
+              os.chdir(os.path.join(os.environ["REPO_ROOT"], "integration-tests/olminstall"))
+              os.execvp(sys.executable, [sys.executable, "-m", "steps.emit_parse_artifacts"])
 
-              def _emit(result_env: str, filename: str) -> None:
-                  dst = os.environ.get(result_env, "").strip()
-                  if not dst:
-                      raise SystemExit(f"missing Tekton result path env {result_env}")
-                  src = run_config / filename
-                  if not src.is_file():
-                      raise SystemExit(f"missing {src}")
-                  Path(dst).write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
-
-              _emit("COMPONENTS_CSV_PATH", "COMPONENTS_CSV")
-              _emit("SETUP_DEPENDENCIES_ARGS_PATH", "SETUP_DEPENDENCIES_ARGS")
-              _emit("SMOKE_AWS_SECRET_PATH", "SMOKE_AWS_SECRET")
+    - name: wait-for-conforma
+      displayName: "Gate — wait for conforma"
+      description: >-
+        Poll conforma (Enterprise Contract) on the same Konflux Snapshot. When conforma
+        fails, downstream install/smoke tasks are skipped and WARNING TEST_OUTPUT is emitted.
+      runAfter:
+        - parse-pipeline-tests
+      workspaces:
+        - name: tests-shared
+          workspace: tests-shared
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: $(params.SCRIPTS_REPO_URL)
+          - name: revision
+            value: $(params.SCRIPTS_REPO_REVISION)
+          - name: pathInRepo
+            value: integration-tests/olminstall/tekton/tasks/task-wait-for-conforma.yaml
+      params:
+        - name: SNAPSHOT
+          value: $(params.SNAPSHOT)
+        - name: PRODUCT
+          value: $(params.PRODUCT)
+        - name: MIN_RHOAI_VERSION
+          value: $(params.MIN_RHOAI_VERSION)
+        - name: WAIT_FOR_CONFORMA
+          value: $(params.WAIT_FOR_CONFORMA)
+        - name: CONFORMA_GATE_TIMEOUT_SEC
+          value: $(params.CONFORMA_GATE_TIMEOUT_SEC)
+        - name: SNAPSHOT_NAME
+          value: $(context.pipelineRun.labels['appstudio.openshift.io/snapshot'])
+        - name: PIPELINE_RUN_NAME
+          value: $(context.pipelineRun.name)
+        - name: PIPELINE_NAMESPACE
+          value: $(context.pipelineRun.namespace)
+        - name: SCRIPTS_REPO_URL
+          value: $(params.SCRIPTS_REPO_URL)
+        - name: SCRIPTS_REPO_REVISION
+          value: $(params.SCRIPTS_REPO_REVISION)
 
     - name: extract-fbcf-image
       displayName: "Setup — extract FBCF image"
@@ -580,10 +623,14 @@ spec:
         Parse the Konflux ApplicationSnapshot and record the FBC catalog image to install.
         With PRODUCT=existing, records n/a and skips snapshot parsing (scripts from parse-pipeline-tests).
       runAfter:
-        - parse-pipeline-tests
+        - wait-for-conforma
       workspaces:
         - name: tests-shared
           workspace: tests-shared
+      when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
       taskSpec:
         displayName: "Setup — extract FBCF image"
         description: >-
@@ -715,6 +762,9 @@ spec:
       runAfter:
         - extract-fbcf-image
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(params.CLUSTER_SOURCE)"
           operator: in
           values: ["", "EAAS"]
@@ -748,6 +798,9 @@ spec:
       runAfter:
         - provision-eaas-space
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(params.CLUSTER_SOURCE)"
           operator: in
           values: ["", "EAAS"]
@@ -809,7 +862,7 @@ spec:
                   value: stepactions/eaas-get-supported-ephemeral-cluster-versions/0.1/eaas-get-supported-ephemeral-cluster-versions.yaml
             params:
               - name: eaasSpaceSecretRef
-                value: $(tasks.provision-eaas-space.results.secretRef)
+                value: $(params.EAAS_SPACE_SECRET_REF)
           - name: resolve-ocp-prefix
             image: quay.io/konflux-ci/konflux-test:stable@sha256:09328e5f47da168ffe951ec9c4242cd6761e61e0a235df1bba3f5158e757446d
             results:
@@ -855,7 +908,7 @@ spec:
                   value: stepactions/eaas-create-ephemeral-cluster-hypershift-aws/0.1/eaas-create-ephemeral-cluster-hypershift-aws.yaml
             params:
               - name: eaasSpaceSecretRef
-                value: $(tasks.provision-eaas-space.results.secretRef)
+                value: $(params.EAAS_SPACE_SECRET_REF)
               - name: version
                 value: "$(steps.pick-version.results.version)"
               - name: instanceType
@@ -946,8 +999,11 @@ spec:
         and record a short cluster label for reports.
       runAfter:
         - extract-fbcf-image
-        - parse-pipeline-tests
+        - wait-for-conforma
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(params.CLUSTER_SOURCE)"
           operator: notin
           values: ["", "EAAS"]
@@ -1153,6 +1209,9 @@ spec:
       runAfter:
         - external-cluster-ready
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(params.CLUSTER_SOURCE)"
           operator: notin
           values: ["", "EAAS"]
@@ -1283,11 +1342,15 @@ spec:
         global pull secret, and preflight OLM bundle-unpack credentials before
         dependency and operator install.
       runAfter:
+        - parse-pipeline-tests
         - install-ocp-cluster
         - external-cluster-ready
         - cleanup-external
-        - parse-pipeline-tests
+        - wait-for-conforma
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_INSTALL_DEP_OPERATORS)"
           operator: in
           values: ["true"]
@@ -1304,6 +1367,10 @@ spec:
           - name: pathInRepo
             value: integration-tests/olminstall/tekton/tasks/task-prepare-cluster-registry.yaml
       params:
+        - name: CONFORMA_GATE
+          value: $(tasks.wait-for-conforma.results.CONFORMA_GATE)
+        - name: RUN_INSTALL_DEP_OPERATORS
+          value: $(tasks.parse-pipeline-tests.results.RUN_INSTALL_DEP_OPERATORS)
         - name: CLUSTER_SOURCE
           value: $(params.CLUSTER_SOURCE)
         - name: PRODUCT
@@ -1325,13 +1392,14 @@ spec:
         dependency errors; some product-install paths warn and continue.
       timeout: 90m0s
       runAfter:
+        - parse-pipeline-tests
         - install-ocp-cluster
         - external-cluster-ready
         - cleanup-external
-        - parse-pipeline-tests
+        - wait-for-conforma
         - prepare-cluster-registry
       when:
-        - input: "$(tasks.parse-pipeline-tests.results.RUN_INSTALL_DEP_OPERATORS)"
+        - input: "$(tasks.prepare-cluster-registry.results.INSTALL_CHAIN_ARMED)"
           operator: in
           values: ["true"]
       workspaces:
@@ -1347,6 +1415,10 @@ spec:
           - name: pathInRepo
             value: integration-tests/olminstall/tekton/tasks/task-install-dep-operators.yaml
       params:
+        - name: CONFORMA_GATE
+          value: $(tasks.wait-for-conforma.results.CONFORMA_GATE)
+        - name: RUN_INSTALL_DEP_OPERATORS
+          value: $(tasks.parse-pipeline-tests.results.RUN_INSTALL_DEP_OPERATORS)
         - name: CLUSTER_SOURCE
           value: $(params.CLUSTER_SOURCE)
         - name: OLMINSTALL_REPO_URL
@@ -1379,16 +1451,20 @@ spec:
         Waits until the operator CSV reaches Succeeded.
       timeout: 45m0s
       runAfter:
+        - parse-pipeline-tests
         - install-ocp-cluster
         - external-cluster-ready
         - cleanup-external
-        - parse-pipeline-tests
+        - wait-for-conforma
         - prepare-cluster-registry
         - install-dep-operators
       when:
         - input: "$(params.PRODUCT)"
           operator: in
           values: ["rhoai"]
+        - input: "$(tasks.install-dep-operators.results.INSTALL_DEP_COMPLETE)"
+          operator: in
+          values: ["true"]
       workspaces:
         - name: tests-shared
           workspace: tests-shared
@@ -1402,6 +1478,8 @@ spec:
           - name: pathInRepo
             value: integration-tests/olminstall/tekton/tasks/task-install-operator.yaml
       params:
+        - name: CONFORMA_GATE
+          value: $(tasks.wait-for-conforma.results.CONFORMA_GATE)
         - name: FBCF_IMAGE
           value: $(tasks.extract-fbcf-image.results.FBCF_IMAGE)
         - name: UPDATE_CHANNEL
@@ -1440,16 +1518,20 @@ spec:
         Waits until the operator CSV reaches Succeeded.
       timeout: 45m0s
       runAfter:
+        - parse-pipeline-tests
         - install-ocp-cluster
         - external-cluster-ready
         - cleanup-external
-        - parse-pipeline-tests
+        - wait-for-conforma
         - prepare-cluster-registry
         - install-dep-operators
       when:
         - input: "$(params.PRODUCT)"
           operator: in
           values: ["odh"]
+        - input: "$(tasks.install-dep-operators.results.INSTALL_DEP_COMPLETE)"
+          operator: in
+          values: ["true"]
       workspaces:
         - name: tests-shared
           workspace: tests-shared
@@ -1463,6 +1545,8 @@ spec:
           - name: pathInRepo
             value: integration-tests/olminstall/tekton/tasks/task-install-operator.yaml
       params:
+        - name: CONFORMA_GATE
+          value: $(tasks.wait-for-conforma.results.CONFORMA_GATE)
         - name: FBCF_IMAGE
           value: $(tasks.extract-fbcf-image.results.FBCF_IMAGE)
         - name: UPDATE_CHANNEL
@@ -1508,7 +1592,7 @@ spec:
         - name: tests-shared
           workspace: tests-shared
       runAfter:
-        - parse-pipeline-tests
+        - wait-for-conforma
         - install-ocp-cluster
         - install-rhoai
         - install-odh
@@ -1523,6 +1607,8 @@ spec:
           - name: pathInRepo
             value: integration-tests/olminstall/tekton/tasks/task-verify-operator-ready.yaml
       params:
+        - name: CONFORMA_GATE
+          value: $(tasks.wait-for-conforma.results.CONFORMA_GATE)
         - name: SCRIPTS_REPO_URL
           value: $(params.SCRIPTS_REPO_URL)
         - name: SCRIPTS_REPO_REVISION
@@ -1552,16 +1638,20 @@ spec:
       runAfter:
         - parse-pipeline-tests
         - install-ocp-cluster
+        - verify-operator-ready
         - install-rhoai
         - install-odh
         - external-cluster-ready
-        - verify-operator-ready
         - install-dep-operators
       when:
-        - input: "$(tasks.parse-pipeline-tests.results.RUN_OPENDATAHUB_TESTS)"
+        - input: "$(tasks.verify-operator-ready.results.OPERATOR_VERIFY_ARMED)"
           operator: in
           values: ["true"]
       params:
+        - name: CONFORMA_GATE
+          value: $(tasks.wait-for-conforma.results.CONFORMA_GATE)
+        - name: RUN_OPENDATAHUB_TESTS
+          value: $(tasks.parse-pipeline-tests.results.RUN_OPENDATAHUB_TESTS)
         - name: SCRIPTS_REPO_URL
           value: $(params.SCRIPTS_REPO_URL)
         - name: SCRIPTS_REPO_REVISION
@@ -1605,6 +1695,12 @@ spec:
         workspaces:
           - name: tests-shared
         params:
+          - name: CONFORMA_GATE
+            type: string
+            default: ""
+          - name: RUN_OPENDATAHUB_TESTS
+            type: string
+            default: ""
           - name: SCRIPTS_REPO_URL
             type: string
           - name: SCRIPTS_REPO_REVISION
@@ -1672,6 +1768,10 @@ spec:
             description: Full image reference for opendatahub-operator-e2e (platform, spark_operator)
           - name: TASK_MESSAGE
             description: Pass/fail summary for Konflux task Results panel
+          - name: COMPONENT_TEST_PLAN_EXPORTED
+            description: >-
+              true when export_component_plan wrote component-test-plan.json;
+              skipped when RUN_COMPONENT_TESTS=false
 
         volumes:
           - name: credentials
@@ -2029,6 +2129,30 @@ spec:
               print("[prep-eaas] prepare-components-prerequisites-eaas", flush=True)
               os.execvp(sys.executable, [sys.executable, "-m", "runners.component_cluster_prep"])
 
+          - name: record-component-test-plan-export-status
+            displayName: Record component test plan export status
+            image: quay.io/konflux-ci/konflux-test:stable@sha256:09328e5f47da168ffe951ec9c4242cd6761e61e0a235df1bba3f5158e757446d
+            env:
+              - name: RUN_COMPONENT_TESTS
+                value: $(params.RUN_COMPONENT_TESTS)
+              - name: COMPONENT_TEST_PLAN_JSON
+                value: $(workspaces.tests-shared.path)/tests-payload/component-test-plan.json
+              - name: COMPONENT_TEST_PLAN_EXPORTED_PATH
+                value: $(results.COMPONENT_TEST_PLAN_EXPORTED.path)
+            script: |
+              #!/usr/bin/env bash
+              set -euo pipefail
+              if [[ "${RUN_COMPONENT_TESTS}" != "true" ]]; then
+                printf '%s' 'skipped' > "${COMPONENT_TEST_PLAN_EXPORTED_PATH}"
+                exit 0
+              fi
+              if [[ -f "${COMPONENT_TEST_PLAN_JSON}" ]]; then
+                printf '%s' 'true' > "${COMPONENT_TEST_PLAN_EXPORTED_PATH}"
+                exit 0
+              fi
+              echo "ERROR: component test plan missing at ${COMPONENT_TEST_PLAN_JSON}" >&2
+              exit 1
+
           - name: write-konflux-task-summary
             image: quay.io/konflux-ci/konflux-test:stable@sha256:09328e5f47da168ffe951ec9c4242cd6761e61e0a235df1bba3f5158e757446d
             env:
@@ -2060,11 +2184,20 @@ spec:
         - name: tests-shared
           workspace: tests-shared
       runAfter:
+        - install-rhoai
+        - install-odh
+        - install-dep-operators
         - opendatahub-tests-prepare
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_OPENDATAHUB_TESTS)"
           operator: in
           values: ["true"]
+        - input: "$(tasks.opendatahub-tests-prepare.results.COMPONENT_TEST_PLAN_EXPORTED)"
+          operator: in
+          values: ["true", "skipped"]
       params:
         - name: RUN_COMPONENT_TESTS
           value: $(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)
@@ -2233,6 +2366,9 @@ spec:
         - name: tests-shared
           workspace: tests-shared
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_BVT)"
           operator: in
           values: ["true"]
@@ -2280,6 +2416,9 @@ spec:
         - resolve-component-run-flags
         - bvt-health-checks
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -2337,6 +2476,9 @@ spec:
       runAfter:
         - test-workbenches
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -2396,6 +2538,9 @@ spec:
       runAfter:
         - test-model-registry
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -2455,6 +2600,9 @@ spec:
       runAfter:
         - test-model-server
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -2515,6 +2663,9 @@ spec:
       runAfter:
         - test-model-runtime
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -2574,6 +2725,9 @@ spec:
       runAfter:
         - test-maas-billing
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -2632,6 +2786,9 @@ spec:
       runAfter:
         - test-ai-pipelines
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -2692,6 +2849,9 @@ spec:
       runAfter:
         - test-platform
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -2752,6 +2912,9 @@ spec:
       runAfter:
         - test-mlflow
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -2810,6 +2973,9 @@ spec:
       runAfter:
         - test-ogx
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -2869,6 +3035,9 @@ spec:
       runAfter:
         - test-ai-safety
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -2928,6 +3097,9 @@ spec:
       runAfter:
         - test-ai-safety-evalhub
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -2987,6 +3159,9 @@ spec:
       runAfter:
         - test-ai-safety-guardrails
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -3046,6 +3221,9 @@ spec:
       runAfter:
         - test-ai-safety-lmeval
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -3105,6 +3283,9 @@ spec:
       runAfter:
         - test-ai-safety-trustyai-operator
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -3165,6 +3346,9 @@ spec:
       runAfter:
         - test-ai-safety-trustyai-service
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -3216,7 +3400,7 @@ spec:
         - Image: quay.io/redhat-user-workloads/rh-platform-experien-tenant/cypress-e2e-image/cypress-e2e-image:9bc9e59.
         - Smoke command: cypress-parallel.
         - Requires tenant credentials supplied by the pipeline.
-        - Timeouts: smoke 25m, tier1 90m.
+        - Timeouts: smoke 45m, tier1 90m.
         - Cypress runs 5 parallel smoke set(s).
       timeout: 125m0s
       workspaces:
@@ -3225,6 +3409,9 @@ spec:
       runAfter:
         - test-llama-stack
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -3284,6 +3471,9 @@ spec:
       runAfter:
         - test-dashboard-cypress
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -3342,6 +3532,9 @@ spec:
       runAfter:
         - test-trainer
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -3401,6 +3594,9 @@ spec:
       runAfter:
         - test-distributed-workloads
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -3459,6 +3655,9 @@ spec:
       runAfter:
         - test-spark-operator
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -3518,6 +3717,9 @@ spec:
       runAfter:
         - test-workbench-images
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -3578,6 +3780,9 @@ spec:
       runAfter:
         - test-kuberay
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -3635,6 +3840,9 @@ spec:
         - bvt-health-checks
         - test-codeflare-sdk
       when:
+        - input: "$(tasks.wait-for-conforma.results.CONFORMA_GATE)"
+          operator: in
+          values: ["pass"]
         - input: "$(tasks.parse-pipeline-tests.results.RUN_COMPONENT_TESTS)"
           operator: in
           values: ["true"]
@@ -3690,6 +3898,8 @@ spec:
           value: $(params.PRODUCT)
         - name: CLUSTER_SOURCE
           value: $(params.CLUSTER_SOURCE)
+        - name: CONFORMA_GATE
+          value: $(tasks.wait-for-conforma.results.CONFORMA_GATE)
         - name: SCRIPTS_REPO_URL
           value: $(params.SCRIPTS_REPO_URL)
         - name: SCRIPTS_REPO_REVISION
@@ -3708,6 +3918,10 @@ spec:
             type: string
           - name: CLUSTER_SOURCE
             type: string
+            default: ""
+          - name: CONFORMA_GATE
+            type: string
+            description: pass|skip from wait-for-conforma (skip = no target cluster)
             default: ""
           - name: SCRIPTS_REPO_URL
             type: string
@@ -3747,6 +3961,8 @@ spec:
             env:
               - name: CLUSTER_SOURCE
                 value: $(params.CLUSTER_SOURCE)
+              - name: CONFORMA_GATE
+                value: $(params.CONFORMA_GATE)
               - name: TESTS_SHARED_KUBECONFIG
                 value: $(workspaces.tests-shared.path)/credentials/kubeconfig
               - name: KUBECONFIG_PATH_RESULT
@@ -3777,6 +3993,8 @@ spec:
                 value: $(params.OPERATOR_NAMESPACE)
               - name: PRODUCT
                 value: $(params.PRODUCT)
+              - name: CONFORMA_GATE
+                value: $(params.CONFORMA_GATE)
               - name: INSTALL_OPERATOR_RHOAI_STATUS
                 value: $(tasks.install-rhoai.status)
               - name: INSTALL_OPERATOR_ODH_STATUS
@@ -3862,6 +4080,10 @@ spec:
           value: $(params.ARTIFACT_BROWSER_URL)
         - name: ARTIFACT_BROWSER_REPO_PATH
           value: $(params.ARTIFACT_BROWSER_REPO_PATH)
+        - name: CONFORMA_GATE
+          value: $(tasks.wait-for-conforma.results.CONFORMA_GATE)
+        - name: PRODUCT
+          value: $(params.PRODUCT)
       workspaces:
         - name: tests-shared
           workspace: tests-shared
@@ -3907,6 +4129,13 @@ spec:
             type: string
           - name: ARTIFACT_BROWSER_REPO_PATH
             type: string
+          - name: CONFORMA_GATE
+            type: string
+            description: pass|skip from wait-for-conforma (skip = intentional e2e not run)
+            default: ""
+          - name: PRODUCT
+            type: string
+            default: "rhoai"
         workspaces:
           - name: tests-shared
             description: Shared PVC with scripts-repo (cloned by parse-pipeline-tests)
@@ -4070,6 +4299,8 @@ spec:
                 value: $(workspaces.tests-shared.path)/tests-payload/.olminstall-smoke-test-output.json
               - name: BVT_TEST_OUTPUT_PATH
                 value: $(workspaces.tests-shared.path)/tests-payload/.olminstall-bvt-test-output.json
+              - name: CONFORMA_SKIP_TEST_OUTPUT_PATH
+                value: $(workspaces.tests-shared.path)/tests-payload/.olminstall-conforma-skip-test-output.json
               - name: SCRIPTS_REPO_ROOT
                 value: $(workspaces.tests-shared.path)/scripts-repo/integration-tests/olminstall
             script: |
@@ -4158,6 +4389,33 @@ spec:
               os.chdir(os.environ["SCRIPTS_REPO_ROOT"])
               os.execvp(sys.executable, [sys.executable, "-m", "runners.report.patch_pipelinerun_summary"])
 
+          - name: check-requested-gates-ran
+            displayName: Fail hollow green when gates skipped
+            image: quay.io/konflux-ci/konflux-test:stable@sha256:09328e5f47da168ffe951ec9c4242cd6761e61e0a235df1bba3f5158e757446d
+            env:
+              - name: TEST_GATES
+                value: $(params.TEST_GATES)
+              - name: PRODUCT
+                value: $(params.PRODUCT)
+              - name: CONFORMA_GATE
+                value: $(params.CONFORMA_GATE)
+              - name: PIPELINE_RUN_NAME
+                value: $(context.pipelineRun.name)
+              - name: PIPELINE_NAMESPACE
+                value: $(context.pipelineRun.namespace)
+              - name: BVT_GATE_PATH
+                value: $(results.BVT_GATE.path)
+              - name: SMOKE_GATE_PATH
+                value: $(results.SMOKE_GATE.path)
+              - name: SCRIPTS_REPO_ROOT
+                value: $(workspaces.tests-shared.path)/scripts-repo/integration-tests/olminstall
+            script: |
+              #!/usr/bin/env python3
+              import os, sys
+              sys.path.insert(0, os.environ["SCRIPTS_REPO_ROOT"])
+              from runners.report.check_requested_gates_ran import main
+              raise SystemExit(main())
+
           - name: send-notification
             displayName: Send Slack notification
             onError: continue
@@ -4215,6 +4473,10 @@ spec:
                 value: $(context.pipelineRun.name)
               - name: TEST_GATES
                 value: $(params.TEST_GATES)
+              - name: PRODUCT
+                value: $(params.PRODUCT)
+              - name: CONFORMA_GATE
+                value: $(params.CONFORMA_GATE)
               - name: PIPELINE_TASK_STATUS
                 value: $(params.AGGREGATE_TASKS_STATUS)
               - name: PIPELINE_TASK

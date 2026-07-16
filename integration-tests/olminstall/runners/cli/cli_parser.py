@@ -24,8 +24,9 @@ from suite.constants import (
 
 # When user passes ``--ka-host`` with no URL, read KA_HOST from the environment.
 _ITS_REF_HELP = (
-    "metadata.name, olminstall-relative path (e.g. tekton/its/…), "
-    "repo-relative path (integration-tests/olminstall/…), or absolute path under the repo root"
+    "metadata.name, cwd-relative or absolute path to a manifest file "
+    "(no repo fallback for ./…, ../…, or integration-tests/… paths), "
+    "or olminstall-relative path (e.g. tekton/its/…)"
 )
 _KA_HOST_FROM_ENV = "__KA_HOST_FROM_ENV__"
 
@@ -105,7 +106,10 @@ def _add_product_group(parser: CliArgumentParser) -> None:
         dest="version",
         metavar="VER",
         default="",
-        help="RHOAI only: resolve FBC image by rhoai-v* Application label.",
+        help=(
+            "RHOAI catalog stream (e.g. 3.5-ea.2): resolve FBC from rhoai-v* apps. "
+            "Implies --product rhoai when --product is omitted."
+        ),
     )
     product.add_argument(
         "--channel",
@@ -226,7 +230,7 @@ def _add_konflux_group(parser: CliArgumentParser) -> None:
     konflux = parser.add_argument_group(
         "konflux",
         "PipelineRun control, tenant, Application, ITS enable/disable, pipeline git source, "
-        "UI/API, and KubeArchive. Default (no run flag): trigger a new olminstall PipelineRun.",
+        "UI/API, and KubeArchive. Default (no run flag): trigger a new E2E PipelineRun (e2e-cli-*).",
     )
     konflux.add_argument(
         "--watch-pipelines",
@@ -238,7 +242,7 @@ def _add_konflux_group(parser: CliArgumentParser) -> None:
         dest="watch",
         metavar="PIPELINERUN",
         help=(
-            "Watch an existing run: newest olminstall PipelineRun for --konflux-app "
+            "Watch an existing E2E run (e2e-cli-* / e2e-its-*): newest match for --konflux-app "
             "(same order as --list-pipelines), else match by owner/Snapshot, or name PIPELINERUN."
         ),
     )
@@ -251,22 +255,23 @@ def _add_konflux_group(parser: CliArgumentParser) -> None:
         default=None,
         dest="list_pipelines",
         metavar="N",
-        help=f"List last N olminstall PipelineRuns for --konflux-app (default N={DEFAULT_LIST_COUNT}).",
+        help=f"List last N PipelineRuns for --konflux-app (default N={DEFAULT_LIST_COUNT}).",
     )
     konflux.add_argument(
         "--delete-pending-pipelines",
         action="store_true",
         help=(
-            "Stop incomplete olminstall PipelineRuns for --konflux-app: Kueue/resolver pending and your "
-            "owned incomplete runs (PR or Snapshot olminstall.run-owner). Live runs with tasks are "
-            "cancelled via tkn (Konflux Stop/Cancel) before oc delete when selected. Use "
-            "--include-unowned-stuck for shared-tenant runs stuck with no TaskRuns. Does not remove "
+            "Stop incomplete E2E PipelineRuns (e2e-* and legacy olminstall-*) for --konflux-app: "
+            "Kueue/resolver pending and your owned incomplete runs (PR or Snapshot olminstall.run-owner). "
+            "Live runs with tasks are cancelled via tkn (Konflux Stop/Cancel) before oc delete when selected. "
+            "Use --include-unowned-stuck for shared-tenant runs stuck with no TaskRuns. Does not remove "
             "archived Konflux UI ghosts (see README)."
         ),
     )
     konflux.add_argument(
-        "--delete-pending-dry-run",
+        "--dry-run",
         action="store_true",
+        dest="dry_run",
         help="With --delete-pending-pipelines: list targets only; no cancel or delete.",
     )
     konflux.add_argument(
@@ -326,7 +331,7 @@ def _add_konflux_group(parser: CliArgumentParser) -> None:
         default="",
         help=(
             f"One-shot debug run: create a direct PipelineRun from the ITS manifest ({_ITS_REF_HELP}; "
-            "descriptive generateName; does not apply the ITS to the cluster). Accepts cluster and "
+            "generateName e2e-cli-{user}-…; does not apply the ITS to the cluster). Accepts cluster and "
             "test overrides (--components, --tests, --external-kubeconfig, etc.) in addition to "
             "Konflux flags."
         ),

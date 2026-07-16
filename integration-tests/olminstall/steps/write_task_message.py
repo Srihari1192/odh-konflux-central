@@ -40,7 +40,9 @@ from runners.report.pipeline_test_outputs import (
 )
 from suite.konflux_task_message import format_konflux_task_message
 from steps.tekton_util import (
+    _TEKTON_RESULT_MAX_BYTES,
     _TEKTON_TASK_RESULTS_BUDGET_BYTES,
+    clamp_tekton_result,
     fit_tekton_task_results,
     read_tekton_results_at_paths,
     read_tekton_task_result_files,
@@ -259,7 +261,7 @@ def _publish_gate_hint(sibling: dict[str, str]) -> str:
 
 
 def _publish_results_step_failed() -> bool:
-    """True only when publish-results itself failed, not prior onError: continue steps."""
+    """True when publish-results itself failed, not prior onError: continue steps."""
     step, term_msg = _read_termination()
     if not (term_msg or step):
         return False
@@ -338,14 +340,22 @@ def _write_publish_gate_summaries(
             print(f"WARN: {name} still unset after finalize", file=sys.stderr)
 
 
-def _publish_results_task_message(task_label: str, sibling: dict[str, str]) -> str:
+def _publish_results_task_message(
+    task_label: str,
+    sibling: dict[str, str],
+    *,
+    step_failed: bool = False,
+    failure_detail: str = "",
+) -> str:
     """publish-results summary: green when publish succeeded; gate lines in TASK_MESSAGE."""
-    if _publish_results_step_failed():
-        step, term_msg = _read_termination()
+    if step_failed or _publish_results_step_failed():
         status_word = "Failed"
-        detail = term_msg or "step failed"
-        if step and step not in detail:
-            detail = f"{step} - {detail}"
+        detail = failure_detail.strip()
+        if not detail:
+            step, term_msg = _read_termination()
+            detail = term_msg or "step failed"
+            if step and step not in detail:
+                detail = f"{step} - {detail}"
         head = f"{task_label}: {status_word} - {_compact(detail, limit=200)}"
         return head
 
@@ -398,6 +408,10 @@ def build_task_message(*, pipeline_task: str = "", results: dict[str, str] | Non
     """Human-readable task summary for Konflux Results."""
     task_label = (pipeline_task or os.environ.get("PIPELINE_TASK", "")).strip()
     sibling = _ensure_component_test_output(results if results is not None else _read_sibling_results())
+    if task_label == "wait-for-conforma":
+        prewritten = sibling.get("TASK_MESSAGE", "").strip()
+        if "CONFORMA_GATE=" in prewritten:
+            return _emit_task_message(prewritten, max_bytes=_MAX_BYTES)
     if task_label == "publish-results":
         return _emit_task_message(
             _publish_results_task_message(task_label, sibling),
@@ -576,15 +590,40 @@ def _finalize_publish_results() -> None:
     if tier1:
         sibling["TIER1_GATE"] = tier1
 
+    from runners.report.check_requested_gates_ran import collect_hollow_green_failures
+
+    hollow_failures = collect_hollow_green_failures(gate_values=resolved_gates)
+    if hollow_failures:
+        step_failed = True
+
     task_label = (os.environ.get("PIPELINE_TASK", "") or "publish-results").strip()
     test_output = _publish_task_test_output_json(
         sibling=sibling,
         step_failed=step_failed,
         gate_summaries=gate_summaries,
     )
+    if hollow_failures:
+        note = "; ".join(hollow_failures[:3])
+        if len(hollow_failures) > 3:
+            note = f"{note}; +{len(hollow_failures) - 3} more"
+        note = clamp_tekton_result(
+            f"hollow green: {note}",
+            max_bytes=min(800, _TEKTON_RESULT_MAX_BYTES),
+        )
+        test_output = slim_test_output_for_tekton(
+            konflux_failure_test_output_json(note=note)
+        )
+        failure_detail = note
+    else:
+        failure_detail = ""
     sibling["TEST_OUTPUT"] = test_output
     task_message = _emit_task_message(
-        _publish_results_task_message(task_label, sibling),
+        _publish_results_task_message(
+            task_label,
+            sibling,
+            step_failed=step_failed,
+            failure_detail=failure_detail,
+        ),
         max_bytes=_PUBLISH_RESULTS_TASK_MESSAGE_MAX_BYTES,
     )
     sibling["TASK_MESSAGE"] = task_message
@@ -595,6 +634,7 @@ def _finalize_publish_results() -> None:
         for key, value in fitted.items()
         if key not in _PUBLISH_GATE_RESULT_NAMES
     }
+    test_output = fitted.get("TEST_OUTPUT", test_output)
     if paths:
         write_tekton_results_at_paths(fitted_core, paths)
     else:

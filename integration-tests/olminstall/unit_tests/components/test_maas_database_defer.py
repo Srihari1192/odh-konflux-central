@@ -16,26 +16,47 @@ from components.maas_billing.database import (
 
 
 class MaasDatabaseDeferTest(unittest.TestCase):
+    @patch("components.maas_billing.database._apps_namespace_ready_for_secrets", return_value=False)
     @patch("components.maas_billing.database._secret_exists", return_value=False)
-    @patch("components.maas_billing.database._namespace_exists", return_value=False)
     @patch.dict(os.environ, {"PRODUCT": "rhoai"}, clear=False)
     def test_defers_on_product_install_when_apps_namespace_missing(
         self,
-        _ns_exists,
         _secret_exists,
+        _apps_ready,
     ) -> None:
         ensure_maas_database()
         _secret_exists.assert_not_called()
 
+    @patch("components.maas_billing.database._apps_namespace_ready_for_secrets", return_value=False)
     @patch("components.maas_billing.database._secret_exists", return_value=False)
-    @patch("components.maas_billing.database._namespace_exists", return_value=False)
     @patch.dict(os.environ, {"PRODUCT": "existing"}, clear=False)
     def test_raises_on_existing_when_apps_namespace_missing(
         self,
-        _ns_exists,
         _secret_exists,
+        _apps_ready,
     ) -> None:
         with self.assertRaisesRegex(RuntimeError, "redhat-ods-applications"):
+            ensure_maas_database()
+
+    @patch("components.maas_billing.database._wait_namespace_deleted")
+    @patch(
+        "components.maas_billing.database._namespace_phase",
+        side_effect=["Terminating", None],
+    )
+    @patch.dict(os.environ, {"PRODUCT": "rhoai", "MAAS_APPS_NS_DELETE_TIMEOUT_SEC": "60"}, clear=False)
+    def test_defers_after_waiting_out_terminating_apps_namespace(
+        self,
+        _phase,
+        wait_deleted,
+    ) -> None:
+        from components.maas_billing.database import _apps_namespace_ready_for_secrets
+
+        self.assertFalse(_apps_namespace_ready_for_secrets())
+        wait_deleted.assert_called_once()
+        with patch(
+            "components.maas_billing.database._apps_namespace_ready_for_secrets",
+            return_value=False,
+        ):
             ensure_maas_database()
 
 
@@ -112,10 +133,10 @@ class MaasDatabasePromoteTest(unittest.TestCase):
     @patch("components.maas_billing.database._restart_maas_api_after_db_config")
     @patch("components.maas_billing.database._repair_apps_maas_db_connection_url_if_needed", return_value=False)
     @patch("components.maas_billing.database._secret_exists", return_value=True)
-    @patch("components.maas_billing.database._namespace_exists", return_value=True)
+    @patch("components.maas_billing.database._apps_namespace_ready_for_secrets", return_value=True)
     def test_existing_secret_skips_restart_when_unchanged(
         self,
-        _ns_exists,
+        _apps_ready,
         _secret_exists,
         _repair,
         restart_api,
@@ -127,10 +148,10 @@ class MaasDatabasePromoteTest(unittest.TestCase):
     @patch("components.maas_billing.database._restart_maas_api_after_db_config")
     @patch("components.maas_billing.database._repair_apps_maas_db_connection_url_if_needed", return_value=True)
     @patch("components.maas_billing.database._secret_exists", return_value=True)
-    @patch("components.maas_billing.database._namespace_exists", return_value=True)
+    @patch("components.maas_billing.database._apps_namespace_ready_for_secrets", return_value=True)
     def test_existing_secret_restarts_maas_api_after_repair(
         self,
-        _ns_exists,
+        _apps_ready,
         _secret_exists,
         _repair,
         restart_api,
@@ -144,10 +165,10 @@ class MaasDatabasePromoteTest(unittest.TestCase):
     @patch("components.maas_billing.database._promote_maas_db_secret_to_apps_namespace")
     @patch("components.maas_billing.database._restart_maas_api_after_db_config")
     @patch("components.maas_billing.database._secret_exists")
-    @patch("components.maas_billing.database._namespace_exists", return_value=True)
+    @patch("components.maas_billing.database._apps_namespace_ready_for_secrets", return_value=True)
     def test_setup_database_promotes_when_secret_only_in_infra(
         self,
-        _ns_exists,
+        _apps_ready,
         secret_exists,
         _restart_api,
         promote,
@@ -157,7 +178,6 @@ class MaasDatabasePromoteTest(unittest.TestCase):
         secret_exists.return_value = False
         promote.return_value = True
         repo = Path("/tmp/fake-maas-repo")
-        script = repo / "scripts" / "setup-database.sh"
         clone_repo.return_value = repo
         subprocess_run.return_value = MagicMock(returncode=0)
 

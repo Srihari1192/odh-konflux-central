@@ -12,6 +12,20 @@ _SECRET_NAME_RE = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
 _RHOAI_APP_VERSION_RE = re.compile(r"^rhoai-v(\d+)-(\d+)")
 _STABLE_CHANNEL_VERSION_RE = re.compile(r"^stable-(\d+\.\d+)$")
 _RHOAI_FBC_OCP_RE = re.compile(r"ocp-(\d)(\d{2})\b", re.IGNORECASE)
+_OCP_MINOR_PREFIX_RE = re.compile(r"^(\d+\.\d+)")
+_PLACEHOLDER_OCP_RE = re.compile(
+    r"(unspecified|latest|\(default\)|\bdefault\b|\bn/a\b)",
+    re.IGNORECASE,
+)
+
+
+def ocp_install_prefix(value: str) -> str:
+    """Return OCP minor for ``OCP_VERSION_PREFIX``, or empty for ITS UI placeholders."""
+    text = (value or "").strip()
+    if not text or _PLACEHOLDER_OCP_RE.search(text):
+        return ""
+    match = _OCP_MINOR_PREFIX_RE.match(text)
+    return match.group(1) if match else ""
 
 
 def is_external_cluster_source(value: str) -> bool:
@@ -186,6 +200,3 @@ def resolve_version_display_params(
     }
 
 
-# Backward-compatible aliases for tests and gradual migration.
-ocp_version_from_fbcf_component = ocp_version_from_rhoai_fbc_name
-resolve_fbcf_image_display = resolve_rhoai_fbc_image

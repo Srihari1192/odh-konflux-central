@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -139,12 +140,145 @@ class PackagemanifestWaitTest(unittest.TestCase):
 
     def test_wait_subscription_bundle_unpacked_when_not_unpacking(self) -> None:
         sub = {"status": {"conditions": [{"type": "CatalogSourcesUnhealthy", "status": "False"}]}}
-        with patch.object(
-            iav,
-            "oc_run",
-            return_value=type("R", (), {"returncode": 0, "stdout": json.dumps(sub)})(),
-        ):
-            self.assertTrue(iav.wait_subscription_bundle_unpacked("rhods-operator", "redhat-ods-operator", 100.0))
+        with patch.object(iav, "ensure_operatorgroup_bundle_unpack_annotations"):
+            with patch.object(
+                iav,
+                "oc_run",
+                return_value=type("R", (), {"returncode": 0, "stdout": json.dumps(sub)})(),
+            ):
+                self.assertTrue(
+                    iav.wait_subscription_bundle_unpacked("rhods-operator", "redhat-ods-operator", 100.0)
+                )
+
+    def test_job_looks_like_bundle_unpack(self) -> None:
+        job = {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {"name": "extract"},
+                            {
+                                "name": "pull",
+                                "env": [
+                                    {
+                                        "name": "CONTAINER_IMAGE",
+                                        "value": "registry.redhat.io/rhoai/odh-operator-bundle@sha256:abc",
+                                    }
+                                ],
+                            },
+                        ]
+                    }
+                }
+            }
+        }
+        self.assertTrue(iav._job_looks_like_bundle_unpack(job))
+        self.assertFalse(iav._job_looks_like_bundle_unpack({"spec": {"template": {"spec": {"containers": [{"name": "app"}]}}}}))
+
+    def test_delete_failed_olm_bundle_unpack_jobs(self) -> None:
+        jobs = {
+            "items": [
+                {
+                    "metadata": {"name": "unpack-failed"},
+                    "status": {"failed": 1},
+                    "spec": {
+                        "template": {
+                            "spec": {
+                                "containers": [
+                                    {"name": "extract"},
+                                    {"name": "pull"},
+                                ]
+                            }
+                        }
+                    },
+                },
+                {
+                    "metadata": {"name": "other-failed"},
+                    "status": {"failed": 1},
+                    "spec": {"template": {"spec": {"containers": [{"name": "app"}]}}},
+                },
+            ]
+        }
+        calls: list[list[str]] = []
+
+        def _oc(args: list[str], **_kwargs: object) -> object:
+            calls.append(list(args))
+            if args[:2] == ["get", "jobs"]:
+                return type("R", (), {"returncode": 0, "stdout": json.dumps(jobs)})()
+            return type("R", (), {"returncode": 0, "stdout": ""})()
+
+        with patch.object(iav, "oc_run", side_effect=_oc):
+            self.assertEqual(iav.delete_failed_olm_bundle_unpack_jobs(), 1)
+        delete_jobs = [c for c in calls if c[:2] == ["delete", "job"]]
+        self.assertEqual(len(delete_jobs), 1)
+        self.assertEqual(delete_jobs[0][2], "unpack-failed")
+
+    def test_delete_active_olm_bundle_unpack_jobs_when_requested(self) -> None:
+        jobs = {
+            "items": [
+                {
+                    "metadata": {"name": "unpack-running"},
+                    "status": {"active": 1},
+                    "spec": {
+                        "template": {
+                            "spec": {
+                                "containers": [
+                                    {"name": "extract"},
+                                    {"name": "pull"},
+                                ]
+                            }
+                        }
+                    },
+                },
+            ]
+        }
+        calls: list[list[str]] = []
+
+        def _oc(args: list[str], **_kwargs: object) -> object:
+            calls.append(list(args))
+            if args[:2] == ["get", "jobs"]:
+                return type("R", (), {"returncode": 0, "stdout": json.dumps(jobs)})()
+            return type("R", (), {"returncode": 0, "stdout": ""})()
+
+        with patch.object(iav, "oc_run", side_effect=_oc):
+            self.assertEqual(iav.delete_failed_olm_bundle_unpack_jobs(), 0)
+            self.assertEqual(iav.delete_failed_olm_bundle_unpack_jobs(include_active=True), 1)
+        delete_jobs = [c for c in calls if c[:2] == ["delete", "job"]]
+        self.assertEqual(len(delete_jobs), 1)
+        self.assertEqual(delete_jobs[0][2], "unpack-running")
+
+    def test_wait_recovers_deadline_exceeded(self) -> None:
+        failed = {
+            "status": {
+                "conditions": [
+                    {
+                        "type": "BundleUnpackFailed",
+                        "status": "True",
+                        "message": "bundle unpacking failed. Reason: DeadlineExceeded",
+                    }
+                ]
+            }
+        }
+        states = {"n": 0}
+
+        def _failed(_: str, __: str) -> str | None:
+            states["n"] += 1
+            return (
+                "bundle unpacking failed. Reason: DeadlineExceeded"
+                if states["n"] == 1
+                else None
+            )
+
+        with patch.object(iav, "ensure_operatorgroup_bundle_unpack_annotations"):
+            with patch.object(iav, "oc_run", return_value=type("R", (), {"returncode": 0, "stdout": "{}"})()):
+                with patch.object(iav, "subscription_bundle_unpack_failed", side_effect=_failed):
+                    with patch.object(iav, "subscription_bundle_unpack_in_progress", return_value=False):
+                        with patch.object(iav, "recover_bundle_unpack_deadline_exceeded") as recover:
+                            self.assertTrue(
+                                iav.wait_subscription_bundle_unpacked(
+                                    "rhods-operator", "redhat-ods-operator", time.time() + 30
+                                )
+                            )
+                            recover.assert_called_once()
 
 class IdmsMirrorTest(unittest.TestCase):
     def test_idms_has_rhoai_mirror(self) -> None:

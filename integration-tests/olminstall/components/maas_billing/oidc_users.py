@@ -845,3 +845,22 @@ def maas_billing_aitenant_pytest_extra_args() -> str:
         flush=True,
     )
     return _MAAS_SKIP_AITENANT
+
+
+_MAAS_SKIP_AITENANT_BOOTSTRAP_CHILD_GATEWAY = (
+    "-k 'not test_aitenant_bootstrap_creates_tenant_environment'"
+)
+
+
+def maas_billing_aitenant_bootstrap_pytest_extra_args() -> str:
+    """Skip bootstrap child-gateway assertion on external HCP (pooled gatewayRef drift)."""
+    from suite.its_trigger_params import is_external_cluster_source
+
+    if not is_external_cluster_source(os.environ.get("CLUSTER_SOURCE", "")):
+        return ""
+    print(
+        "✓ External cluster — skipping test_aitenant_bootstrap_creates_tenant_environment "
+        "(default Tenant gatewayRef vs e2e-aigw bootstrap on pooled HCP)",
+        flush=True,
+    )
+    return _MAAS_SKIP_AITENANT_BOOTSTRAP_CHILD_GATEWAY

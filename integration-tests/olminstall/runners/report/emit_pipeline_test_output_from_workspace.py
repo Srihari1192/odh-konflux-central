@@ -30,6 +30,8 @@ from runners.report.pipeline_test_outputs import (
 from runners.report.junit_suite_report import read_gate_sidecar
 from steps.tekton_util import write_result
 
+_CONFORMA_SKIP_SIDECAR = ".olminstall-conforma-skip-test-output.json"
+
 
 def main() -> int:
     result_path = os.environ.get("RESULT_PATH", "").strip()
@@ -39,7 +41,16 @@ def main() -> int:
 
     smoke_path = os.environ.get("SMOKE_TEST_OUTPUT_PATH", "").strip()
     bvt_path = os.environ.get("BVT_TEST_OUTPUT_PATH", "").strip()
+    conforma_skip_path = os.environ.get("CONFORMA_SKIP_TEST_OUTPUT_PATH", "").strip()
     test_gates = os.environ.get("TEST_GATES", "").strip()
+
+    conforma_skip_raw = read_gate_sidecar(conforma_skip_path) if conforma_skip_path else ""
+    if conforma_skip_raw.lstrip().startswith("{"):
+        write_result(result_path, conforma_skip_raw.strip())
+        print(
+            f"Wrote pipeline TEST_OUTPUT from conforma skip sidecar ({len(conforma_skip_raw)} chars)"
+        )
+        return 0
 
     payload = build_finalize_test_output_from_taskruns(
         [],

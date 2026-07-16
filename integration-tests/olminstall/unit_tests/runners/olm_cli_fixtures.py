@@ -88,6 +88,11 @@ def ok_cases() -> list[OkCase]:
             check=lambda a: _checks(a.version == "3.5", a.product == "rhoai"),
             id="rhoai-version",
         ),
+        OkCase(
+            ["--rhoai-version", "3.5-ea.2"],
+            check=lambda a: _checks(a.version == "3.5-ea.2", a.product == "rhoai"),
+            id="rhoai-version-implies-product",
+        ),
         OkCase(["--watch"], check=lambda a: _checks(a.watch_mode, a.watch == ""), id="watch-long"),
         OkCase(["-w"], check=lambda a: _checks(a.watch_mode, a.watch == ""), id="watch-short"),
         OkCase(["--watch-pipelines"], check=lambda a: _checks(a.watch_mode, a.watch == ""), id="watch-pipelines"),
@@ -111,14 +116,14 @@ def ok_cases() -> list[OkCase]:
             id="delete-include-unowned-stuck",
         ),
         OkCase(
-            ["--delete-pending-pipelines", "--delete-pending-dry-run"],
-            check=lambda a: _checks(a.delete_pending_pipelines, a.delete_pending_dry_run),
-            id="delete-pending-dry-run",
+            ["--delete-pending-pipelines", "--dry-run"],
+            check=lambda a: _checks(a.delete_pending_pipelines, a.dry_run),
+            id="delete-dry-run",
         ),
         OkCase(
-            ["--enable-its", "odh-olminstall-testops-rh-nightly"],
+            ["--enable-its", "rhoai-e2e-rh-nightly-pm-ocp420"],
             check=lambda a: _checks(
-                a.enable_its == "odh-olminstall-testops-rh-nightly",
+                a.enable_its == "rhoai-e2e-rh-nightly-pm-ocp420",
                 not a.konflux_app_explicit,
                 a.app == "rhoai-fbc-fragment-ocp-420",
                 not a.disable_its,
@@ -128,11 +133,11 @@ def ok_cases() -> list[OkCase]:
         OkCase(
             [
                 "--run-its",
-                "integration-tests/olminstall/tekton/its/its-olminstall-testops-rh-nightly.yaml",
+                "tekton/its/its-rhoai-e2e-rh-nightly-pm-ocp420.yaml",
             ],
             check=lambda a: _checks(
-                a.run_its.endswith("its-olminstall-testops-rh-nightly.yaml"),
-                a.its_scenario_name == "odh-olminstall-testops-rh-nightly",
+                a.run_its.endswith("its-rhoai-e2e-rh-nightly-pm-ocp420.yaml"),
+                a.its_scenario_name == "rhoai-e2e-rh-nightly-pm-ocp420",
                 a.app == "rhoai-fbc-fragment-ocp-420",
             ),
             id="run-its-rh-nightly-by-path",
@@ -140,42 +145,42 @@ def ok_cases() -> list[OkCase]:
         OkCase(
             [
                 "--enable-its",
-                "tekton/its/its-olminstall-testops-rh-nightly.yaml",
+                "tekton/its/its-rhoai-e2e-rh-nightly-pm-ocp420.yaml",
             ],
             check=lambda a: _checks(
-                a.enable_its == "tekton/its/its-olminstall-testops-rh-nightly.yaml",
-                a.its_scenario_name == "odh-olminstall-testops-rh-nightly",
+                a.enable_its == "tekton/its/its-rhoai-e2e-rh-nightly-pm-ocp420.yaml",
+                a.its_scenario_name == "rhoai-e2e-rh-nightly-pm-ocp420",
             ),
             id="enable-its-by-olminstall-relative-path",
         ),
         OkCase(
             [
                 "--run-its",
-                "odh-olminstall-testops-rh-nightly",
+                "rhoai-e2e-rh-nightly-pm-ocp420",
                 "--tests",
                 "smoke",
                 "--components",
                 "dashboard_cypress",
             ],
             check=lambda a: _checks(
-                a.run_its == "odh-olminstall-testops-rh-nightly",
+                a.run_its == "rhoai-e2e-rh-nightly-pm-ocp420",
                 a.tests == "smoke",
                 a.components == "dashboard_cypress",
             ),
             id="run-its-scoped-smoke",
         ),
         OkCase(
-            ["--enable-its", "odh-olminstall-testops-rh-nightly", "--konflux-app", "testops-playpen"],
+            ["--enable-its", "rhoai-e2e-rh-nightly-pm-ocp420", "--konflux-app", "testops-playpen"],
             check=lambda a: _checks(
-                a.enable_its == "odh-olminstall-testops-rh-nightly",
+                a.enable_its == "rhoai-e2e-rh-nightly-pm-ocp420",
                 a.konflux_app_explicit,
                 a.app == "testops-playpen",
             ),
             id="enable-its-rh-nightly-playpen-debug",
         ),
         OkCase(
-            ["--disable-its", "odh-olminstall-testops-rh-nightly"],
-            check=lambda a: _checks(a.disable_its == "odh-olminstall-testops-rh-nightly", not a.enable_its),
+            ["--disable-its", "rhoai-e2e-rh-nightly-pm-ocp420"],
+            check=lambda a: _checks(a.disable_its == "rhoai-e2e-rh-nightly-pm-ocp420", not a.enable_its),
             id="disable-its-rh-nightly",
         ),
         OkCase(
@@ -291,7 +296,6 @@ def err_cases() -> list[ErrCase]:
         ErrCase(["--tests", "smoke", "--test-timeout", "0m"], "greater than zero", id="timeout-zero"),
         ErrCase(["--tests", "smoke", "--test-timeout", "junk"], "must be a duration", id="timeout-junk"),
         ErrCase(["--product", "odh", "--rhoai-version", "1"], "--rhoai-version is supported only", id="odh-version"),
-        ErrCase(["--rhoai-version", "3.5"], "--rhoai-version is supported only", id="version-without-rhoai"),
         ErrCase(["--ka-host"], "KA_HOST", env={"KA_HOST": ""}, id="ka-host-empty-env"),
         ErrCase(["--ka-host"], "KA_HOST", env={"KA_HOST": None}, id="ka-host-missing-env"),
         ErrCase(["--konflux-ui", "http://insecure.local"], "https://", id="konflux-ui-http"),
@@ -311,26 +315,26 @@ def err_cases() -> list[ErrCase]:
         ErrCase(["--delete-pending-pipelines", "-w"], "mutually exclusive", id="delete-watch"),
         ErrCase(["--stop-owned-running"], "--delete-pending-pipelines", id="stop-owned-without-delete"),
         ErrCase(["--include-unowned-stuck"], "--delete-pending-pipelines", id="include-unowned-without-delete"),
-        ErrCase(["--delete-pending-dry-run"], "--delete-pending-pipelines", id="dry-run-without-delete"),
+        ErrCase(["--dry-run"], "--delete-pending-pipelines", id="dry-run-without-delete"),
         ErrCase(
-            ["--enable-its", "odh-olminstall-testops-rh-nightly", "--disable-its", "x"],
+            ["--enable-its", "rhoai-e2e-rh-nightly-pm-ocp420", "--disable-its", "x"],
             "mutually exclusive",
             id="enable-disable-its",
         ),
         ErrCase(
-            ["--enable-its", "odh-olminstall-testops-rh-nightly", "--run-its", "odh-olminstall-testops-rh-nightly"],
+            ["--enable-its", "rhoai-e2e-rh-nightly-pm-ocp420", "--run-its", "rhoai-e2e-rh-nightly-pm-ocp420"],
             "mutually exclusive",
             id="enable-run-its",
         ),
         ErrCase(
-            ["--disable-its", "odh-olminstall-testops-rh-nightly", "--run-its", "odh-olminstall-testops-rh-nightly"],
+            ["--disable-its", "rhoai-e2e-rh-nightly-pm-ocp420", "--run-its", "rhoai-e2e-rh-nightly-pm-ocp420"],
             "cannot be used with --disable-its",
             id="run-its-with-disable",
         ),
         ErrCase(
             [
                 "--enable-its",
-                "odh-olminstall-testops-rh-nightly",
+                "rhoai-e2e-rh-nightly-pm-ocp420",
                 "--external-kubeconfig",
                 "/etc/hosts",
             ],
@@ -340,14 +344,14 @@ def err_cases() -> list[ErrCase]:
         ErrCase(
             [
                 "--enable-its",
-                "odh-olminstall-testops-rh-nightly",
+                "rhoai-e2e-rh-nightly-pm-ocp420",
                 "--components",
                 "dashboard_cypress",
             ],
             "accepts only Konflux rollout flags",
             id="enable-its-components",
         ),
-        ErrCase(["-l", "--enable-its", "odh-olminstall-testops-eaas"], "mutually exclusive", id="list-enable-its"),
+        ErrCase(["-l", "--enable-its", "rhoai-e2e-eaas-ocp421"], "mutually exclusive", id="list-enable-its"),
         ErrCase(
             ["--enable-its", "not a valid name!"],
             "Invalid IntegrationTestScenario name",

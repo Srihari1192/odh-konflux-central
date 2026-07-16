@@ -39,7 +39,7 @@ class PipelineRunContextTest(unittest.TestCase):
 
     def test_rh_nightly_catalog_sync_log_lines(self) -> None:
         lines = build_pipeline_run_context_lines(
-            pipelinerun_name="olminstall-its-rh-nightly-pm-bvt-smoke-2gh84",
+            pipelinerun_name="e2e-its-rh-nightly-pm-bvt-smoke-2gh84",
             trigger_type=TRIGGER_TYPE_RH_NIGHTLY_AUTO,
             konflux_event="push",
             snapshot_name="rh-nightly-snap-4mh9f",
@@ -50,7 +50,7 @@ class PipelineRunContextTest(unittest.TestCase):
             test_gates="bvt,smoke",
             trigger_command=(
                 "python3 integration-tests/olminstall/olm_pipeline.py "
-                "--enable-its odh-olminstall-testops-rh-nightly --konflux-namespace rhoai-tenant"
+                "--enable-its rhoai-e2e-rh-nightly-pm-ocp420 --konflux-namespace rhoai-tenant"
             ),
         )
         text = "\n".join(lines)
@@ -68,7 +68,7 @@ class PipelineRunContextTest(unittest.TestCase):
             cluster_source="olminstall-kubeconfig-rh-nightly-pm",
             product="rhoai",
             test_gates="bvt,smoke",
-            trigger_command="python3 integration-tests/olminstall/olm_pipeline.py --run-its odh-olminstall-testops-rh-nightly",
+            trigger_command="python3 integration-tests/olminstall/olm_pipeline.py --run-its rhoai-e2e-rh-nightly-pm-ocp420",
         )
         self.assertIn("CLI direct", msg)
         self.assertIn("Incoming", msg)
@@ -83,7 +83,7 @@ class PipelineRunContextTest(unittest.TestCase):
             cluster_source="olminstall-kubeconfig-rh-nightly-pm",
             product="rhoai",
             test_gates="bvt,smoke",
-            trigger_command="python3 integration-tests/olminstall/olm_pipeline.py --run-its odh-olminstall-testops-rh-nightly",
+            trigger_command="python3 integration-tests/olminstall/olm_pipeline.py --run-its rhoai-e2e-rh-nightly-pm-ocp420",
         )
         self.assertEqual(tuple(results.keys()), TRIGGER_CONTEXT_RESULT_NAMES)
         self.assertIn("CLI direct", results["TRIGGER"])
@@ -108,10 +108,10 @@ class PipelineRunContextTest(unittest.TestCase):
     def test_context_from_pipelinerun_json(self) -> None:
         prj = {
             "metadata": {
-                "name": "olminstall-its-rh-nightly-pm-bvt-smoke-2gh84",
+                "name": "e2e-its-rh-nightly-pm-bvt-smoke-2gh84",
                 "annotations": {
                     "olminstall.trigger-type": TRIGGER_TYPE_RH_NIGHTLY_AUTO,
-                    "olminstall.trigger-command": "python3 integration-tests/olminstall/olm_pipeline.py --enable-its odh-olminstall-testops-rh-nightly",
+                    "olminstall.trigger-command": "python3 integration-tests/olminstall/olm_pipeline.py --enable-its rhoai-e2e-rh-nightly-pm-ocp420",
                     "olminstall.fbcf-image": _FBC,
                 },
                 "labels": {
@@ -136,7 +136,7 @@ class PipelineRunContextTest(unittest.TestCase):
         ctx = context_from_pipelinerun_json(
             {
                 "metadata": {
-                    "name": "olminstall-cli-nmanos-nmanos-konflux1-bvt-smoke-xnkvp",
+                    "name": "e2e-cli-nmanos-nmanos-konflux1-bvt-smoke-xnkvp",
                     "annotations": {
                         "olminstall.trigger-type": TRIGGER_TYPE_MANUAL,
                         "olminstall.trigger-command": "python3 integration-tests/olminstall/olm_pipeline.py",

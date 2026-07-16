@@ -14,7 +14,11 @@ from components.dashboard_cypress.config import (
     discover_cypress_results_subdirs,
     prepend_cypress_shell_env,
 )
-from components.dashboard_cypress.auth_overlay import _byoidc_cypress_poll_settings
+from components.dashboard_cypress.auth_overlay import (
+    _byoidc_cypress_poll_settings,
+    gateway_cypress_uses_bearer_bypass,
+    validate_gateway_cypress_auth,
+)
 from components.dashboard_cypress.runtime import (
     _apply_gateway_auth_overlay,
     _dashboard_npm_ci_command,
@@ -24,11 +28,13 @@ from components.dashboard_cypress.runtime import (
     load_component_vault_env,
     patch_dashboard_cypress_upstream_tests,
     patch_dashboard_cypress_automl_hooks,
+    patch_dashboard_cypress_bearer_auth,
     patch_dashboard_cypress_ldap_gateway_login,
     patch_gateway_envoyfilter_if_needed,
     patch_runtime_cy_test_config,
     htpasswd_hcp_extra_cypress_skip_tags,
     byoidc_extra_cypress_skip_tags,
+    eaas_bearer_extra_cypress_skip_tags,
     cypress_extra_skip_tags,
     resolve_gateway_auth_overlay,
     resolve_cypress_support_dir,
@@ -150,6 +156,9 @@ class DashboardCypressRuntimeTest(unittest.TestCase):
             with mock.patch(
                 "install.ldap._cluster_is_byoidc",
                 return_value=False,
+            ), mock.patch(
+                "install.ldap.cluster_has_htpasswd_identity",
+                return_value=True,
             ):
                 overlay = resolve_gateway_auth_overlay(
                     vault,
@@ -166,6 +175,91 @@ class DashboardCypressRuntimeTest(unittest.TestCase):
             self.assertIsInstance(admin_user, dict)
             assert isinstance(admin_user, dict)
             self.assertEqual(admin_user.get("AUTH_TYPE"), "htpasswd-cluster-admin")
+
+    def test_resolve_gateway_auth_overlay_rosa_hcp_ods_qe01_without_cluster_idp(
+        self,
+    ) -> None:
+        """Personal ROSA HCP without oauth htpasswd IdP uses pooled ods-qe-01 admin template."""
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "vault.yml"
+            vault.write_text(
+                "\n".join(
+                    [
+                        "CLUSTER_AUTH: oidc",
+                        "TEST_USER:",
+                        "  AUTH_TYPE: oidc",
+                        "  USERNAME: odh-user1",
+                        "TEST_CLUSTERS:",
+                        "  ods-qe-01:",
+                        "    OCP_ADMIN_USER:",
+                        "      AUTH_TYPE: htpasswd-cluster-admin",
+                        "      USERNAME: htpasswd-cluster-admin-user",
+                        "      PASSWORD: htpw",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            with mock.patch(
+                "install.ldap._cluster_is_byoidc",
+                return_value=False,
+            ), mock.patch(
+                "install.ldap.cluster_has_htpasswd_identity",
+                return_value=False,
+            ):
+                overlay = resolve_gateway_auth_overlay(
+                    vault,
+                    "nmanos-konflux1",
+                    odh_dashboard_url="https://rh-ai.apps.rosa.nmanos-konflux1.durx.p3.openshiftapps.com",
+                )
+            self.assertEqual(overlay.get("CLUSTER_AUTH"), "htpasswd-cluster-admin")
+            test_user = overlay.get("TEST_USER")
+            self.assertIsInstance(test_user, dict)
+            assert isinstance(test_user, dict)
+            self.assertEqual(test_user.get("USERNAME"), "htpasswd-cluster-admin-user")
+
+    def test_resolve_gateway_auth_overlay_entry_both_htpasswd_without_cluster_idp(
+        self,
+    ) -> None:
+        """Personal ROSA HCP: vault htpasswd users when oauth has no htpasswd IdP."""
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "vault.yml"
+            vault.write_text(
+                "\n".join(
+                    [
+                        "CLUSTER_AUTH: oidc",
+                        "TEST_CLUSTERS:",
+                        "  nmanos-konflux1:",
+                        "    TEST_USER:",
+                        "      AUTH_TYPE: htpasswd-cluster-admin",
+                        "      USERNAME: htpasswd-cluster-admin-user",
+                        "      PASSWORD: secret",
+                        "    OCP_ADMIN_USER:",
+                        "      AUTH_TYPE: htpasswd-cluster-admin",
+                        "      USERNAME: htpasswd-cluster-admin-user",
+                        "      PASSWORD: secret",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            with mock.patch(
+                "install.ldap._cluster_is_byoidc",
+                return_value=False,
+            ), mock.patch(
+                "install.ldap.cluster_has_htpasswd_identity",
+                return_value=False,
+            ):
+                overlay = resolve_gateway_auth_overlay(
+                    vault,
+                    "nmanos-konflux1",
+                    odh_dashboard_url="https://rh-ai.apps.rosa.nmanos-konflux1.example.com",
+                )
+            self.assertEqual(overlay.get("CLUSTER_AUTH"), "htpasswd-cluster-admin")
+            test_user = overlay.get("TEST_USER")
+            self.assertIsInstance(test_user, dict)
+            assert isinstance(test_user, dict)
+            self.assertEqual(test_user.get("USERNAME"), "htpasswd-cluster-admin-user")
 
     def test_resolve_gateway_auth_overlay_patches_ocp_admin_when_entry_test_user_htpasswd(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -283,10 +377,10 @@ class DashboardCypressRuntimeTest(unittest.TestCase):
             self.assertEqual(overlay.get("TEST_USER"), byoidc_user)
             self.assertEqual(overlay.get("OCP_ADMIN_USER"), byoidc_user)
 
-    def test_resolve_gateway_auth_overlay_eaas_konfluxeaas_url_uses_byoidc_not_htpasswd(
+    def test_resolve_gateway_auth_overlay_eaas_non_byoidc_without_openldap_returns_empty(
         self,
     ) -> None:
-        """EaaS gateway URL must not fall back to ods-qe-01 htpasswd vault template."""
+        """Non-BYOIDC EaaS without createIDP openldap must not use vault htpasswd template."""
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp) / "vault.yml"
             vault.write_text(
@@ -295,7 +389,7 @@ class DashboardCypressRuntimeTest(unittest.TestCase):
                         "CLUSTER_AUTH: oidc",
                         "TEST_CLUSTERS:",
                         "  ods-qe-01:",
-                        "    TEST_USER:",
+                        "    OCP_ADMIN_USER:",
                         "      AUTH_TYPE: htpasswd-cluster-admin",
                         "      USERNAME: htpasswd-cluster-admin-user",
                         "      PASSWORD: htpw",
@@ -304,26 +398,220 @@ class DashboardCypressRuntimeTest(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
-            byoidc_user = {
-                "AUTH_TYPE": "oidc",
-                "USERNAME": "eaas-user",
-                "PASSWORD": "secret",
-            }
             eaas_url = "https://rh-ai.apps.foo.konfluxeaas.com"
             with mock.patch(
                 "install.ldap._cluster_is_byoidc",
                 return_value=False,
             ), mock.patch(
-                "components.dashboard_cypress.auth_overlay._resolve_byoidc_cypress_test_user",
-                return_value=byoidc_user,
-            ):
+                "install.ldap.cluster_has_htpasswd_identity",
+                return_value=False,
+            ), mock.patch(
+                "install.ldap._openldap_secret_ready",
+                return_value=False,
+            ), mock.patch.dict(os.environ, {"CLUSTER_SOURCE": "EAAS"}, clear=False):
                 overlay = resolve_gateway_auth_overlay(
                     vault,
                     "eaas-cluster",
                     odh_dashboard_url=eaas_url,
                 )
-            self.assertEqual(overlay.get("CLUSTER_AUTH"), "oidc")
-            self.assertEqual(overlay.get("TEST_USER"), byoidc_user)
+            self.assertEqual(overlay, {})
+
+    def test_gateway_cypress_uses_bearer_bypass_konfluxeaas(self) -> None:
+        eaas_url = "https://rh-ai.apps.foo.prod.konfluxeaas.com"
+        with mock.patch("install.ldap._cluster_is_byoidc", return_value=False), mock.patch(
+            "install.ldap.cluster_has_ldap_identity",
+            return_value=False,
+        ), mock.patch(
+            "install.ldap.cluster_has_htpasswd_identity",
+            return_value=False,
+        ):
+            self.assertTrue(
+                gateway_cypress_uses_bearer_bypass(odh_dashboard_url=eaas_url)
+            )
+
+    def test_gateway_cypress_keeps_bearer_when_openldap_secret_only(self) -> None:
+        """HostedCluster VAP: openldap secret without OAuth IdP still needs bearer."""
+        eaas_url = "https://rh-ai.apps.foo.prod.konfluxeaas.com"
+        with mock.patch("install.ldap._cluster_is_byoidc", return_value=False), mock.patch(
+            "install.ldap._openldap_secret_ready",
+            return_value=True,
+        ), mock.patch(
+            "install.ldap.cluster_has_ldap_identity",
+            return_value=False,
+        ), mock.patch(
+            "install.ldap.cluster_has_htpasswd_identity",
+            return_value=False,
+        ):
+            self.assertTrue(
+                gateway_cypress_uses_bearer_bypass(odh_dashboard_url=eaas_url)
+            )
+
+    def test_gateway_cypress_skips_bearer_bypass_eaas_when_oauth_ldap(self) -> None:
+        eaas_url = "https://rh-ai.apps.foo.prod.konfluxeaas.com"
+        with mock.patch("install.ldap._cluster_is_byoidc", return_value=False), mock.patch(
+            "install.ldap.cluster_has_ldap_identity",
+            return_value=True,
+        ):
+            self.assertFalse(
+                gateway_cypress_uses_bearer_bypass(odh_dashboard_url=eaas_url)
+            )
+
+    def test_gateway_cypress_uses_bearer_bypass_external_hcp_false(self) -> None:
+        external = "https://rh-ai.apps.ods-qe-01.osp.rh-ods.com"
+        with mock.patch("install.ldap._cluster_is_byoidc", return_value=False):
+            self.assertFalse(
+                gateway_cypress_uses_bearer_bypass(odh_dashboard_url=external)
+            )
+
+    def test_validate_gateway_cypress_auth_eaas_requires_oc_token(self) -> None:
+        eaas_url = "https://rh-ai.apps.foo.prod.konfluxeaas.com"
+        with mock.patch("install.ldap._cluster_is_byoidc", return_value=False), mock.patch(
+            "install.ldap.cluster_has_ldap_identity",
+            return_value=False,
+        ), mock.patch(
+            "install.ldap.cluster_has_htpasswd_identity",
+            return_value=False,
+        ), mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(
+                validate_gateway_cypress_auth(odh_dashboard_url=eaas_url),
+                2,
+            )
+
+    def test_validate_gateway_cypress_auth_eaas_with_token_ok(self) -> None:
+        eaas_url = "https://rh-ai.apps.foo.prod.konfluxeaas.com"
+        with mock.patch("install.ldap._cluster_is_byoidc", return_value=False), mock.patch(
+            "install.ldap.cluster_has_ldap_identity",
+            return_value=False,
+        ), mock.patch(
+            "install.ldap.cluster_has_htpasswd_identity",
+            return_value=False,
+        ), mock.patch.dict(os.environ, {"OC_TOKEN": "tok"}, clear=True):
+            self.assertIsNone(validate_gateway_cypress_auth(odh_dashboard_url=eaas_url))
+
+    def test_resolve_gateway_auth_overlay_eaas_openldap_skips_htpasswd_for_bearer(
+        self,
+    ) -> None:
+        """EaaS openldap secret without OAuth IdP keeps bearer; no vault htpasswd overlay."""
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "vault.yml"
+            vault.write_text(
+                "\n".join(
+                    [
+                        "CLUSTER_AUTH: oidc",
+                        "TEST_USER:",
+                        "  AUTH_TYPE: oidc",
+                        "  USERNAME: odh-user1",
+                        "TEST_CLUSTERS:",
+                        "  ods-qe-01:",
+                        "    OCP_ADMIN_USER:",
+                        "      AUTH_TYPE: htpasswd-cluster-admin",
+                        "      USERNAME: htpasswd-cluster-admin-user",
+                        "      PASSWORD: htpw",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            eaas_url = "https://rh-ai.apps.foo.konfluxeaas.com"
+            with mock.patch(
+                "install.ldap._cluster_is_byoidc",
+                return_value=False,
+            ), mock.patch(
+                "install.ldap.cluster_has_htpasswd_identity",
+                return_value=False,
+            ), mock.patch(
+                "install.ldap.cluster_has_ldap_identity",
+                return_value=False,
+            ), mock.patch(
+                "install.ldap._openldap_secret_ready",
+                return_value=True,
+            ), mock.patch.dict(os.environ, {"CLUSTER_SOURCE": "EAAS"}, clear=False):
+                overlay = resolve_gateway_auth_overlay(
+                    vault,
+                    "eaas-cluster",
+                    odh_dashboard_url=eaas_url,
+                )
+            self.assertEqual(overlay, {})
+
+    def test_resolve_gateway_auth_overlay_eaas_konfluxeaas_url_without_cluster_source_env(
+        self,
+    ) -> None:
+        """konfluxeaas.com without OAuth IdP still uses bearer bypass (no vault overlay)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "vault.yml"
+            vault.write_text(
+                "\n".join(
+                    [
+                        "CLUSTER_AUTH: oidc",
+                        "TEST_CLUSTERS:",
+                        "  ods-qe-01:",
+                        "    OCP_ADMIN_USER:",
+                        "      AUTH_TYPE: htpasswd-cluster-admin",
+                        "      USERNAME: htpasswd-cluster-admin-user",
+                        "      PASSWORD: htpw",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            eaas_url = "https://rh-ai.apps.foo.prod.konfluxeaas.com"
+            with mock.patch(
+                "install.ldap._cluster_is_byoidc",
+                return_value=False,
+            ), mock.patch(
+                "install.ldap.cluster_has_htpasswd_identity",
+                return_value=False,
+            ), mock.patch(
+                "install.ldap.cluster_has_ldap_identity",
+                return_value=False,
+            ), mock.patch(
+                "install.ldap._openldap_secret_ready",
+                return_value=False,
+            ), mock.patch.dict(os.environ, {}, clear=True):
+                overlay = resolve_gateway_auth_overlay(
+                    vault,
+                    "eaas-cluster",
+                    odh_dashboard_url=eaas_url,
+                )
+            self.assertEqual(overlay, {})
+
+    def test_resolve_gateway_auth_overlay_eaas_openldap_without_oauth_skips_ldap_overlay(
+        self,
+    ) -> None:
+        """EaaS openldap secret without OAuth IdP keeps bearer; vault LDAP overlay skipped."""
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "vault.yml"
+            vault.write_text(
+                "\n".join(
+                    [
+                        "TEST_USER:",
+                        "  AUTH_TYPE: ldap",
+                        "  USERNAME: ldap-user1",
+                        "  PASSWORD: ldap-secret",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            with mock.patch(
+                "install.ldap._cluster_is_byoidc",
+                return_value=False,
+            ), mock.patch(
+                "install.ldap.cluster_has_htpasswd_identity",
+                return_value=False,
+            ), mock.patch(
+                "install.ldap.cluster_has_ldap_identity",
+                return_value=False,
+            ), mock.patch(
+                "install.ldap._openldap_secret_ready",
+                return_value=True,
+            ), mock.patch.dict(os.environ, {"CLUSTER_SOURCE": "EAAS"}, clear=False):
+                overlay = resolve_gateway_auth_overlay(
+                    vault,
+                    "eaas-cluster",
+                    odh_dashboard_url="https://rh-ai.apps.foo.konfluxeaas.com",
+                )
+            self.assertEqual(overlay, {})
 
     def test_resolve_gateway_auth_overlay_byoidc_pooled_psi_uses_keycloak_not_vault_ldap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -445,8 +733,8 @@ class DashboardCypressRuntimeTest(unittest.TestCase):
             self.assertEqual(test_user.get("USERNAME"), "htpasswd-cluster-admin-user")
             self.assertEqual(test_user.get("AUTH_TYPE"), "htpasswd-cluster-admin")
 
-    def test_resolve_gateway_auth_overlay_ldap_test_user_ldap_admin_no_overlay(self) -> None:
-        """Both TEST_USER and OCP_ADMIN_USER are LDAP - no htpasswd override."""
+    def test_resolve_gateway_auth_overlay_ldap_test_user_ldap_admin_applies_overlay(self) -> None:
+        """Both TEST_USER and OCP_ADMIN_USER are LDAP - apply vault ldap gateway overlay."""
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp) / "vault.yml"
             vault.write_text(
@@ -477,7 +765,16 @@ class DashboardCypressRuntimeTest(unittest.TestCase):
                     "cluster-x",
                     odh_dashboard_url="https://rh-ai.apps.cluster-x.example.com",
                 )
-            self.assertEqual(overlay, {})
+            # Non-OIDC vault TEST_USER (ldap) on non-BYOIDC cluster → gateway overlay.
+            self.assertEqual(overlay.get("CLUSTER_AUTH"), "ldap-provider-qe")
+            self.assertEqual(
+                overlay.get("TEST_USER"),
+                {
+                    "AUTH_TYPE": "ldap-provider-qe",
+                    "USERNAME": "ldap-admin1",
+                    "PASSWORD": "ldap-secret",
+                },
+            )
 
     def test_resolve_gateway_auth_overlay_pooled_psi_non_byoidc_prefers_vault_ldap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -647,6 +944,25 @@ class DashboardCypressRuntimeTest(unittest.TestCase):
         self.assertIn("@ModelServingCI", extra)
         self.assertIn("@AutoMLCI", extra)
 
+    def test_eaas_bearer_extra_cypress_skip_tags(self) -> None:
+        eaas_url = "https://rh-ai.apps.abc123.prod.konfluxeaas.com"
+        with mock.patch(
+            "install.ldap._cluster_is_byoidc",
+            return_value=False,
+        ):
+            extra = eaas_bearer_extra_cypress_skip_tags(odh_dashboard_url=eaas_url)
+        self.assertIn("@ModelTrainingCI", extra)
+        self.assertIn("@HardwareProfilesCI", extra)
+        self.assertIn("@ODS-1877", extra)
+        self.assertIn("@NonConcurrent", extra)
+        self.assertIn("@ModelRegistryCI", extra)
+        self.assertEqual(
+            eaas_bearer_extra_cypress_skip_tags(
+                odh_dashboard_url="https://rh-ai.apps.rosa.example.com",
+            ),
+            "",
+        )
+
     def test_cypress_extra_skip_tags_merges_byoidc_and_konflux(self) -> None:
         with mock.patch(
             "install.ldap._cluster_is_byoidc",
@@ -713,6 +1029,9 @@ class DashboardCypressRuntimeTest(unittest.TestCase):
             with mock.patch(
                 "install.ldap._cluster_is_byoidc",
                 return_value=False,
+            ), mock.patch(
+                "install.ldap.cluster_has_htpasswd_identity",
+                return_value=True,
             ):
                 out = patch_runtime_cy_test_config(
                     root,
@@ -783,6 +1102,43 @@ class DashboardCypressRuntimeTest(unittest.TestCase):
             self.assertNotIn("retryableBefore(async () =>", text)
             self.assertIn("return getInstalledProductName(Cypress.env('OPERATOR_NAMESPACE')", text)
             self.assertIn("return getCsvByDisplayName(productName, Cypress.env('OPERATOR_NAMESPACE')", text)
+
+    def test_patch_dashboard_cypress_bearer_auth(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            application = root / "packages/cypress/cypress/tests/e2e/application.cy.ts"
+            application.parent.mkdir(parents=True)
+            application.write_text(
+                "describe('application', () => {\n"
+                "  it('loads', () => {\n"
+                "    cy.visitWithLogin('/');\n"
+                "    cy.findByRole('banner', { name: 'page masthead' }).contains(\n"
+                "      HTPASSWD_CLUSTER_ADMIN_USER.USERNAME,\n"
+                "    );\n"
+                "  });\n"
+                "});\n",
+                encoding="utf-8",
+            )
+            catalog = (
+                root
+                / "packages/cypress/cypress/tests/e2e/modelCatalog/testCatalogSettingsAvailable.cy.ts"
+            )
+            catalog.parent.mkdir(parents=True)
+            catalog.write_text(
+                "describe('catalog', () => {\n"
+                "  it('non-admin', {}, () => {\n"
+                "      cy.step('Log into the application as non-admin user');\n"
+                "      cy.visitWithLogin('/', LDAP_CONTRIBUTOR_USER);\n"
+                "  });\n"
+                "});\n",
+                encoding="utf-8",
+            )
+            patch_dashboard_cypress_bearer_auth(root)
+            app_text = application.read_text(encoding="utf-8")
+            self.assertIn("olminstall-patched-bearer-auth", app_text)
+            self.assertIn("Cypress.env('OC_TOKEN')", app_text)
+            catalog_text = catalog.read_text(encoding="utf-8")
+            self.assertIn("cannot impersonate LDAP contributor user", catalog_text)
 
     def test_patch_dashboard_cypress_automl_hooks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

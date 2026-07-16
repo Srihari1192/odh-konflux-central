@@ -209,6 +209,103 @@ def _kuadrant_ready_status(namespace: str) -> tuple[str, str]:
     return parts[0], parts[1]
 
 
+def kuadrant_cr_ready() -> bool:
+    """True when Kuadrant CR Ready condition is True in kuadrant-system (or rh-connectivity-link)."""
+    status, _reason = _kuadrant_ready_status(_kuadrant_namespace())
+    return status == "True"
+
+
+def maas_gateway_auth_stack_live_ready() -> bool:
+    """Live probe: Kuadrant Ready and Authorino workload+TLS after cleanup/reinstall."""
+    return kuadrant_cr_ready() and authorino_workload_tls_ready()
+
+
+def _gateway_api_provider_present() -> bool:
+    """True when a GatewayClass is Accepted (Istio / OpenShift gateway controller)."""
+    r = _oc_run(
+        [
+            "get",
+            "gatewayclass",
+            "-o",
+            'jsonpath={range .items[*]}{.metadata.name}{"\\t"}{.status.conditions[?(@.type=="Accepted")].status}{"\\n"}{end}',
+        ],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    if r.returncode != 0:
+        return False
+    for line in (r.stdout or "").splitlines():
+        parts = line.strip().split("\t")
+        if len(parts) >= 2 and parts[1] == "True":
+            return True
+    return False
+
+
+def recover_kuadrant_after_gateway_api_provider(*, timeout_sec: int | None = None) -> bool:
+    """Clear Kuadrant MissingDependency after Gateway API provider appears (cleanup+reinstall).
+
+    post-install-rhcl often runs before Service Mesh / GatewayClass exists. Kuadrant then
+    stays Ready=False (MissingDependency) until the operator is restarted once the provider
+    is installed. Returns True when Kuadrant is Ready (already or after recovery).
+    """
+    from helpers.gateway_stack_marker import clear_gateway_stack_incomplete_marker
+
+    if kuadrant_cr_ready():
+        clear_gateway_stack_incomplete_marker()
+        return True
+
+    ns = _kuadrant_namespace()
+    status, reason = _kuadrant_ready_status(ns)
+    if not _gateway_api_provider_present():
+        print(
+            f"Kuadrant not Ready (status={status or '?'}, reason={reason or '?'}) "
+            "and no Accepted GatewayClass yet — cannot recover MissingDependency",
+            flush=True,
+        )
+        return False
+
+    raw_timeout = os.environ.get("KUADRANT_GATEWAY_PROVIDER_RECOVER_TIMEOUT_SEC", "").strip()
+    if timeout_sec is not None:
+        wait_sec = timeout_sec
+    elif raw_timeout:
+        try:
+            wait_sec = int(raw_timeout)
+        except ValueError:
+            wait_sec = 300
+    else:
+        wait_sec = 300
+
+    print(
+        f"Kuadrant Ready={status or '?'} reason={reason or '?'} with GatewayClass present — "
+        f"restarting Kuadrant operator pods in {ns} (up to {wait_sec}s)...",
+        flush=True,
+    )
+    _restart_kuadrant_operator_pods(ns)
+    deadline = time.time() + wait_sec
+    while time.time() < deadline:
+        if kuadrant_cr_ready():
+            clear_gateway_stack_incomplete_marker()
+            print("✓ Kuadrant Ready after Gateway API provider recovery restart", flush=True)
+            return True
+        if int(time.time()) % 20 < 12:
+            st, rs = _kuadrant_ready_status(ns)
+            print(
+                f"Waiting for Kuadrant Ready after operator restart "
+                f"(status={st or '?'}, reason={rs or '?'})...",
+                flush=True,
+            )
+        _sleep(10)
+    st, rs = _kuadrant_ready_status(ns)
+    print(
+        f"WARN: Kuadrant still not Ready after {wait_sec}s "
+        f"(status={st or '?'}, reason={rs or '?'})",
+        file=sys.stderr,
+        flush=True,
+    )
+    return False
+
+
 def _restart_kuadrant_operator_pods(namespace: str) -> None:
     for label in _KUADRANT_OPERATOR_LABELS:
         _oc_run(

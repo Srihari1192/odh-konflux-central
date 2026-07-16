@@ -68,7 +68,7 @@ class EmitComponentTestOutputTest(unittest.TestCase):
             )
             self.assertEqual(payload["result"], "FAILURE")
             self.assertEqual(payload["successes"], 0)
-            self.assertEqual(payload["failures"], 0)
+            self.assertEqual(payload["failures"], 1)
             self.assertEqual(payload["skipped"], 0)
             self.assertIn("infrastructure error", note)
 
@@ -97,7 +97,7 @@ class EmitComponentTestOutputTest(unittest.TestCase):
             )
             self.assertEqual(payload["result"], "FAILURE")
             self.assertEqual(payload["successes"], 0)
-            self.assertEqual(payload["failures"], 0)
+            self.assertEqual(payload["failures"], 1)
             self.assertEqual(payload["skipped"], 0)
             self.assertIn("0 passed, 0 failed, 1 skipped", note)
 
@@ -287,6 +287,32 @@ class EmitComponentTestOutputTest(unittest.TestCase):
             suites = payload.get("suites", [])
             self.assertEqual(len(suites), 1)
             self.assertEqual(suites[0].get("skipped"), 50)
+
+    def test_passed_with_skips_emits_success_not_warning(self) -> None:
+        """Per-component SUCCESS when executed tests pass; skips stay in note."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = root / "plan.json"
+            plan.write_text(
+                json.dumps({"components": [{"id": "spark_operator", "artifact_prefix": "spark_operator-smoke"}]}),
+                encoding="utf-8",
+            )
+            (root / "spark_operator-smoke.xml").write_text(
+                """<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="spark_operator" tests="122" failures="0" errors="0" skipped="37">
+  <testcase classname="a" name="t1"/>
+</testsuite>
+""",
+                encoding="utf-8",
+            )
+            payload, note = build_test_output_payload(
+                root,
+                component_id="spark_operator",
+                plan_path=plan,
+            )
+            self.assertEqual(payload["result"], "SUCCESS")
+            self.assertEqual(payload["failures"], 0)
+            self.assertIn("37 skipped", note)
 
     def test_component_preserves_failures_zeros_successes_for_dag_badge(self) -> None:
         """Konflux DAG badge uses TEST_OUTPUT.failures only; successes stay 0."""

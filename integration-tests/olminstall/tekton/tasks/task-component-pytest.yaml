@@ -82,6 +82,13 @@ spec:
       displayName: Run component pytest
       onError: continue
       image: $(params.OPENDATAHUB_TESTS_IMAGE)
+      computeResources:
+        limits:
+          memory: 8Gi
+          cpu: "4"
+        requests:
+          memory: 4Gi
+          cpu: "1"
       volumeMounts:
         - name: component-vault-credentials
           mountPath: /smoke-aws-credentials

@@ -330,6 +330,48 @@ def test_maas_prep_marks_surface_done_when_wait_raises(tmp_path, monkeypatch) ->
     mark_done.assert_not_called()
     mark_attempted.assert_called_once()
 
+def test_maas_prep_retries_rhcl_when_incomplete_marker_after_dep_ops(tmp_path, monkeypatch) -> None:
+    """cleanup+reinstall: retry RHCL post-install when Kuadrant marker survived dep-ops."""
+    payload = tmp_path / "tests-payload" / "results"
+    payload.mkdir(parents=True)
+    monkeypatch.setenv("TESTS_SHARED", str(tmp_path))
+    monkeypatch.setenv("PIPELINE_RUN_NAME", "pr-maas-retry-rhcl")
+    (payload / ".gateway-auth-stack-incomplete").write_text(
+        "rhcl post-install retry failed\n", encoding="utf-8"
+    )
+
+    with ExitStack() as stack:
+        _enter_patch(stack, "install.dsc_install.dsc_crd_available", return_value=True)
+        _enter_patch(stack, "components.maas_billing.prep.dep_operators_already_done", return_value=True)
+        _enter_patch(
+            stack,
+            "components.maas_billing.prep.maas_smoke_surface_already_done",
+            return_value=False,
+        )
+        _enter_patch(
+            stack,
+            "helpers.gateway_stack_marker.reconcile_gateway_stack_incomplete_marker",
+            return_value=False,
+        )
+        rhcl = _enter_patch(stack, "components.maas_billing.prep.ensure_maas_rhcl_dependency_stack")
+        require = _enter_patch(stack, "components.maas_billing.prep.require_maas_dependency_operators")
+        _enter_patch(stack, "components.maas_billing.prep.ensure_maas_gateway_before_models_as_service")
+        _enter_patch(stack, "components.maas_billing.prep.ensure_maas_database")
+        _enter_patch(stack, "components.maas_billing.prep.cleanup_maas_smoke_leaked_rbac")
+        _enter_patch(stack, "components.maas_billing.prep.cleanup_maas_smoke_stale_gateway_leaks")
+        _enter_patch(stack, "components.maas_billing.prep.ensure_maas_bbr_pre_processing")
+        _enter_patch(stack, "components.maas_billing.prep.ensure_user_workload_monitoring")
+        _enter_patch(
+            stack,
+            "components.maas_billing.prep.ensure_maas_authorino_ready",
+            return_value="kuadrant-system",
+        )
+        _enter_patch(stack, "components.maas_billing.prep.maas_api_deployment_exists", return_value=False)
+        maas_prep.try_prepare_maas_smoke()
+    rhcl.assert_called_once()
+    require.assert_called_once_with(allow_deferred_authorino=True)
+
+
 def test_maas_prep_skips_before_dsc_crd() -> None:
     with (
         patch("install.dsc_install.dsc_crd_available", return_value=False),

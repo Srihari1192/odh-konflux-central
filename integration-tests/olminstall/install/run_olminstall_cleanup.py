@@ -27,11 +27,60 @@ def _require_tool(name: str) -> None:
 
 
 def run_cleanup_operator(*, olminstall_dir: Path, kubeconfig: str | Path) -> None:
-    """Run ``cleanup.sh -t operator`` from a cloned olminstall tree."""
+    """Run MaaS Postgres cleanup, ``cleanup.sh -t operator``, then tenant namespace cleanup."""
+    from components.maas_billing.database import (
+        cleanup_maas_postgres_infra,
+        cleanup_maas_tenant_namespace,
+    )
+    from components.maas_billing.bbr_pre_processing import cleanup_stale_maas_ingress_workloads
+
+    maas_exc: BaseException | None = None
+    cleanup_exc: AppError | None = None
+    try:
+        cleanup_stale_maas_ingress_workloads()
+    except Exception as exc:
+        print(
+            f"WARN: MaaS ingress cleanup failed ({exc}); continuing with operator cleanup",
+            file=sys.stderr,
+            flush=True,
+        )
+    try:
+        cleanup_maas_postgres_infra()
+    except Exception as exc:
+        maas_exc = exc
+        print(
+            f"WARN: MaaS Postgres infra cleanup failed ({exc}); continuing with operator cleanup",
+            file=sys.stderr,
+            flush=True,
+        )
     script = olminstall_dir.resolve() / _CLEANUP_SCRIPT
     if not script.is_file():
         raise AppError(f"olminstall repo missing {_CLEANUP_SCRIPT}: {script}", 2)
-    _invoke_cleanup(script, kubeconfig=Path(kubeconfig))
+    try:
+        _invoke_cleanup(script, kubeconfig=Path(kubeconfig))
+    except AppError as exc:
+        cleanup_exc = exc
+        print(
+            f"WARN: olminstall cleanup.sh failed ({exc}); continuing with MaaS tenant namespace cleanup",
+            file=sys.stderr,
+            flush=True,
+        )
+    try:
+        cleanup_maas_tenant_namespace()
+    except Exception as exc:
+        if maas_exc is None:
+            maas_exc = exc
+        print(
+            f"WARN: MaaS tenant namespace cleanup failed ({exc})",
+            file=sys.stderr,
+            flush=True,
+        )
+    if cleanup_exc is not None:
+        raise cleanup_exc
+    if maas_exc is not None:
+        if isinstance(maas_exc, AppError):
+            raise maas_exc
+        raise AppError(f"MaaS infra cleanup failed: {maas_exc}", 1) from maas_exc
 
 
 def _invoke_cleanup(script: Path, *, kubeconfig: Path) -> None:

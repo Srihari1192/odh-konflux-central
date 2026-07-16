@@ -55,18 +55,11 @@ _BVT_HEALTH_SUITE_IDS = frozenset({"cluster-health", "operator-health"})
 def _component_task_test_output_payload(payload: dict[str, object]) -> dict[str, object]:
     """Per-component TEST_OUTPUT for Konflux task Results and DAG badges.
 
-    Keep ``failures`` so each ``test-*`` node badge shows real test failures
-    only (Konflux sums ``failures + warnings`` per task). Zero ``warnings`` so
-    skipped / N/A cases do not inflate the badge; skips stay in ``note`` and
-    ``suites``. Zero ``successes`` and ``skipped`` so PipelineRun list rollup
-    does not double-count passes when it falls back to per-task TEST_OUTPUT;
-    ``test-finalize`` / ``publish-results`` own gate totals.
+    Keep ``failures`` for the badge; zero ``successes``, ``skipped``, and
+    ``warnings`` so PipelineRun rollup does not double-count. Skips stay in
+    ``note`` and ``suites``.
     """
-    out = dict(payload)
-    out["successes"] = 0
-    out["skipped"] = 0
-    out["warnings"] = 0
-    return out
+    return {**payload, "successes": 0, "skipped": 0, "warnings": 0}
 
 
 def _summary_from_suites(suites: list[dict[str, object]]) -> dict[str, int]:
@@ -93,12 +86,9 @@ def _truthy(name: str, *, default: bool = False) -> bool:
 def _test_output_result(*, passed: int, failed: int, skipped: int = 0) -> str:
     """Map JUnit counts to Konflux TEST_OUTPUT result.
 
-    SUCCESS (green) when all executed tests passed.
-    WARNING (yellow) when some passed and some failed (partial pass).
-    FAILURE (red) when zero tests passed (with failures, skip-only, or no artifact).
-
-    BVT/aggregate callers override skip-only back to SUCCESS via allow_skip_success
-    when appropriate (health suites, tier-skip with other tests passing).
+    SUCCESS when passed > 0 and failed == 0 (skips ignored). WARNING on partial
+    pass. FAILURE otherwise. Aggregate gates may adjust via allow_skip_success or
+    ``_apply_incomplete_gate_pass_penalty``; per-component tasks use this as-is.
     """
     if passed > 0 and failed == 0:
         return "SUCCESS"
@@ -114,7 +104,7 @@ def _apply_incomplete_gate_pass_penalty(
     failed: int,
     skipped: int,
 ) -> str:
-    """Downgrade SUCCESS when skipped tests leave the gate below 100% pass rate."""
+    """Downgrade SUCCESS to WARNING when aggregate gate has skips and passed < total."""
     if result != "SUCCESS" or passed <= 0 or failed != 0 or skipped <= 0:
         return result
     total = passed + failed + skipped
@@ -163,6 +153,15 @@ def _component_order_from_plan(root: Path, artifacts_path: Path) -> list[str] | 
     return None
 
 
+def _component_badge_failures(*, junit_failed: int, result: str) -> int:
+    """Konflux DAG node color uses ``failures``; FAILURE with zero counts stays yellow."""
+    if junit_failed > 0:
+        return junit_failed
+    if result == "FAILURE":
+        return 1
+    return 0
+
+
 def build_single_component_test_output_payload(
     *,
     component_id: str,
@@ -178,10 +177,9 @@ def build_single_component_test_output_payload(
                 {
                     "result": "FAILURE",
                     "timestamp": ts,
-                    "failures": 0,
-                    "warnings": konflux_list_warnings_count(skipped=1),
+                    "failures": 1,
+                    "warnings": 0,
                     "successes": 0,
-                    "skipped": 1,
                     "note": note,
                 }
             ),
@@ -218,16 +216,10 @@ def build_single_component_test_output_payload(
         failed=failed,
         skipped=counts["skipped"],
     )
-    result = _apply_incomplete_gate_pass_penalty(
-        result,
-        passed=counts["passed"],
-        failed=failed,
-        skipped=counts["skipped"],
-    )
     payload: dict[str, object] = {
         "result": result,
         "timestamp": ts,
-        "failures": failed,
+        "failures": _component_badge_failures(junit_failed=failed, result=result),
         "warnings": konflux_list_warnings_count(skipped=counts["skipped"]),
         "successes": counts["passed"],
         "skipped": counts["skipped"],

@@ -7,7 +7,6 @@ import json
 import os
 import re
 import sys
-import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -25,7 +24,6 @@ from suite.constants import (
     OLMINSTALL_CTX_PRINT_KEYS,
     OLMINSTALL_WRITE_ANNOTATION_KEYS,
     LABEL_TRIGGER_EVENT_TYPE,
-    PENDING_REASONS,
     EVENT_TYPE_INCOMING,
     TRIGGER_TYPE_MANUAL,
     TRIGGER_TYPE_RH_NIGHTLY_AUTO,
@@ -38,23 +36,23 @@ from suite.component_catalog import (
 )
 from suite.component_plan import parse_components_selection
 from suite.its_trigger_params import is_external_cluster_source
+from suite.pipelinerun_naming import default_pipelinerun_generate_prefix
 from suite.errors import AppError
 from k8s.external_kubeconfig import (
     cluster_label_from_tenant_secret,
+    cluster_lock_key_from_tenant_secret,
     delete_external_kubeconfig_secret,
     ensure_external_kubeconfig_secret,
-    verify_external_cluster_rhoai_idms_mirror,
     verify_external_cluster_secret,
     validate_kubeconfig_path,
 )
-from install.kubeconfig_cluster_label import cluster_label_from_kubeconfig
+from install.kubeconfig_cluster_label import cluster_label_from_kubeconfig, cluster_lock_key_from_kubeconfig
 from k8s.kubearchive import KubeArchiveAuthError, KubeArchiveClient
 from k8s.oc_util import (
     derive_konflux_ui_base,
     derive_kubearchive_host,
     get_jsonpath,
     run_cmd,
-    ts_now,
 )
 from runners.report.pipelinerun_config_display import (
     format_pipelinerun_config_lines,
@@ -99,7 +97,7 @@ class OLMInstallRunner(
         self.args = args
         self.script_dir = Path(__file__).resolve().parent.parent.parent
         self.snapshot_file = self.script_dir / "config" / "test-snapshot.yaml"
-        self.its_file = self.script_dir / "tekton" / "its" / "its-olminstall-testops-eaas.yaml"
+        self.its_file = self.script_dir / "tekton" / "its" / "its-rhoai-e2e-eaas-ocp421.yaml"
         self.konflux_ui = args.konflux_ui or ""
         self.ka_host = args.ka_host or ""
         self.konflux_server = args.konflux_server or ""
@@ -147,7 +145,7 @@ class OLMInstallRunner(
         self._external_secret_created_by_cli = False
         self.smoke_aws_secret = ""
         self.cleanup_external_secret_on_exit = True
-        self._pipelinerun_generate_prefix = "olminstall-"
+        self._pipelinerun_generate_prefix = default_pipelinerun_generate_prefix()
         self._cli_direct_pipelinerun = False
 
 
@@ -186,16 +184,33 @@ class OLMInstallRunner(
         return "stub"
 
 
-    def _trigger_cluster_label(self) -> str:
+    def _trigger_external_cluster_target(self) -> tuple[Path | None, str]:
         ext_path = getattr(self.args, "external_kubeconfig_path", None)
         if ext_path is not None:
-            return cluster_label_from_kubeconfig(validate_kubeconfig_path(str(ext_path)))
+            return validate_kubeconfig_path(str(ext_path)), ""
         secret = (
             (getattr(self.args, "external_kubeconfig_secret", "") or "").strip()
             or (self.external_kubeconfig_secret or "").strip()
         )
+        return None, secret
+
+    def _trigger_cluster_label(self) -> str:
+        path, secret = self._trigger_external_cluster_target()
+        if path is not None:
+            return cluster_label_from_kubeconfig(path)
         if secret:
             return self._cluster_label_for_external_secret(secret)
+        return ""
+
+    def _trigger_cluster_lock_key(self) -> str:
+        path, secret = self._trigger_external_cluster_target()
+        if path is not None:
+            return cluster_lock_key_from_kubeconfig(path)
+        if secret:
+            return cluster_lock_key_from_tenant_secret(
+                namespace=self.args.namespace,
+                secret_name=secret,
+            )
         return ""
 
 
@@ -221,6 +236,7 @@ class OLMInstallRunner(
             product=self.args.product,
             tests=tests,
             cluster=self._trigger_cluster_label(),
+            cluster_key=self._trigger_cluster_lock_key(),
             fbcf_image=self._trigger_fbcf_image(),
             ocp_version=(getattr(self.args, "ocp_version", "") or "").strip(),
             scripts_git_url=git_url,
@@ -581,10 +597,10 @@ class OLMInstallRunner(
         if self.external_kubeconfig_secret:
             return self.external_kubeconfig_secret
         path = getattr(self.args, "external_kubeconfig_path", None)
-        needs_idms = self.args.product in ("rhoai", "odh")
+        secret = (getattr(self.args, "external_kubeconfig_secret", "") or "").strip()
+        if path is None and not secret:
+            return ""
         if path is not None:
-            if needs_idms:
-                verify_external_cluster_rhoai_idms_mirror(path)
             self.external_kubeconfig_secret = ensure_external_kubeconfig_secret(
                 namespace=self.args.namespace,
                 kubeconfig_path=path,
@@ -593,50 +609,13 @@ class OLMInstallRunner(
             )
             self._external_secret_created_by_cli = True
             return self.external_kubeconfig_secret
-        secret = (getattr(self.args, "external_kubeconfig_secret", "") or "").strip()
-        if secret:
-            who = verify_external_cluster_secret(
-                namespace=self.args.namespace,
-                secret_name=secret,
-            )
-            print(f"External kubeconfig Secret login OK as {who}")
-            if needs_idms:
-                import base64
-                import tempfile
-
-                proc = run_cmd(
-                    [
-                        "oc",
-                        "get",
-                        "secret",
-                        secret,
-                        "-n",
-                        self.args.namespace,
-                        "-o",
-                        "jsonpath={.data.kubeconfig}",
-                    ],
-                    capture=True,
-                    check=False,
-                    timeout=30,
-                )
-                if proc.returncode != 0 or not (proc.stdout or "").strip():
-                    raise AppError(
-                        f"Cannot read kubeconfig data from external kubeconfig Secret {secret!r}; "
-                        "required for RHOAI/ODH IDMS mirror verification."
-                    )
-                tmp_path = ""
-                try:
-                    raw = base64.b64decode(proc.stdout.strip())
-                    with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".kubeconfig") as tf:
-                        tf.write(raw)
-                        tmp_path = tf.name
-                    verify_external_cluster_rhoai_idms_mirror(tmp_path)
-                finally:
-                    if tmp_path:
-                        Path(tmp_path).unlink(missing_ok=True)
-            self.external_kubeconfig_secret = secret
-            return secret
-        return ""
+        who = verify_external_cluster_secret(
+            namespace=self.args.namespace,
+            secret_name=secret,
+        )
+        print(f"External kubeconfig Secret login OK as {who}")
+        self.external_kubeconfig_secret = secret
+        return secret
 
 
     def _components_catalog(self) -> ComponentsSmokeCatalog:
@@ -823,6 +802,14 @@ class OLMInstallRunner(
         else:
             self.ka = None
 
+    def _print_effective_trigger_context(self) -> None:
+        """Re-print product/tests after ITS manifest defaults override CLI defaults."""
+        parts = [f"Product: {self.args.product}", f"Tests: {self.args.tests}"]
+        fbc = (getattr(self, "resolved_rhoai_fbc_name", "") or "").strip()
+        if fbc:
+            parts.append(f"FBC: {fbc}")
+        print(f"Effective: {'  '.join(parts)}")
+
 
     def run(self) -> int:
         self.check_login()
@@ -852,60 +839,7 @@ class OLMInstallRunner(
         else:
             self.run_trigger_mode()
 
-        self.print_run_summary(self._status_label_for_summary_preview(), phase="preview")
-
-        if self.watch_from_archive:
-            self._replay_archived_logs_to_log_file()
-            self.print_run_summary(self.ka_succeeded, phase="final")
-            if self.ka_succeeded != "Succeeded":
-                self.pipeline_exit = 1
-            return self.pipeline_exit
-
-        if not self.watch_completed:
-            wait_deadline = time.time() + self.pipeline_start_wait_seconds
-            wait_start = time.time()
-            print(
-                f"Waiting for pipeline to start running (up to {self.pipeline_start_wait_seconds}s, "
-                "override with OLMINSTALL_PIPELINE_START_WAIT_SECONDS)..."
-            )
-            while time.time() < wait_deadline:
-                cstat, reason, message = self.succeeded_condition_detail(self.pr)
-                if cstat == "False" and self._is_resolver_couldnt_get_pipeline(reason, message):
-                    self._raise_resolver_terminal(self.pr, reason, message)
-                if reason in PENDING_REASONS:
-                    elapsed = int(time.time() - wait_start)
-                    print(f"  {ts_now()}  {reason or 'pending'} ({elapsed}s)")
-                    time.sleep(10)
-                    continue
-                print(f"  {ts_now()}  {reason or 'starting'} - ready to stream")
-                break
-            else:
-                self.pipeline_exit = 1
-                wmin = max(1, self.pipeline_start_wait_seconds // 60)
-                raise AppError(
-                    f"Pipeline still pending after {wmin}m ({self.pipeline_start_wait_seconds}s). Check Konflux:\n"
-                    f"{self.konflux_ui}/ns/{self.args.namespace}/applications/{self.args.app}/pipelineruns/{self.pr}"
-                )
-
-        try:
-            logs_shown = self.stream_live_logs()
-        except KeyboardInterrupt:
-            self.mark_detached_from_logs()
-            return 130
-        if self._user_detached_from_logs:
-            return 130
-
-        if not logs_shown and self.watch_completed:
-            self._try_kubearchive_log_replay()
-
-        final_cstat, final_reason, final_msg = self.succeeded_condition_detail(self.pr)
-        self._reenable_external_secret_cleanup_on_terminal(final_cstat)
-        if final_cstat == "False" and self._is_resolver_couldnt_get_pipeline(final_reason, final_msg):
-            self._warn_couldnt_get_pipeline_git_source()
-        self.print_run_summary(self._terminal_status_label(), phase="final")
-        if final_cstat != "True":
-            self.pipeline_exit = 1
-        return self.pipeline_exit
+        return self._run_post_trigger_watch()
 
 
 

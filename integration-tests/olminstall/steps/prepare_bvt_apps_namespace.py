@@ -15,6 +15,8 @@ _MLFLOW_MIGRATION_JOB_RE = re.compile(r"^mlflow-mg-(\d+)-g\d+$")
 _MLFLOW_QUIESCE_ROUNDS = 3
 _MLFLOW_QUIESCE_SLEEP_SEC = 2
 _MLFLOW_OPERATOR_DEPLOY = "mlflow-operator-controller-manager"
+# opendatahub-tests wait_for_pods_running treats Succeeded/Failed as not-running.
+_FINISHED_JOB_POD_PHASES = frozenset({"Succeeded", "Failed"})
 
 
 def _mlflow_deployment_available(namespace: str) -> bool:
@@ -247,8 +249,227 @@ def _scale_mlflow_operator(namespace: str, replicas: int) -> None:
     )
 
 
+_MLFLOW_OPERATOR_POD_GONE_TIMEOUT_SEC = 90
+
+
+def _mlflow_cr_exists() -> bool:
+    r = oc_run(
+        ["get", "mlflow", "mlflow"],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    return r.returncode == 0
+
+
+def _mlflow_operator_pod_names(namespace: str) -> list[str]:
+    """Pods from the mlflow-operator Deployment (name prefix is stable across releases)."""
+    r = oc_run(
+        [
+            "get",
+            "pods",
+            "-n",
+            namespace,
+            "-o",
+            'jsonpath={range .items[*]}{.metadata.name}{"\\n"}{end}',
+        ],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    if r.returncode != 0:
+        return []
+    return [
+        name.strip()
+        for name in (r.stdout or "").splitlines()
+        if name.strip().startswith(f"{_MLFLOW_OPERATOR_DEPLOY}-")
+    ]
+
+
+def _wait_mlflow_operator_pods_gone(namespace: str, *, timeout_sec: int) -> None:
+    """BVT apps pod check fails while scaled-down operator pods linger Terminating."""
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        names = _mlflow_operator_pod_names(namespace)
+        if not names:
+            return
+        print(
+            f"Waiting for {_MLFLOW_OPERATOR_DEPLOY} pod(s) to leave {namespace}: "
+            f"{', '.join(names)}",
+            flush=True,
+        )
+        time.sleep(_MLFLOW_QUIESCE_SLEEP_SEC)
+    leftover = _mlflow_operator_pod_names(namespace)
+    if leftover:
+        print(
+            f"WARN: {_MLFLOW_OPERATOR_DEPLOY} still has pod(s) after {timeout_sec}s: "
+            f"{', '.join(leftover)}",
+            flush=True,
+        )
+
+
+def _pod_owned_by_job(item: dict) -> bool:
+    for ref in (item.get("metadata") or {}).get("ownerReferences") or []:
+        if isinstance(ref, dict) and str(ref.get("kind") or "") == "Job":
+            return True
+    return False
+
+
+def _finished_job_pod_names(namespace: str) -> list[str]:
+    r = oc_run(
+        ["get", "pods", "-n", namespace, "-o", "json"],
+        check=False,
+        capture_output=True,
+        timeout=60,
+    )
+    if r.returncode != 0:
+        return []
+    try:
+        doc = json.loads(r.stdout or "{}")
+    except json.JSONDecodeError:
+        return []
+    names: list[str] = []
+    for item in doc.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        phase = str((item.get("status") or {}).get("phase") or "")
+        if phase not in _FINISHED_JOB_POD_PHASES:
+            continue
+        if not _pod_owned_by_job(item):
+            continue
+        name = str((item.get("metadata") or {}).get("name") or "")
+        if name:
+            names.append(name)
+    return names
+
+
+def delete_finished_job_pods_for_bvt(*, namespace: str = _APPS_NS) -> list[str]:
+    """Remove Succeeded/Failed Job pods that fail ``test_application_namespace_pod_healthy``.
+
+    CronJob leftovers (e.g. ``maas-api-key-cleanup-*``) stay ``Succeeded`` and are treated as
+    not-running by opendatahub-tests ``wait_for_pods_running``.
+    """
+    names = _finished_job_pod_names(namespace)
+    if not names:
+        return []
+    print(
+        f"Removing {len(names)} finished Job pod(s) before BVT in {namespace}: "
+        f"{', '.join(names)}",
+        flush=True,
+    )
+    for name in names:
+        oc_run(
+            ["delete", "pod", name, "-n", namespace, "--ignore-not-found"],
+            check=False,
+            capture_output=True,
+            timeout=60,
+        )
+    return names
+
+
+def _list_cronjob_names(namespace: str) -> list[str]:
+    r = oc_run(
+        [
+            "get",
+            "cronjob",
+            "-n",
+            namespace,
+            "-o",
+            'jsonpath={range .items[*]}{.metadata.name}{"\\n"}{end}',
+        ],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    if r.returncode != 0:
+        return []
+    return [name.strip() for name in (r.stdout or "").splitlines() if name.strip()]
+
+
+def _cronjob_is_suspended(namespace: str, name: str) -> bool:
+    r = oc_run(
+        [
+            "get",
+            "cronjob",
+            name,
+            "-n",
+            namespace,
+            "-o",
+            "jsonpath={.spec.suspend}",
+        ],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    return (r.stdout or "").strip().lower() == "true"
+
+
+def _patch_cronjob_suspend(namespace: str, name: str, suspend: bool) -> None:
+    patch = json.dumps({"spec": {"suspend": suspend}})
+    oc_run(
+        [
+            "patch",
+            "cronjob",
+            name,
+            "-n",
+            namespace,
+            "--type=merge",
+            "-p",
+            patch,
+        ],
+        check=False,
+        capture_output=True,
+        timeout=60,
+    )
+
+
+def suspend_apps_cronjobs_for_bvt(*, namespace: str = _APPS_NS) -> list[str]:
+    """Suspend apps CronJobs and delete finished Job pods before apps pod-health BVT.
+
+    Returns CronJob names this call suspended (for ``resume_apps_cronjobs``). Already-suspended
+    CronJobs are left alone. Suspend first so a mid-wait ``*/15`` schedule cannot recreate
+    Succeeded pods during the 180s ``wait_for_pods_running`` window.
+    """
+    suspended: list[str] = []
+    for name in _list_cronjob_names(namespace):
+        if _cronjob_is_suspended(namespace, name):
+            continue
+        _patch_cronjob_suspend(namespace, name, True)
+        suspended.append(name)
+    if suspended:
+        print(
+            f"Suspended CronJob(s) before BVT in {namespace}: {', '.join(suspended)}",
+            flush=True,
+        )
+    delete_finished_job_pods_for_bvt(namespace=namespace)
+    return suspended
+
+
+def resume_apps_cronjobs(names: list[str] | None, *, namespace: str = _APPS_NS) -> None:
+    if not names:
+        return
+    for name in names:
+        _patch_cronjob_suspend(namespace, name, False)
+    print(
+        f"Restored CronJob suspend=false in {namespace}: {', '.join(names)}",
+        flush=True,
+    )
+
+
 def pause_mlflow_operator_reconcile_for_bvt(*, namespace: str = _APPS_NS) -> int:
-    """Stop MLflow operator reconciliation while BVT runs on resource-tight pooled clusters."""
+    """Stop MLflow operator reconciliation while BVT runs on resource-tight pooled clusters.
+
+    Skip when no MLflow instance exists (operator-only / fresh install): scaling the operator
+    to 0 leaves Terminating pods that fail ``test_application_namespace_pod_healthy``.
+    """
+    if not _mlflow_cr_exists() and not _mlflow_deployment_available(namespace):
+        print(
+            f"NOTE: no mlflow CR/deploy in {namespace}; "
+            f"skipping {_MLFLOW_OPERATOR_DEPLOY} pause before BVT",
+            flush=True,
+        )
+        return 0
+
     prior = _mlflow_operator_replicas(namespace)
     if prior is None:
         prior = 1
@@ -258,9 +479,12 @@ def pause_mlflow_operator_reconcile_for_bvt(*, namespace: str = _APPS_NS) -> int
             flush=True,
         )
         _scale_mlflow_operator(namespace, 0)
-        time.sleep(_MLFLOW_QUIESCE_SLEEP_SEC)
+        _wait_mlflow_operator_pods_gone(
+            namespace,
+            timeout_sec=_MLFLOW_OPERATOR_POD_GONE_TIMEOUT_SEC,
+        )
     _quiesce_mlflow_migration_for_bvt(namespace)
-    if not _mlflow_status_version():
+    if _mlflow_cr_exists() and not _mlflow_status_version():
         version = _resolve_mlflow_migration_version(namespace)
         print(
             f"Patching MLflow status.version={version} after operator pause",

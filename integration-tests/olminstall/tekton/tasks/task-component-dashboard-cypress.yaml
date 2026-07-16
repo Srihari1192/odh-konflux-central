@@ -116,6 +116,8 @@ spec:
           value: $(params.COMPONENT_TEST_TIMEOUT)
         - name: PRODUCT
           value: $(params.PRODUCT)
+        - name: CLUSTER_SOURCE
+          value: $(params.CLUSTER_SOURCE)
         - name: SCRIPTS_REPO_ROOT
           value: $(workspaces.tests-shared.path)/scripts-repo/integration-tests/olminstall
         - name: CY_RETRY

@@ -44,6 +44,7 @@ from runners.report.pipelinerun_metadata import infer_installed_product
 from steps.rhoai_triage import resolve_logs_since_time, run_rhoai_triage
 from steps.tekton_util import clamp_tekton_result, require_env, run, write_result
 from steps.tests_payload import mark_collect_diagnostics_done, tests_payload_results_dir
+from suite.conforma_gate import CONFORMA_GATE_SKIP
 from suite.pipelinerun_naming import build_diagnostic_artifact_log_name
 
 # Single OCI artifact (publish-results uploads tests-payload/results/*.log).
@@ -448,6 +449,14 @@ def main() -> int:
         kubeconfig = _resolve_kubeconfig()
         os.environ["KUBECONFIG"] = kubeconfig
         if not Path(kubeconfig).is_file():
+            if (os.environ.get("CONFORMA_GATE") or "").strip().lower() == CONFORMA_GATE_SKIP:
+                msg = "skipped: CONFORMA_GATE=skip (no target cluster)"
+                print(f"collect-diagnostics: {msg}")
+                write_result(result_path, msg)
+                if op_ver_path:
+                    write_result(op_ver_path, "(n/a)")
+                exit_code = 0
+                return exit_code
             msg = f"collect-diagnostics: no kubeconfig at {kubeconfig}"
             print(f"ERROR: {msg}", file=sys.stderr)
             write_result(result_path, f"error: {msg}")

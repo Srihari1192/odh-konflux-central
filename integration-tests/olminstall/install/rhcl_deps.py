@@ -24,6 +24,8 @@ _RHCL_SUB = "rhcl-operator"
 _RHCL_MANIFEST = "resources/install-rhcl-operator.yaml"
 _FALLBACK_RHCL_CSV = "rhcl-operator.v1.3.4"
 _DEFAULT_TIMEOUT_SEC = 600
+_DEFAULT_RHCL_POST_INSTALL_RETRY_TIMEOUT_SEC = 900
+_RECOVERY_POST_INSTALL_TIMEOUT_CAP_SEC = 600
 _STARTING_CSV_RE = re.compile(r'^\s*startingCSV:\s*"?([^"\s]+)"?\s*$')
 _KUADRANT_STACK_CSV_PREFIXES = (
     "rhcl-operator",
@@ -101,14 +103,63 @@ def _apply_gitops_operatorgroup() -> None:
         raise RuntimeError(f"Could not apply {_GITOPS_OPERATORGROUP} OperatorGroup: {err or 'unknown'}")
 
 
+def _ensure_kuadrant_namespace_exists() -> None:
+    """Create kuadrant-system when missing so OperatorGroup/Subscription can apply."""
+    from install.dependency_operators import _namespace_phase
+
+    phase = _namespace_phase(_RHCL_NS)
+    if phase == "Active":
+        return
+    if phase == "Terminating":
+        _ensure_kuadrant_namespace_ready()
+        if _namespace_phase(_RHCL_NS) == "Active":
+            return
+    print(f"Creating namespace {_RHCL_NS} for RHCL OperatorGroup...", flush=True)
+    create = oc_run(
+        [
+            "create",
+            "namespace",
+            _RHCL_NS,
+            "--dry-run=client",
+            "-o",
+            "yaml",
+        ],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    apply = oc_run(
+        ["apply", "-f", "-"],
+        stdin_text=create.stdout or f"apiVersion: v1\nkind: Namespace\nmetadata:\n  name: {_RHCL_NS}\n",
+        check=False,
+        capture_output=True,
+        timeout=60,
+    )
+    if apply.returncode != 0 and _namespace_phase(_RHCL_NS) != "Active":
+        err = (apply.stderr or apply.stdout or "").strip()
+        raise RuntimeError(f"Could not create namespace {_RHCL_NS}: {err or 'unknown'}")
+
+
 def reconcile_kuadrant_operator_groups() -> None:
     """Keep a single gitops-style OperatorGroup so RHCL subscriptions get a CSV.
 
     olminstall install-rhcl-operator.yaml creates OperatorGroup/kuadrant-system while
     setup-dependencies.sh (odh-gitops) creates OperatorGroup/kuadrant. Multiple groups
     in the same namespace block OLM InstallPlans on pooled QE clusters.
+
+    On fresh EaaS the manifest apply strips OperatorGroup; without one OLM never
+    creates an InstallPlan and currentCSV stays unset.
     """
     names = _operatorgroup_names()
+    if not names:
+        _ensure_kuadrant_namespace_exists()
+        print(
+            f"Applying OperatorGroup/{_GITOPS_OPERATORGROUP} in {_RHCL_NS} (none present)...",
+            flush=True,
+        )
+        _apply_gitops_operatorgroup()
+        return
+
     if len(names) > 1:
         keep = _GITOPS_OPERATORGROUP if _GITOPS_OPERATORGROUP in names else names[0]
         for name in names:
@@ -399,6 +450,15 @@ def _delete_stuck_kuadrant_installplans(
         )
 
 
+def _succeeded_rhcl_csv_name() -> str | None:
+    """Return the newest Succeeded rhcl-operator CSV name in kuadrant-system."""
+    version = pick_succeeded_csv_version(_RHCL_NS, "rhcl-operator", timeout=15)
+    if not version:
+        return None
+    name = version if version.startswith("rhcl-operator.") else f"rhcl-operator.v{version}"
+    return name if _csv_phase(name) == "Succeeded" else None
+
+
 def rhcl_stack_functional(*, csv_name: str | None = None) -> bool:
     """True when an RHCL CSV is Succeeded and authorino-operator is installed."""
     name = (csv_name or _subscription_current_csv()).strip()
@@ -414,7 +474,12 @@ def rhcl_operators_ready(target_csv: str) -> bool:
     if rhcl_stack_functional(csv_name=current):
         return True
     if not current or current == target_csv:
-        return rhcl_stack_functional(csv_name=target_csv)
+        if rhcl_stack_functional(csv_name=target_csv):
+            return True
+    if not current:
+        installed = _succeeded_rhcl_csv_name()
+        if installed and rhcl_stack_functional(csv_name=installed):
+            return True
     return False
 
 
@@ -455,6 +520,7 @@ def _ensure_kuadrant_namespace_ready() -> None:
 def _apply_rhcl_manifest(target_csv: str, *, olm_dir: Path | None = None) -> None:
     olm_dir = olm_dir or resolve_olminstall_dir(require_post_install_script=False)
     _ensure_kuadrant_namespace_ready()
+    _ensure_kuadrant_namespace_exists()
     reconcile_kuadrant_operator_groups()
     manifest = olm_dir / _RHCL_MANIFEST
     if not manifest.is_file():
@@ -545,6 +611,16 @@ def _wait_rhcl_operators_ready(target_csv: str, *, timeout_sec: int) -> None:
             print(f"✓ RHCL operator ready ({label} + authorino-operator)", flush=True)
             return
 
+        if not current:
+            installed = _succeeded_rhcl_csv_name()
+            if installed and rhcl_stack_functional(csv_name=installed):
+                print(
+                    f"✓ RHCL operator ready ({installed} + authorino-operator; "
+                    f"subscription currentCSV unset)",
+                    flush=True,
+                )
+                return
+
         rhcl_phase = _csv_phase(current) if current else ""
         authorino_ver = pick_succeeded_csv_version(_RHCL_NS, "authorino-operator", timeout=15)
         if int(time.time()) % 30 < 12:
@@ -566,6 +642,7 @@ def _wait_rhcl_operators_ready(target_csv: str, *, timeout_sec: int) -> None:
 
 def ensure_rhcl_operator_for_maas(*, olm_dir: Path | None = None) -> None:
     """Ensure RHCL/Authorino operators match olminstall MaaS pin."""
+    _ensure_kuadrant_namespace_exists()
     reconcile_kuadrant_operator_groups()
     target_csv = rhcl_starting_csv(olm_dir=olm_dir)
     timeout_sec = _rhcl_ready_timeout_sec()
@@ -667,6 +744,29 @@ def reconcile_rhcl_after_gitops_apply(*, olm_dir: Path | None = None) -> None:
     ensure_rhcl_operator_for_maas(olm_dir=olm_dir)
 
 
+def _parse_rhcl_post_install_retry_timeout_sec() -> int:
+    raw = os.environ.get(
+        "RHCL_POST_INSTALL_RETRY_TIMEOUT_SEC",
+        str(_DEFAULT_RHCL_POST_INSTALL_RETRY_TIMEOUT_SEC),
+    ).strip()
+    try:
+        return int(raw)
+    except ValueError:
+        print(
+            f"WARN: invalid RHCL_POST_INSTALL_RETRY_TIMEOUT_SEC={raw!r}; "
+            f"using {_DEFAULT_RHCL_POST_INSTALL_RETRY_TIMEOUT_SEC}s",
+            file=sys.stderr,
+            flush=True,
+        )
+        return _DEFAULT_RHCL_POST_INSTALL_RETRY_TIMEOUT_SEC
+
+
+def _clear_maas_gateway_stack_marker() -> None:
+    from helpers.gateway_stack_marker import clear_gateway_stack_incomplete_marker
+
+    clear_gateway_stack_incomplete_marker()
+
+
 def ensure_maas_rhcl_dependency_stack(*, olm_dir: Path | None = None) -> None:
     """Pin RHCL CSV and run post-install script (install-dep-operators happy path)."""
     from install.dependency_operators import authorino_deferred_to_component_prep
@@ -677,9 +777,7 @@ def ensure_maas_rhcl_dependency_stack(*, olm_dir: Path | None = None) -> None:
     if olm_dir is not None:
         post_kwargs["olm_dir"] = olm_dir
     if run_post_install_rhcl_operator(**post_kwargs):
-        from helpers.gateway_stack_marker import clear_gateway_stack_incomplete_marker
-
-        clear_gateway_stack_incomplete_marker()
+        _clear_maas_gateway_stack_marker()
         return
     if defer_authorino:
         print(
@@ -688,25 +786,56 @@ def ensure_maas_rhcl_dependency_stack(*, olm_dir: Path | None = None) -> None:
             file=sys.stderr,
             flush=True,
         )
-        retry_raw = os.environ.get("RHCL_POST_INSTALL_RETRY_TIMEOUT_SEC", "300").strip()
-        try:
-            retry_timeout = int(retry_raw)
-        except ValueError:
-            retry_timeout = 300
-            print(
-                f"WARN: invalid RHCL_POST_INSTALL_RETRY_TIMEOUT_SEC={retry_raw!r}; using {retry_timeout}s",
-                file=sys.stderr,
-                flush=True,
-            )
+        retry_timeout = _parse_rhcl_post_install_retry_timeout_sec()
         retry_kwargs = dict(post_kwargs)
         retry_kwargs["fatal"] = False
         retry_kwargs["timeout_sec"] = retry_timeout
         if run_post_install_rhcl_operator(**retry_kwargs):
-            from helpers.gateway_stack_marker import clear_gateway_stack_incomplete_marker
-
-            clear_gateway_stack_incomplete_marker()
+            _clear_maas_gateway_stack_marker()
             print("✓ post-install-rhcl-operator.sh succeeded on retry", flush=True)
             return
+        olm = olm_dir or resolve_olminstall_dir()
+        try:
+            from install.dependency_operators import _ensure_authorino_operators_after_setup
+
+            print(
+                "Retrying Kuadrant/Authorino via odh-gitops recovery after post-install failure...",
+                flush=True,
+            )
+            _ensure_authorino_operators_after_setup(olm, setup_rc=1)
+        except Exception as exc:
+            print(
+                f"WARN: Authorino odh-gitops recovery failed ({exc}); continuing",
+                file=sys.stderr,
+                flush=True,
+            )
+        recovery_kwargs = dict(retry_kwargs)
+        recovery_kwargs["timeout_sec"] = min(
+            retry_timeout,
+            _RECOVERY_POST_INSTALL_TIMEOUT_CAP_SEC,
+        )
+        if run_post_install_rhcl_operator(**recovery_kwargs):
+            _clear_maas_gateway_stack_marker()
+            print("✓ post-install-rhcl-operator.sh succeeded after odh-gitops recovery", flush=True)
+            return
+        # post-install often races GatewayClass; restart Kuadrant once provider exists.
+        try:
+            from components.maas_billing.auth import recover_kuadrant_after_gateway_api_provider
+
+            if recover_kuadrant_after_gateway_api_provider():
+                _clear_maas_gateway_stack_marker()
+                print(
+                    "✓ Kuadrant Ready after Gateway API provider recovery "
+                    "(install-dep-operators)",
+                    flush=True,
+                )
+                return
+        except Exception as exc:
+            print(
+                f"WARN: Kuadrant Gateway API provider recovery failed ({exc})",
+                file=sys.stderr,
+                flush=True,
+            )
         from helpers.gateway_stack_marker import write_gateway_stack_incomplete_marker
 
         write_gateway_stack_incomplete_marker()

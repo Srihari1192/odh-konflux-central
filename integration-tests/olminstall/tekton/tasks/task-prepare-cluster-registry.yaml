@@ -9,6 +9,14 @@ spec:
   workspaces:
     - name: tests-shared
   params:
+    - name: CONFORMA_GATE
+      type: string
+      default: ""
+      description: Pipeline when-binding only (Conforma pass/fail from wait-for-conforma)
+    - name: RUN_INSTALL_DEP_OPERATORS
+      type: string
+      default: ""
+      description: Pipeline when-binding only (parse-pipeline-tests RUN_INSTALL_DEP_OPERATORS)
     - name: CLUSTER_SOURCE
       type: string
       default: ""
@@ -28,6 +36,8 @@ spec:
   results:
     - name: TASK_MESSAGE
       description: Pass/fail summary for Konflux task Results panel
+    - name: INSTALL_CHAIN_ARMED
+      description: Set to true when prepare-cluster-registry completes (install-chain when gate)
   volumes:
     - name: credentials
       emptyDir: {}
@@ -132,6 +142,13 @@ spec:
 
         os.chdir(os.environ["SCRIPTS_REPO_ROOT"])
         os.execvp(sys.executable, [sys.executable, "-m", "install.prepare_cluster_registry"])
+
+    - name: mark-install-chain-armed
+      displayName: Mark install chain armed
+      image: quay.io/konflux-ci/konflux-test:stable@sha256:09328e5f47da168ffe951ec9c4242cd6761e61e0a235df1bba3f5158e757446d
+      script: |
+        #!/bin/sh
+        printf '%s' true > "$(results.INSTALL_CHAIN_ARMED.path)"
 
     - name: write-konflux-task-summary
       displayName: Write Konflux task summary

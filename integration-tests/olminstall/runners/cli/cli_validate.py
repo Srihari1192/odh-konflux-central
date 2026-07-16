@@ -60,6 +60,22 @@ def _normalize_test_timeout(raw: str) -> str:
     return "".join(out_parts)
 
 
+def _apply_rhoai_version_product_default(
+    args: argparse.Namespace, *, product_explicit: bool
+) -> None:
+    """``--rhoai-version`` implies ``--product rhoai`` unless another product was set explicitly."""
+    if not (args.version or "").strip():
+        return
+    if args.product == "rhoai":
+        return
+    if product_explicit:
+        raise AppError(
+            "--rhoai-version is supported only with --product rhoai (or omit --product).",
+            2,
+        )
+    args.product = "rhoai"
+
+
 _ENABLE_ITS_ALLOWED_TRIGGER_FLAGS = frozenset({"--konflux-repo", "--konflux-branch"})
 
 
@@ -119,8 +135,7 @@ def parse_cli_args(parser: CliArgumentParser, argv: list[str]) -> argparse.Names
     )
     args = parser.parse_args(argv)
 
-    if args.version and args.product != "rhoai":
-        raise AppError("--rhoai-version is supported only with --product rhoai", 2)
+    _apply_rhoai_version_product_default(args, product_explicit=product_explicit)
     if getattr(args, "install_dependencies", False) and args.product != "existing":
         raise AppError("--install-dependencies is only supported with --product existing", 2)
     if args.ocp_version:
@@ -336,8 +351,8 @@ def parse_cli_args(parser: CliArgumentParser, argv: list[str]) -> argparse.Names
         raise AppError("--stop-owned-running requires --delete-pending-pipelines.", 2)
     if getattr(args, "include_unowned_stuck", False) and not delete_pipelines_on:
         raise AppError("--include-unowned-stuck requires --delete-pending-pipelines.", 2)
-    if getattr(args, "delete_pending_dry_run", False) and not delete_pipelines_on:
-        raise AppError("--delete-pending-dry-run requires --delete-pending-pipelines.", 2)
+    if getattr(args, "dry_run", False) and not delete_pipelines_on:
+        raise AppError("--dry-run requires --delete-pending-pipelines.", 2)
 
     if not query_modes:
         if args.cleanup and not args.external_kubeconfig_path and not args.external_kubeconfig_secret:

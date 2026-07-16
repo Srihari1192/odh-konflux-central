@@ -12,9 +12,10 @@ from suite.constants import (
     ANNOTATION_SNAPSHOT,
     DEFAULT_LIST_COUNT,
     LIST_SUPPORTED_OCP_MAX_PRS,
-    OLMINSTALL_EAAS_ITS_NAME,
+    RHOAI_E2E_EAAS_ITS_NAME,
     olminstall_smoke_only_pipelinerun,
 )
+from suite.pipelinerun_naming import is_olminstall_pipelinerun_name
 from suite.errors import AppError
 from k8s.kubearchive import KubeArchiveAuthError
 from k8s.oc_util import get_jsonpath, parse_json_output, run_cmd
@@ -25,6 +26,32 @@ from .runner_support import (
     filter_pipelinerun_items,
     pipelinerun_list_state,
 )
+
+_SNAPSHOT_TS_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T")
+
+
+def _snapshot_rows_from_custom_columns(stdout: str) -> list[tuple[str, str]]:
+    """Parse ``oc get snapshots -o custom-columns=NAME,TS`` lines to ``(timestamp, name)``."""
+    rows: list[tuple[str, str]] = []
+    for line in (stdout or "").splitlines():
+        parts = line.strip().split()
+        if len(parts) < 2 or parts[0].upper() == "NAME":
+            continue
+        name, ts = parts[0], parts[-1]
+        if _SNAPSHOT_TS_RE.match(ts):
+            rows.append((ts, name))
+    return rows
+
+
+def _parse_snapshot_json(stdout: str) -> dict[str, Any] | None:
+    text = (stdout or "").strip()
+    if not text:
+        return None
+    try:
+        obj = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return obj if isinstance(obj, dict) else None
 
 
 class RunnerListMixin(RunnerOcpMixin):
@@ -116,7 +143,7 @@ class RunnerListMixin(RunnerOcpMixin):
         )
         if repo and branch:
             ns = self.args.namespace
-            its_name = OLMINSTALL_EAAS_ITS_NAME
+            its_name = RHOAI_E2E_EAAS_ITS_NAME
             print(
                 f"{head}"
                 f"  This run applied the ITS with ``--konflux-repo`` / ``--konflux-branch``: **{repo}** @ **{branch}**.\n"
@@ -189,12 +216,19 @@ class RunnerListMixin(RunnerOcpMixin):
         return ((item.get("metadata") or {}).get("annotations") or {}).get(ANNOTATION_SNAPSHOT, "").strip()
 
 
-    def _merged_pipelinerun_rows(self, limit: int, *, name_substr: str | None) -> list[PipelineRow]:
+    def _merged_pipelinerun_rows(
+        self,
+        limit: int,
+        *,
+        name_substr: str | None = None,
+        olminstall_family_only: bool = False,
+    ) -> list[PipelineRow]:
         rows: list[PipelineRow] = []
         for item in filter_pipelinerun_items(
             self.get_pipelineruns(self.args.namespace),
             app=self.args.app,
             olminstall_only=False,
+            olminstall_family_only=olminstall_family_only,
             name_substr=name_substr,
         ):
             name = item.get("metadata", {}).get("name", "")
@@ -225,6 +259,7 @@ class RunnerListMixin(RunnerOcpMixin):
                 data.get("items", []),
                 app=self.args.app,
                 olminstall_only=False,
+                olminstall_family_only=olminstall_family_only,
                 name_substr=name_substr,
             ):
                 name = item.get("metadata", {}).get("name", "")
@@ -321,12 +356,17 @@ class RunnerListMixin(RunnerOcpMixin):
 
 
     def find_owned_live_watch_pr(self) -> str:
+        from k8s.external_kubeconfig import _pipelinerun_is_active
+
         items = self.get_pipelineruns(self.args.namespace)
         cands: list[tuple[str, str, str, str, str]] = []
         for item in items:
             name = item.get("metadata", {}).get("name", "")
             app = item.get("metadata", {}).get("labels", {}).get("appstudio.openshift.io/application", "")
-            if "olminstall" not in name or app != self.args.app:
+            if not is_olminstall_pipelinerun_name(name) or app != self.args.app:
+                continue
+            # Completed / cancelled PRs must not block --run-its re-trigger (fmk75 Failed regression).
+            if not _pipelinerun_is_active(item):
                 continue
             snap = ""
             for p in item.get("spec", {}).get("params", []):
@@ -350,7 +390,7 @@ class RunnerListMixin(RunnerOcpMixin):
         rows: list[tuple[str, str, str, str, str]] = []
         for item in items:
             name = item.get("metadata", {}).get("name", "")
-            if "olminstall" not in name:
+            if not is_olminstall_pipelinerun_name(name):
                 continue
             snap = ""
             for p in item.get("spec", {}).get("params", []):
@@ -400,13 +440,11 @@ class RunnerListMixin(RunnerOcpMixin):
 
 
     def find_newest_olminstall_any_owner_for_watch(self) -> str:
-        """Newest non-smoke olminstall PipelineRun for ``--konflux-app`` (any owner), same merge order as ``-l``."""
+        """Newest non-smoke olminstall-family PipelineRun for ``--konflux-app`` (any owner), same merge order as ``-l``."""
         scan = max(DEFAULT_LIST_COUNT, LIST_SUPPORTED_OCP_MAX_PRS)
-        merged = self._merged_pipelinerun_rows(scan, name_substr="olminstall")
+        merged = self._merged_pipelinerun_rows(scan, olminstall_family_only=True)
         fallback = ""
         for row in merged:
-            if "olminstall" not in row.name:
-                continue
             if olminstall_smoke_only_pipelinerun(row.name, ""):
                 continue
             if not fallback:
@@ -445,18 +483,7 @@ class RunnerListMixin(RunnerOcpMixin):
         )
         if proc.returncode != 0 or not (proc.stdout or "").strip():
             return "", "", None
-        rows: list[tuple[str, str]] = []
-        for line in (proc.stdout or "").splitlines():
-            ln = line.strip()
-            if not ln or ln.upper().startswith("NAME "):
-                continue
-            parts = ln.split()
-            if len(parts) < 2:
-                continue
-            ts = parts[-1]
-            name = parts[0]
-            if name and ts and re.match(r"^\d{4}-\d{2}-\d{2}T", ts):
-                rows.append((ts, name))
+        rows = _snapshot_rows_from_custom_columns(proc.stdout or "")
         if (proc.stdout or "").strip() and not rows:
             print(
                 f"WARN Snapshot list column parse skipped non-ISO timestamps for app={app_name!r}; "
@@ -608,18 +635,7 @@ class RunnerListMixin(RunnerOcpMixin):
         )
         if proc_names.returncode != 0 or not (proc_names.stdout or "").strip():
             return "", "", None
-        rows: list[tuple[str, str]] = []
-        for line in (proc_names.stdout or "").splitlines():
-            ln = line.strip()
-            if not ln or ln.upper().startswith("NAME "):
-                continue
-            parts = ln.split()
-            if len(parts) < 2:
-                continue
-            ts = parts[-1]
-            name = parts[0]
-            if name and ts and re.match(r"^\d{4}-\d{2}-\d{2}T", ts):
-                rows.append((ts, name))
+        rows = _snapshot_rows_from_custom_columns(proc_names.stdout or "")
         if not rows:
             return "", "", None
         max_walk = 120
@@ -691,5 +707,67 @@ class RunnerListMixin(RunnerOcpMixin):
                     meta = item.get("metadata")
                     best_meta = meta if isinstance(meta, dict) else None
         return best_ts, best_img, best_meta
+
+    def latest_named_component_image_on_application(
+        self,
+        namespace: str,
+        app_name: str,
+        component_name: str,
+        image_pattern: str,
+    ) -> tuple[str, str, dict[str, Any] | None]:
+        """Newest ``containerImage`` for ``component_name`` on one Konflux Application only.
+
+        Used by ``--run-its`` to match ITS auto-trigger semantics without scanning ``rhoai-v*``
+        streams or downloading every Snapshot for the app.
+        """
+        want_app = (app_name or "").strip()
+        want_comp = (component_name or "").strip()
+        if not want_app or not want_comp:
+            return "", "", None
+        proc = run_cmd(
+            [
+                "oc",
+                "get",
+                "snapshots",
+                "-n",
+                namespace,
+                "-l",
+                f"appstudio.openshift.io/application={want_app}",
+                "--sort-by=.metadata.creationTimestamp",
+                "-o",
+                "custom-columns=NAME:.metadata.name,TS:.metadata.creationTimestamp",
+            ],
+            capture=True,
+            check=False,
+            timeout=60,
+        )
+        stdout = proc.stdout or ""
+        if proc.returncode != 0 or not stdout.strip():
+            return "", "", None
+        rows = _snapshot_rows_from_custom_columns(stdout)
+        if not rows:
+            return "", "", None
+        for ts, snap_name in rows[-1:]:
+            meta_proc = run_cmd(
+                ["oc", "get", "snapshot", snap_name, "-n", namespace, "-o", "json"],
+                capture=True,
+                check=False,
+                timeout=30,
+            )
+            if meta_proc.returncode != 0:
+                continue
+            snap_obj = _parse_snapshot_json(meta_proc.stdout or "")
+            if snap_obj is None:
+                continue
+            for comp in snap_obj.get("spec", {}).get("components", []) or []:
+                if not isinstance(comp, dict):
+                    continue
+                if (comp.get("name") or "").strip() != want_comp:
+                    continue
+                img = (comp.get("containerImage") or "").strip()
+                if img and re.search(image_pattern, img):
+                    meta = snap_obj.get("metadata")
+                    return ts, img, meta if isinstance(meta, dict) else None
+        return "", "", None
 
 

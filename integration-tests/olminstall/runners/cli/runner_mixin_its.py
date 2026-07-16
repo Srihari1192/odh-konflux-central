@@ -14,9 +14,8 @@ from suite.its_registry import (
     integration_test_scenario_application,
     its_manifest_param,
 )
-from suite.its_trigger_params import CLUSTER_SOURCE_EAAS, is_external_cluster_source
+from suite.its_trigger_params import CLUSTER_SOURCE_EAAS, is_external_cluster_source, ocp_install_prefix
 from suite.pipelinerun_naming import build_olminstall_generate_prefix
-from .runner_support import format_olm_pipeline_watch_cli
 
 
 class RunnerItsAdminMixin:
@@ -34,6 +33,7 @@ class RunnerItsAdminMixin:
         if snap_path is not None:
             self.snapshot_file = snap_path
         self._apply_run_its_manifest_defaults(manifest)
+        self._print_effective_trigger_context()
         odh_overrides = self.args.product == "odh"
         self._apply_run_its_cli_overrides(odh_overrides)
         self._apply_konflux_git_inference_from_clone_or_env()
@@ -51,14 +51,7 @@ class RunnerItsAdminMixin:
         self._pipelinerun_generate_prefix = self._run_its_generate_prefix(manifest)
         print(f"  pipelinerun_prefix={self._pipelinerun_generate_prefix!r}")
         self.create_direct_pipelinerun(odh_overrides)
-        watch_hint = format_olm_pipeline_watch_cli(
-            olminstall_dir=self.script_dir,
-            namespace=self.args.namespace,
-            app=self.args.app,
-            pipelinerun=self.pr or "",
-        )
-        print(f"Watch the run with:\n  {watch_hint}")
-        return 0
+        return self._run_post_trigger_watch()
 
     def disable_integration_test_scenario(self) -> int:
         name = self.args.its_scenario_name
@@ -83,8 +76,9 @@ class RunnerItsAdminMixin:
             self.external_kubeconfig_secret = cluster_source
         if not (getattr(self.args, "ocp_version", "") or "").strip():
             ocp_version = its_manifest_param(manifest, "OCP_VERSION")
-            if ocp_version:
-                self.args.ocp_version = ocp_version
+            prefix = ocp_install_prefix(ocp_version)
+            if prefix:
+                self.args.ocp_version = prefix
         # Konflux lookup in resolve_image(); snapshot pin is offline fallback only.
         self._run_its_pinned_fbcf_image = self._snapshot_yaml_container_image()
 
@@ -103,11 +97,9 @@ class RunnerItsAdminMixin:
                 self._cluster_label_for_external_secret(cluster_source) if cluster_source else ""
             )
         elif cluster_source == CLUSTER_SOURCE_EAAS:
-            target_type = "eaas"
-            cluster_label = ""
+            target_type, cluster_label = "eaas", ""
         else:
-            target_type = "stub"
-            cluster_label = ""
+            target_type, cluster_label = "stub", ""
         return build_olminstall_generate_prefix(
             product=its_manifest_param(manifest, "PRODUCT") or self.args.product,
             version=its_manifest_param(manifest, "RHOAI_VERSION"),

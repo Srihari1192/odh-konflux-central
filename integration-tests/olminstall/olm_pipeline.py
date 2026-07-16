@@ -41,14 +41,14 @@ Run rules:
 Examples:
   %(prog)s                                     # trigger with defaults
   %(prog)s -w                                  # watch newest run for --konflux-app
-  %(prog)s -w olminstall-rhoai-3.5ea2-eaas-bvt-smoke-nmanos-xyz
+  %(prog)s -w e2e-cli-nmanos-rhoai-eaas-bvt-smoke-xyz
   %(prog)s -l                                  # list last 10 runs
   %(prog)s --delete-pending-pipelines          # stop stuck/incomplete live runs
-  %(prog)s --delete-pending-pipelines --delete-pending-dry-run
-  %(prog)s --enable-its odh-olminstall-testops-rh-nightly
-  %(prog)s --run-its odh-olminstall-testops-rh-nightly --tests smoke --components dashboard_cypress
-  %(prog)s --enable-its odh-olminstall-testops-eaas
-  %(prog)s --disable-its odh-olminstall-testops-rh-nightly
+  %(prog)s --delete-pending-pipelines --dry-run
+  %(prog)s --enable-its rhoai-e2e-rh-nightly-pm-ocp420
+  %(prog)s --run-its rhoai-e2e-rh-nightly-pm-ocp420 --tests smoke --components dashboard_cypress
+  %(prog)s --enable-its rhoai-e2e-eaas-ocp421
+  %(prog)s --disable-its rhoai-e2e-rh-nightly-pm-ocp420
   %(prog)s --list-supported-ocp --ocp-version 4.19
   %(prog)s --tests bvt
   %(prog)s --tests smoke --components workbenches

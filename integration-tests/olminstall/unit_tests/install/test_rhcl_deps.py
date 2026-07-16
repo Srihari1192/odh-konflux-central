@@ -32,10 +32,11 @@ class RhclDepsTest(unittest.TestCase):
     @patch("install.rhcl_deps._subscription_current_csv", return_value=mod._FALLBACK_RHCL_CSV)
     @patch("install.rhcl_deps.rhcl_operators_ready", return_value=True)
     def test_skips_when_already_ready(self, ready, _current) -> None:
-        with patch("install.rhcl_deps.reconcile_kuadrant_operator_groups"):
-            with patch("install.rhcl_deps.oc_run") as oc_run:
-                mod.ensure_rhcl_operator_for_maas()
-                oc_run.assert_not_called()
+        with patch("install.rhcl_deps._ensure_kuadrant_namespace_exists"):
+            with patch("install.rhcl_deps.reconcile_kuadrant_operator_groups"):
+                with patch("install.rhcl_deps.oc_run") as oc_run:
+                    mod.ensure_rhcl_operator_for_maas()
+                    oc_run.assert_not_called()
         ready.assert_called_once()
 
     @patch("install.rhcl_deps._apply_rhcl_manifest")
@@ -46,10 +47,12 @@ class RhclDepsTest(unittest.TestCase):
         apply_manifest,
     ) -> None:
         missing = MagicMock(returncode=1)
-        with patch("install.rhcl_deps.approve_pending_installplans", return_value=1):
-            with patch("install.rhcl_deps._wait_rhcl_operators_ready"):
-                with patch("install.rhcl_deps.oc_run", return_value=missing):
-                    mod.ensure_rhcl_operator_for_maas()
+        with patch("install.rhcl_deps._ensure_kuadrant_namespace_exists"):
+            with patch("install.rhcl_deps.reconcile_kuadrant_operator_groups"):
+                with patch("install.rhcl_deps.approve_pending_installplans", return_value=1):
+                    with patch("install.rhcl_deps._wait_rhcl_operators_ready"):
+                        with patch("install.rhcl_deps.oc_run", return_value=missing):
+                            mod.ensure_rhcl_operator_for_maas()
         apply_manifest.assert_called_once()
 
     @patch("install.dependency_operators.unblock_terminating_namespace")
@@ -75,8 +78,10 @@ class RhclDepsTest(unittest.TestCase):
         wait_ready,
     ) -> None:
         found = MagicMock(returncode=0)
-        with patch("install.rhcl_deps.oc_run", return_value=found):
-            mod.ensure_rhcl_operator_for_maas()
+        with patch("install.rhcl_deps._ensure_kuadrant_namespace_exists"):
+            with patch("install.rhcl_deps.reconcile_kuadrant_operator_groups"):
+                with patch("install.rhcl_deps.oc_run", return_value=found):
+                    mod.ensure_rhcl_operator_for_maas()
         reconcile.assert_called_once()
         approve.assert_called_once_with(mod._RHCL_NS)
         wait_ready.assert_called_once()
@@ -213,6 +218,34 @@ class RhclDepsTest(unittest.TestCase):
         self.assertEqual(len(delete_calls), 1)
         apply_og.assert_called_once()
 
+    @patch("install.rhcl_deps._apply_gitops_operatorgroup")
+    @patch("install.rhcl_deps._ensure_kuadrant_namespace_exists")
+    @patch("install.rhcl_deps._operatorgroup_names", return_value=[])
+    def test_reconcile_operator_groups_creates_when_none(
+        self,
+        _names,
+        ensure_ns,
+        apply_og,
+    ) -> None:
+        mod.reconcile_kuadrant_operator_groups()
+        ensure_ns.assert_called_once()
+        apply_og.assert_called_once()
+
+    @patch("install.dependency_operators._namespace_phase", return_value="")
+    @patch("install.rhcl_deps.oc_run")
+    def test_ensure_kuadrant_namespace_exists_creates_when_missing(
+        self,
+        oc_run,
+        _phase,
+    ) -> None:
+        oc_run.side_effect = [
+            MagicMock(returncode=0, stdout="apiVersion: v1\nkind: Namespace\n"),
+            MagicMock(returncode=0),
+        ]
+        mod._ensure_kuadrant_namespace_exists()
+        self.assertEqual(oc_run.call_count, 2)
+        self.assertEqual(oc_run.call_args_list[1].args[0][0], "apply")
+
     @patch("install.rhcl_deps.oc_run")
     def test_reconcile_operator_groups_deletes_olminstall_duplicate(self, oc_run) -> None:
         oc_run.side_effect = [
@@ -233,47 +266,94 @@ class RhclDepsTest(unittest.TestCase):
         post_install.assert_called_once_with(fatal=True)
 
     @patch("install.dependency_operators.product_install_path", return_value=True)
+    @patch(
+        "components.maas_billing.auth.recover_kuadrant_after_gateway_api_provider",
+        return_value=False,
+    )
+    @patch("helpers.gateway_stack_marker.write_gateway_stack_incomplete_marker")
     @patch("install.rhcl_deps.run_post_install_rhcl_operator", return_value=False)
     @patch("install.rhcl_deps.ensure_rhcl_operator_for_maas")
     def test_dependency_stack_warns_when_post_install_incomplete_on_product_install(
         self,
         ensure_rhcl,
         post_install,
+        write_marker,
+        _recover,
         _product_install,
     ) -> None:
         mod.ensure_maas_rhcl_dependency_stack()
         ensure_rhcl.assert_called_once()
-        self.assertEqual(post_install.call_count, 2)
+        self.assertEqual(post_install.call_count, 3)
         post_install.assert_any_call(fatal=False)
-        post_install.assert_any_call(fatal=False, timeout_sec=300)
+        post_install.assert_any_call(fatal=False, timeout_sec=900)
+        post_install.assert_any_call(fatal=False, timeout_sec=600)
+        write_marker.assert_called_once()
 
     @patch.dict(os.environ, {"PRODUCT": "existing", "INSTALL_DEPENDENCIES": "true"}, clear=False)
+    @patch(
+        "components.maas_billing.auth.recover_kuadrant_after_gateway_api_provider",
+        return_value=False,
+    )
+    @patch("helpers.gateway_stack_marker.write_gateway_stack_incomplete_marker")
     @patch("install.rhcl_deps.run_post_install_rhcl_operator", return_value=False)
     @patch("install.rhcl_deps.ensure_rhcl_operator_for_maas")
     def test_dependency_stack_warns_when_post_install_incomplete_on_install_dependencies(
         self,
         ensure_rhcl,
         post_install,
+        write_marker,
+        _recover,
     ) -> None:
         mod.ensure_maas_rhcl_dependency_stack()
         ensure_rhcl.assert_called_once()
-        self.assertEqual(post_install.call_count, 2)
+        self.assertEqual(post_install.call_count, 3)
+        write_marker.assert_called_once()
 
     @patch.dict(
         os.environ,
         {"PRODUCT": "existing", "RUN_COMPONENT_CLUSTER_PREP_IN_DEP_OPERATORS": "true"},
         clear=False,
     )
+    @patch(
+        "components.maas_billing.auth.recover_kuadrant_after_gateway_api_provider",
+        return_value=False,
+    )
+    @patch("helpers.gateway_stack_marker.write_gateway_stack_incomplete_marker")
     @patch("install.rhcl_deps.run_post_install_rhcl_operator", return_value=False)
     @patch("install.rhcl_deps.ensure_rhcl_operator_for_maas")
     def test_dependency_stack_defers_post_install_when_component_prep_in_dep_operators(
         self,
         ensure_rhcl,
         post_install,
+        write_marker,
+        _recover,
     ) -> None:
         mod.ensure_maas_rhcl_dependency_stack()
         ensure_rhcl.assert_called_once()
-        self.assertEqual(post_install.call_count, 2)
+        self.assertEqual(post_install.call_count, 3)
+        write_marker.assert_called_once()
+
+    @patch("install.dependency_operators.product_install_path", return_value=True)
+    @patch(
+        "components.maas_billing.auth.recover_kuadrant_after_gateway_api_provider",
+        return_value=True,
+    )
+    @patch("helpers.gateway_stack_marker.write_gateway_stack_incomplete_marker")
+    @patch("install.rhcl_deps.run_post_install_rhcl_operator", return_value=False)
+    @patch("install.rhcl_deps.ensure_rhcl_operator_for_maas")
+    def test_dependency_stack_recovers_kuadrant_before_incomplete_marker(
+        self,
+        ensure_rhcl,
+        post_install,
+        write_marker,
+        recover,
+        _product_install,
+    ) -> None:
+        mod.ensure_maas_rhcl_dependency_stack()
+        ensure_rhcl.assert_called_once()
+        self.assertEqual(post_install.call_count, 3)
+        recover.assert_called_once()
+        write_marker.assert_not_called()
 
     @patch.dict(os.environ, {"RHCL_POST_INSTALL_RETRY_TIMEOUT_SEC": "120"}, clear=False)
     @patch("install.dependency_operators.product_install_path", return_value=True)
@@ -312,6 +392,17 @@ class RhclDepsTest(unittest.TestCase):
             with patch("install.rhcl_deps._csv_phase", return_value="Succeeded"):
                 self.assertTrue(mod.rhcl_operators_ready(target))
         authorino.assert_called_once()
+
+    @patch(
+        "install.rhcl_deps.pick_succeeded_csv_version",
+        side_effect=lambda _ns, op, **_: "1.4.1" if op.endswith("operator") else None,
+    )
+    def test_rhcl_operators_ready_accepts_installed_csv_when_current_unset(self, _pick) -> None:
+        target = mod._FALLBACK_RHCL_CSV
+        with patch("install.rhcl_deps._subscription_current_csv", return_value=""):
+            with patch("install.rhcl_deps._csv_phase", return_value="Succeeded"):
+                self.assertTrue(mod.rhcl_operators_ready(target))
+
 
 if __name__ == "__main__":
     raise SystemExit(unittest.main())

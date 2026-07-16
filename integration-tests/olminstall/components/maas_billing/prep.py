@@ -63,6 +63,15 @@ def _restart_maas_api_after_gateway() -> None:
 
 def ensure_maas_gateway_before_models_as_service(*, https_wait_sec: int | None = None) -> None:
     """Gateway HTTPS service must exist before modelsAsService enables maas-api."""
+    from components.maas_billing.auth import recover_kuadrant_after_gateway_api_provider
+    from steps.cluster_prep_state import maas_gateway_https_blocked_reason
+
+    # cleanup+reinstall: Kuadrant often stuck MissingDependency until GatewayClass exists;
+    # restart operator once provider is present so MaaS smoke can run.
+    recover_kuadrant_after_gateway_api_provider()
+    blocked = maas_gateway_https_blocked_reason()
+    if blocked:
+        raise RuntimeError(blocked)
     if maas_gateway_mas_already_done():
         print("Skipping duplicate MaaS gateway/modelsAsService prep (already done this run)", flush=True)
         return
@@ -108,6 +117,22 @@ def try_prepare_maas_smoke() -> None:
             "Skipping RHCL/dependency-operator setup (install-dep-operators already completed)",
             flush=True,
         )
+        # After cleanup+reinstall, install-dep-operators may leave a stale incomplete
+        # marker (Kuadrant race before RHOAI). Re-probe live stack; if still incomplete,
+        # retry RHCL post-install now that the operator apps namespace exists.
+        from helpers.gateway_stack_marker import (
+            gateway_stack_incomplete,
+            reconcile_gateway_stack_incomplete_marker,
+        )
+
+        if gateway_stack_incomplete() and not reconcile_gateway_stack_incomplete_marker():
+            print(
+                "Retrying RHCL/Kuadrant post-install after install-dep incomplete marker "
+                "(post install-rhoai / DSC available)...",
+                flush=True,
+            )
+            ensure_maas_rhcl_dependency_stack()
+            require_maas_dependency_operators(allow_deferred_authorino=True)
     ensure_maas_gateway_before_models_as_service()
     ensure_maas_database()
     cleanup_maas_smoke_leaked_rbac()

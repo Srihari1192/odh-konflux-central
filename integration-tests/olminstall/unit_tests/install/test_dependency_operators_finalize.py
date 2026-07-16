@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -71,7 +72,10 @@ class FinalizeDependencyOperatorsTest(unittest.TestCase):
                                     "install.dependency_operators.maas_dependency_operators_ready",
                                     return_value=True,
                                 ):
-                                    rc = finalize_dependency_operators_after_setup_script(olm_dir, 2)
+                                    with patch(
+                                        "install.dependency_operators.ensure_jobset_and_lws_operator_crs",
+                                    ):
+                                        rc = finalize_dependency_operators_after_setup_script(olm_dir, 2)
             self.assertEqual(rc, 2)
             self.assertEqual(reconcile.call_count, 2)
             authorino.assert_called_once()
@@ -148,24 +152,52 @@ class EnsureSetupDependencyNamespacesTest(unittest.TestCase):
 
 
 class UnblockTerminatingNamespaceTest(unittest.TestCase):
+    @patch("install.dependency_operators.subprocess.run")
     @patch("install.dependency_operators.oc_run")
     @patch(
         "install.dependency_operators._namespace_phase",
         side_effect=["Terminating"] * 8 + [""],
     )
-    def test_force_deletes_workloads_before_finalize(self, _phase: object, oc_run_mock: object) -> None:
+    def test_force_deletes_workloads_before_finalize(
+        self, _phase: object, oc_run_mock: object, subprocess_run: object
+    ) -> None:
         oc_run_mock.return_value = type(
             "R",
             (),
             {"returncode": 0, "stdout": '{"metadata":{"name":"openshift-kueue-operator"},"spec":{}}', "stderr": ""},
         )()
+        subprocess_run.return_value = type(
+            "R", (), {"returncode": 0, "stdout": "", "stderr": ""}
+        )()
         unblock_terminating_namespace("openshift-kueue-operator")
         delete_calls = [
             call.args[0]
-            for call in oc_run_mock.call_args_list
-            if call.args and call.args[0][:2] == ["delete", "pod"]
+            for call in subprocess_run.call_args_list
+            if call.args and "delete" in call.args[0] and "pod" in call.args[0]
         ]
         self.assertTrue(delete_calls)
+        finalize_calls = [
+            call.args[0]
+            for call in oc_run_mock.call_args_list
+            if call.args and call.args[0][:2] == ["replace", "--raw"]
+        ]
+        self.assertTrue(finalize_calls)
+
+    @patch("install.dependency_operators.subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="oc", timeout=45))
+    @patch("install.dependency_operators.oc_run")
+    @patch(
+        "install.dependency_operators._namespace_phase",
+        side_effect=["Terminating"] * 6 + [""],
+    )
+    def test_force_delete_timeout_does_not_abort_unblock(
+        self, _phase: object, oc_run_mock: object, _subprocess_run: object
+    ) -> None:
+        oc_run_mock.return_value = type(
+            "R",
+            (),
+            {"returncode": 0, "stdout": '{"metadata":{"name":"redhat-ods-applications"},"spec":{}}', "stderr": ""},
+        )()
+        unblock_terminating_namespace("redhat-ods-applications")
         finalize_calls = [
             call.args[0]
             for call in oc_run_mock.call_args_list

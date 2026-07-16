@@ -20,6 +20,7 @@ from components.dashboard_cypress.config import (
     merge_smokeset_junit_reports,
     write_merged_junit_reports,
 )
+from helpers.log_redact import redact_command_for_log
 from install.dsc_install import oc_run
 import install.ldap as _ldap
 
@@ -73,6 +74,10 @@ _BYOIDC_EXTRA_SKIP_TAGS = (
     "@LLMDServingCI @HardwareProfilesCI @HardwareProfileModelServing"
 )
 _KONFLUX_MANIFEST_EXTRA_SKIP_TAGS = "@ODS-327 @ODS-492"
+# Konflux EaaS HCP: kube bearer bypass has no OAuth IdP users for LDAP/RBAC or long notebook/train paths.
+_EAAS_BEARER_EXTRA_SKIP_TAGS = (
+    "@ModelTrainingCI @HardwareProfilesCI @ODS-1877 @NonConcurrent @ModelRegistryCI"
+)
 
 
 def stage_writable_kubeconfig(artifacts_dir: Path, kubeconfig_src: str) -> Path:
@@ -206,6 +211,7 @@ def prepare_dashboard_worktree(
     patch_dashboard_cypress_upstream_tests(dashboard_src)
     patch_dashboard_cypress_automl_hooks(dashboard_src)
     patch_dashboard_cypress_ldap_gateway_login(dashboard_src)
+    patch_dashboard_cypress_bearer_auth(dashboard_src)
     os.environ["DASHBOARD_SRC"] = str(dashboard_src)
     return dashboard_src / working_dir_rel, dashboard_src / results_dir_rel
 
@@ -241,6 +247,76 @@ def patch_dashboard_cypress_upstream_tests(dashboard_src: Path) -> None:
         encoding="utf-8",
     )
     print(f"✓ Patched {about.name} for operator-namespace CSV lookup", flush=True)
+
+
+def _cypress_kube_bearer_bypass_active() -> str:
+    """Expression used in upstream Cypress patches when OC bearer replaces OAuth login."""
+    return (
+        "Boolean(Cypress.env('OC_TOKEN')) && "
+        "!String(Cypress.env('CLUSTER_AUTH') || '').trim()"
+    )
+
+
+def patch_dashboard_cypress_bearer_auth(dashboard_src: Path) -> None:
+    """Skip htpasswd/LDAP identity checks when Konflux EaaS uses kube bearer gateway auth."""
+    marker = "olminstall-patched-bearer-auth"
+    bearer_expr = _cypress_kube_bearer_bypass_active()
+
+    application = dashboard_src / "packages/cypress/cypress/tests/e2e/application.cy.ts"
+    if application.is_file():
+        text = application.read_text(encoding="utf-8")
+        if marker not in text:
+            old = """    cy.visitWithLogin('/');
+    cy.findByRole('banner', { name: 'page masthead' }).contains(
+      HTPASSWD_CLUSTER_ADMIN_USER.USERNAME,
+    );"""
+            new = f"""    cy.visitWithLogin('/');
+    if (!({bearer_expr})) {{
+      cy.findByRole('banner', {{ name: 'page masthead' }}).contains(
+        HTPASSWD_CLUSTER_ADMIN_USER.USERNAME,
+      );
+    }}"""
+            if old in text:
+                application.write_text(
+                    f"// {marker}\n" + text.replace(old, new, 1),
+                    encoding="utf-8",
+                )
+                print(f"✓ Patched {application.name} for kube bearer masthead check", flush=True)
+            else:
+                print(
+                    f"WARN: skip bearer auth patch; {application.name} layout changed",
+                    flush=True,
+                )
+
+    catalog = (
+        dashboard_src
+        / "packages/cypress/cypress/tests/e2e/modelCatalog/testCatalogSettingsAvailable.cy.ts"
+    )
+    if catalog.is_file():
+        text = catalog.read_text(encoding="utf-8")
+        if marker not in text:
+            old = """      cy.step('Log into the application as non-admin user');
+      cy.visitWithLogin('/', LDAP_CONTRIBUTOR_USER);"""
+            new = f"""      if ({bearer_expr}) {{
+        cy.log('Skipping: EaaS bearer auth cannot impersonate LDAP contributor user');
+        return;
+      }}
+      cy.step('Log into the application as non-admin user');
+      cy.visitWithLogin('/', LDAP_CONTRIBUTOR_USER);"""
+            if old in text:
+                catalog.write_text(
+                    f"// {marker}\n" + text.replace(old, new, 1),
+                    encoding="utf-8",
+                )
+                print(
+                    f"✓ Patched {catalog.name} for kube bearer non-admin RBAC skip",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"WARN: skip bearer catalog patch; {catalog.name} layout changed",
+                    flush=True,
+                )
 
 
 def patch_dashboard_cypress_automl_hooks(dashboard_src: Path) -> None:
@@ -530,7 +606,9 @@ from components.dashboard_cypress.auth_overlay import (  # noqa: E402
     _merge_test_clusters_into_runtime_config,
     _yaml_scalar,
     dashboard_url_is_local,
+    gateway_cypress_uses_bearer_bypass,
     gateway_use_byoidc_auth,
+    validate_gateway_cypress_auth,
     is_konflux_eaas_gateway_url,
     resolve_gateway_auth_overlay,
     resolve_test_clusters_overlay,
@@ -547,8 +625,6 @@ def htpasswd_hcp_extra_cypress_skip_tags(*, odh_dashboard_url: str) -> str:
         return ""
     if _ldap._cluster_is_byoidc():
         return ""
-    if is_konflux_eaas_gateway_url(odh_dashboard_url):
-        return ""
     from install.ldap import cluster_has_ldap_identity
 
     if cluster_has_ldap_identity():
@@ -563,6 +639,13 @@ def byoidc_extra_cypress_skip_tags(*, odh_dashboard_url: str) -> str:
     if not _ldap._cluster_is_byoidc():
         return ""
     return _BYOIDC_EXTRA_SKIP_TAGS
+
+
+def eaas_bearer_extra_cypress_skip_tags(*, odh_dashboard_url: str) -> str:
+    """Extra skipTags when gateway Cypress uses kube bearer (no OAuth htpasswd/LDAP users)."""
+    if not gateway_cypress_uses_bearer_bypass(odh_dashboard_url=odh_dashboard_url):
+        return ""
+    return _EAAS_BEARER_EXTRA_SKIP_TAGS
 
 
 def konflux_olminstall_extra_cypress_skip_tags() -> str:
@@ -587,6 +670,7 @@ def cypress_extra_skip_tags(*, odh_dashboard_url: str) -> str:
     parts = [
         htpasswd_hcp_extra_cypress_skip_tags(odh_dashboard_url=odh_dashboard_url),
         byoidc_extra_cypress_skip_tags(odh_dashboard_url=odh_dashboard_url),
+        eaas_bearer_extra_cypress_skip_tags(odh_dashboard_url=odh_dashboard_url),
         konflux_olminstall_extra_cypress_skip_tags(),
         _automl_s3_skip_tags(),
     ]
@@ -676,6 +760,96 @@ def verify_dashboard_reachable(url: str) -> bool:
     )
     code = (proc.stdout or "").strip()
     return code in _DASHBOARD_OK_HTTP
+
+
+def _gateway_html_preflight_timeout_sec() -> int:
+    return int(os.environ.get("GATEWAY_HTML_PREFLIGHT_TIMEOUT_SEC", "180"))
+
+
+def _content_type_is_html(content_type: str) -> bool:
+    """True when Content-Type is an HTML document (Cypress cy.visit requirement)."""
+    ctype = (content_type or "").split(";", 1)[0].strip().lower()
+    return ctype in ("text/html", "application/xhtml+xml")
+
+
+def _curl_response_content_type(url: str, *, follow_redirects: bool = True) -> tuple[str, str]:
+    """Return (http_code, content-type) from a GET (Cypress visits, not HEAD)."""
+    headers: list[str] = []
+    token = os.environ.get("OC_TOKEN", "").strip() or os.environ.get("CYPRESS_OC_TOKEN", "").strip()
+    if token and ("127.0.0.1" in url or "localhost" in url):
+        headers = ["-H", f"Authorization: Bearer {token}"]
+    cmd = [
+        "curl",
+        "-sS",
+        "-D",
+        "-",
+        "-o",
+        "/dev/null",
+        "--write-out",
+        "\n%{http_code}",
+        "--insecure",
+        "--max-time",
+        "15",
+        "--connect-timeout",
+        "5",
+        "--no-progress-meter",
+        *headers,
+    ]
+    if follow_redirects:
+        cmd.extend(["--location", "--max-redirs", "8"])
+    cmd.append(url)
+    proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    raw = (proc.stdout or "") + (proc.stderr or "")
+    lines = raw.splitlines()
+    code = lines[-1].strip() if lines else ""
+    content_type = ""
+    for line in lines:
+        if line.lower().startswith("content-type:"):
+            content_type = line.split(":", 1)[1].strip()
+    return code, content_type
+
+
+def verify_dashboard_serves_html(url: str, *, timeout_sec: int | None = None) -> bool:
+    """Poll until GET returns HTML (rejects gateway text/plain that breaks cy.visit).
+
+    HEAD can pass with 302 while a subsequent GET still returns ``text/plain`` under
+    Authorino/OAP load; Cypress requires ``text/html`` for ``cy.visit()``.
+    """
+    deadline = time.time() + (timeout_sec if timeout_sec is not None else _gateway_html_preflight_timeout_sec())
+    poll_sec = 5
+    attempt = 0
+    last_code, last_ctype = "", ""
+    print(f"Verify dashboard serves HTML at {url}...", flush=True)
+    while time.time() < deadline:
+        attempt += 1
+        last_code, last_ctype = _curl_response_content_type(url, follow_redirects=True)
+        if _content_type_is_html(last_ctype):
+            print(
+                f"✓ Dashboard HTML preflight ok (attempt={attempt} http={last_code} "
+                f"content-type={last_ctype})",
+                flush=True,
+            )
+            return True
+        # OAuth authorize redirect without following still counts if Location is oauth HTML flow
+        if last_code == "302" and not last_ctype:
+            code2, ctype2 = _curl_response_content_type(url, follow_redirects=False)
+            if code2 in _DASHBOARD_OK_HTTP:
+                # Fall through: need HTML after redirects for Cypress
+                last_code, last_ctype = code2, ctype2 or last_ctype
+        if attempt == 1 or attempt % 6 == 0:
+            print(
+                f"Waiting for dashboard HTML (attempt={attempt} http={last_code or '?'} "
+                f"content-type={last_ctype or 'missing'})...",
+                flush=True,
+            )
+        time.sleep(poll_sec)
+    print(
+        f"ERROR: dashboard did not serve HTML after {_gateway_html_preflight_timeout_sec()}s "
+        f"(last http={last_code or '?'} content-type={last_ctype or 'missing'})",
+        file=sys.stderr,
+        flush=True,
+    )
+    return False
 
 
 _GATEWAY_DEPLOYMENTS: tuple[tuple[str, str], ...] = (
@@ -866,7 +1040,7 @@ def ensure_google_chrome() -> None:
 
 def run_cypress_shell_command(run_command: str, *, test_timeout_sec: float | None) -> int:
     """Execute parallel Cypress shell command produced by orchestrate step."""
-    print(f"Running (cypress): {run_command}", flush=True)
+    print(f"Running (cypress): {redact_command_for_log(run_command)}", flush=True)
     if test_timeout_sec is not None:
         proc = subprocess.run(
             ["timeout", f"{int(test_timeout_sec)}s", "bash", "-c", run_command],

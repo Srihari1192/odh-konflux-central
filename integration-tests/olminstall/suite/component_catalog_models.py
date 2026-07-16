@@ -18,6 +18,8 @@ class CypressRunnerConfig:
     gates: dict[str, tuple[CypressParallelSet, ...]]
     test_timeout_seconds: str = "480"
     parallel_stagger_sec: int = 15
+    # Cap concurrent SmokeSet/SanitySet browsers; None = unlimited (all sets &).
+    max_parallel: int | None = None
     display_base: int = 99
     run_config: str = (
         "numTestsKeptInMemory=0,experimentalMemoryManagement=true,"

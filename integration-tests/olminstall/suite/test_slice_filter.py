@@ -137,6 +137,7 @@ def filter_cypress_config_by_slice_ids(
         gates=new_gates,
         test_timeout_seconds=config.test_timeout_seconds,
         parallel_stagger_sec=config.parallel_stagger_sec,
+        max_parallel=config.max_parallel,
         display_base=config.display_base,
         run_config=config.run_config,
     )

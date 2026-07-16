@@ -381,3 +381,23 @@ class EnsureKubeconfigBearerTokenTests(unittest.TestCase):
                 "htpasswd-session",
             )
 
+    def test_ensure_olminstall_sa_skips_bind_when_cluster_admin_ready(self) -> None:
+        calls: list[list[str]] = []
+
+        def run_side_effect(cmd, **kwargs):
+            calls.append(list(cmd))
+            if len(cmd) >= 3 and cmd[1:3] == ["get", "sa"]:
+                return mock.Mock(returncode=0, stdout="", stderr="")
+            if len(cmd) >= 4 and cmd[1:4] == ["auth", "can-i", "*"]:
+                return mock.Mock(returncode=0, stdout="yes\n", stderr="")
+            raise AssertionError(f"unexpected oc command: {cmd}")
+
+        with mock.patch.object(tekton_util, "run", side_effect=run_side_effect):
+            self.assertTrue(
+                tekton_util._ensure_olminstall_cluster_admin_sa("/usr/bin/oc", {"KUBECONFIG": "/tmp/kc"})
+            )
+        self.assertFalse(
+            any("adm" in cmd and "policy" in cmd for cmd in calls),
+            "bind should be skipped when SA already has cluster-admin",
+        )
+

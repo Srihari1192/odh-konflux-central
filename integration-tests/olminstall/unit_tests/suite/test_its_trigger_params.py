@@ -8,6 +8,7 @@ from suite.its_trigger_params import (
     CLUSTER_SOURCE_EAAS,
     external_kubeconfig_secret_name,
     is_external_cluster_source,
+    ocp_install_prefix,
     ocp_version_from_rhoai_fbc_name,
     resolve_cluster_source_for_trigger,
     resolve_ocp_version_display,
@@ -122,6 +123,12 @@ class ItsTriggerParamsTests(unittest.TestCase):
             ),
             "latest (default)",
         )
+
+    def test_ocp_install_prefix_ignores_display_placeholders(self) -> None:
+        self.assertEqual(ocp_install_prefix("latest (default)"), "")
+        self.assertEqual(ocp_install_prefix("unspecified (default)"), "")
+        self.assertEqual(ocp_install_prefix("4.21"), "4.21")
+        self.assertEqual(ocp_install_prefix(" 4.20 "), "4.20")
 
     def test_ocp_version_explicit(self) -> None:
         self.assertEqual(

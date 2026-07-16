@@ -30,6 +30,7 @@ class ComponentSmokeResultsTest(unittest.TestCase):
         repo = REPO_ROOT
         with tempfile.TemporaryDirectory() as tmp:
             results = Path(tmp)
+            run_config = results / "run-config"
             env = {
                 "REPO_ROOT": str(repo),
                 "RESULTS_DIR": str(results),
@@ -51,17 +52,20 @@ class ComponentSmokeResultsTest(unittest.TestCase):
                 "RUN_BVT_PLACEHOLDER_ONLY_PATH": str(results / "RUN_BVT_PLACEHOLDER_ONLY"),
                 "RUN_DISTRIBUTED_WORKLOADS_TESTS_PATH": str(results / "RUN_DISTRIBUTED_WORKLOADS_TESTS"),
                 "SETUP_DEPENDENCIES_ARGS_PATH": str(results / "SETUP_DEPENDENCIES_ARGS"),
+                "SETUP_DEPENDENCIES_ARGS_WORKSPACE": str(run_config / "SETUP_DEPENDENCIES_ARGS"),
                 "COMPONENTS_CSV_PATH": str(results / "COMPONENTS_CSV"),
+                "COMPONENTS_CSV_WORKSPACE": str(run_config / "COMPONENTS_CSV"),
                 "SMOKE_AWS_SECRET_PATH": str(results / "SMOKE_AWS_SECRET"),
+                "SMOKE_AWS_SECRET_WORKSPACE": str(run_config / "SMOKE_AWS_SECRET"),
             }
             for cid in catalog.component_ids:
                 key = component_smoke_result_name(cid)
                 env[f"{key}_PATH"] = str(results / key)
             with patch.dict(os.environ, env, clear=False):
                 self.assertEqual(main(), 0)
-            self.assertEqual((results / "RUN_SMOKE_ai_pipelines").read_text(), "true")
-            self.assertEqual((results / "RUN_SMOKE_model_server").read_text(), "false")
-            self.assertEqual((results / "RUN_SMOKE_workbenches").read_text(), "false")
+            self.assertEqual((results / "RUN_SMOKE").read_text(), "true")
+            self.assertEqual((results / "RUN_COMPONENT_TESTS").read_text(), "true")
+            self.assertFalse((results / "RUN_SMOKE_ai_pipelines").exists())
 
 if __name__ == "__main__":
     raise SystemExit(unittest.main())

@@ -166,7 +166,7 @@ class RunnerDeleteMixin:
             raise AppError("Not logged in; run oc login before --delete-pending-pipelines.", 1)
         stop_owned_running = bool(getattr(self.args, "stop_owned_running", False))
         include_unowned_stuck = bool(getattr(self.args, "include_unowned_stuck", False))
-        dry_run = bool(getattr(self.args, "delete_pending_dry_run", False))
+        dry_run = bool(getattr(self.args, "dry_run", False))
         live_items = self._olminstall_pipelinerun_items(source="live")
         targets = self._delete_pending_targets_from_items(
             live_items,

@@ -136,6 +136,14 @@ def _wait_maas_gateway_https_for_models_as_service(*, timeout_sec: int) -> None:
         _maas_gateway_https_service_ready,
         _maas_gateway_programmed,
     )
+    from steps.cluster_prep_state import (
+        maas_gateway_https_blocked_reason,
+        mark_maas_gateway_https_failed,
+    )
+
+    blocked = maas_gateway_https_blocked_reason()
+    if blocked:
+        raise RuntimeError(blocked)
 
     _ensure_openshift_gateway_controller_ready()
     deadline = time.time() + timeout_sec
@@ -161,9 +169,9 @@ def _wait_maas_gateway_https_for_models_as_service(*, timeout_sec: int) -> None:
             )
         time.sleep(12)
     _, svc_detail = _maas_gateway_https_service_ready()
-    raise RuntimeError(
-        f"MaaS gateway HTTPS service not ready after {timeout_sec}s — {svc_detail[:300]}"
-    )
+    msg = f"MaaS gateway HTTPS service not ready after {timeout_sec}s — {svc_detail[:300]}"
+    mark_maas_gateway_https_failed(msg)
+    raise RuntimeError(msg)
 
 
 def _wait_for_maas_smoke_ready(*, timeout_sec: int) -> None:
@@ -307,4 +315,40 @@ def _wait_for_dsc_ready(*, timeout_sec: int) -> None:
         "WARN: DataScienceCluster/default-dsc not Ready after "
         f"{timeout_sec}s — continuing smoke (tests may fail)",
         file=sys.stderr,
+    )
+
+
+def require_dsc_ready_for_bvt(*, timeout_sec: int) -> None:
+    """Block operator_health BVT until DSC Ready (pytest wait is only 120s)."""
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        r = oc_run(
+            [
+                "get",
+                "datasciencecluster",
+                "default-dsc",
+                "-o",
+                "jsonpath={.status.conditions[?(@.type=='Ready')].status}",
+            ],
+            check=False,
+            capture_output=True,
+            timeout=30,
+        )
+        if (r.stdout or "").strip() == "True":
+            print("✓ DataScienceCluster/default-dsc Ready (BVT gate)", flush=True)
+            return
+        if int(time.time()) % 60 < 12:
+            status, reason, msg = _dsc_condition("ModelsAsServiceReady")
+            print(
+                "Waiting for DSC Ready before operator_health BVT "
+                f"(ModelsAsServiceReady={status or '?'} reason={reason or '?'}): "
+                f"{(msg or 'reconciling...')[:120]}",
+                flush=True,
+            )
+        time.sleep(10)
+    status, reason, msg = _dsc_condition("ModelsAsServiceReady")
+    raise RuntimeError(
+        f"DSC not Ready after {timeout_sec}s before operator_health BVT "
+        f"(ModelsAsServiceReady={status or '?'}, reason={reason or '?'}): "
+        f"{(msg or 'reconcile incomplete')[:300]}"
     )

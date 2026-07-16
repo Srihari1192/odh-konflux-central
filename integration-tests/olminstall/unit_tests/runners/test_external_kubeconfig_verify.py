@@ -26,11 +26,19 @@ def test_verify_external_cluster_login_ok(tmp_path: Path) -> None:
 def test_verify_external_cluster_login_anonymous(tmp_path: Path) -> None:
     kubeconfig = tmp_path / "kubeconfig"
     kubeconfig.write_text("apiVersion: v1\nkind: Config\n", encoding="utf-8")
-    with mock.patch("k8s.external_kubeconfig.run_cmd") as run_cmd:
+    with (
+        mock.patch("k8s.external_kubeconfig.run_cmd") as run_cmd,
+        mock.patch(
+            "k8s.external_kubeconfig.kubeconfig_cluster_server",
+            return_value="https://api.example:6443",
+        ),
+    ):
         run_cmd.return_value.returncode = 0
         run_cmd.return_value.stdout = "system:anonymous\n"
-        with pytest.raises(AppError, match="login required"):
+        with pytest.raises(AppError, match="external cluster https://api.example:6443") as exc_info:
             verify_external_cluster_login(kubeconfig)
+        assert exc_info.value.code == 1
+        assert "Konflux KUBECONFIG" in str(exc_info.value)
 
 def test_verify_external_cluster_login_missing_file() -> None:
     with pytest.raises(AppError, match="not found"):
@@ -65,11 +73,10 @@ def test_external_cluster_has_rhoai_idms_true(tmp_path: Path) -> None:
         assert external_cluster_has_rhoai_idms(kubeconfig) is True
 
 def test_verify_external_cluster_rhoai_idms_mirror_raises_when_missing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     kubeconfig = tmp_path / "kubeconfig"
     kubeconfig.write_text("apiVersion: v1\nkind: Config\n", encoding="utf-8")
-    monkeypatch.delenv("OLMINSTALL_SKIP_IDMS_PREFLIGHT", raising=False)
     with (
         mock.patch("k8s.external_kubeconfig.external_cluster_has_rhoai_idms", return_value=False),
         mock.patch("k8s.external_kubeconfig.external_cluster_is_hypershift_managed", return_value=False),
@@ -78,11 +85,10 @@ def test_verify_external_cluster_rhoai_idms_mirror_raises_when_missing(
             verify_external_cluster_rhoai_idms_mirror(kubeconfig)
 
 def test_verify_external_cluster_rhoai_idms_mirror_hypershift_ready(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     kubeconfig = tmp_path / "kubeconfig"
     kubeconfig.write_text("apiVersion: v1\nkind: Config\n", encoding="utf-8")
-    monkeypatch.delenv("OLMINSTALL_SKIP_IDMS_PREFLIGHT", raising=False)
     with (
         mock.patch("k8s.external_kubeconfig.external_cluster_has_rhoai_idms", return_value=False),
         mock.patch("k8s.external_kubeconfig.external_cluster_is_hypershift_managed", return_value=True),
@@ -91,11 +97,10 @@ def test_verify_external_cluster_rhoai_idms_mirror_hypershift_ready(
         verify_external_cluster_rhoai_idms_mirror(kubeconfig)
 
 def test_verify_external_cluster_rhoai_idms_mirror_hypershift_pending(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     kubeconfig = tmp_path / "kubeconfig"
     kubeconfig.write_text("apiVersion: v1\nkind: Config\n", encoding="utf-8")
-    monkeypatch.delenv("OLMINSTALL_SKIP_IDMS_PREFLIGHT", raising=False)
     with (
         mock.patch("k8s.external_kubeconfig.external_cluster_has_rhoai_idms", return_value=False),
         mock.patch("k8s.external_kubeconfig.external_cluster_is_hypershift_managed", return_value=True),

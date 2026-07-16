@@ -41,6 +41,7 @@ def test_models_as_service_selector_conflict_detects_immutable_selector() -> Non
 def test_repair_payload_pre_processing_deletes_stale_deployment() -> None:
     with (
         patch.object(mod, "_models_as_service_selector_conflict", return_value=True),
+        patch.object(mod, "_wait_models_as_service_after_repair"),
         patch.object(mod, "oc_run") as oc_run,
     ):
         oc_run.side_effect = [
@@ -49,6 +50,13 @@ def test_repair_payload_pre_processing_deletes_stale_deployment() -> None:
         ]
         assert mod.repair_payload_pre_processing_selector_conflict() is True
         assert oc_run.call_args_list[-1][0][0][:2] == ["delete", "deployment"]
+
+
+def test_cleanup_stale_maas_ingress_workloads_deletes_both_deployments() -> None:
+    with patch.object(mod, "oc_run") as oc_run:
+        oc_run.return_value = type("R", (), {"returncode": 0, "stdout": "deleted", "stderr": ""})()
+        mod.cleanup_stale_maas_ingress_workloads()
+    assert oc_run.call_count == 2
 
 
 def test_repair_payload_pre_processing_noop_when_dsc_ready() -> None:

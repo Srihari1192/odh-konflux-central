@@ -332,6 +332,20 @@ def konflux_failure_test_output_json(*, note: str) -> str:
     return json.dumps(payload, separators=(",", ":"))
 
 
+def konflux_conforma_skip_test_output_json(*, note: str) -> str:
+    """WARNING TEST_OUTPUT when conforma failed and olminstall e2e was intentionally skipped."""
+    payload = {
+        "result": "WARNING",
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "successes": 0,
+        "failures": 0,
+        "warnings": konflux_list_warnings_count(warnings=1),
+        "skipped": 0,
+        "note": (note or "Skipped: conforma failed — e2e smoke not run").strip()[:3000],
+    }
+    return json.dumps(payload, separators=(",", ":"))
+
+
 def konflux_publish_success_test_output_json(*, note: str = "") -> str:
     """Minimal Konflux TEST_OUTPUT for a successful publish-results task (green DAG node)."""
     payload = {
