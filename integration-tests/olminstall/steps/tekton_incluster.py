@@ -7,6 +7,7 @@ import json
 import os
 import socket
 import ssl
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -15,10 +16,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+_LABEL_SNAPSHOT = "appstudio.openshift.io/snapshot"
+_OC_SUBPROCESS_TIMEOUT_SEC = 60
+
 
 def pipeline_run_name_from_env(*, required: bool = False) -> str:
+    from steps.tekton_util import resolved_tekton_env_value
+
     for key in ("PIPELINE_RUN_NAME", "PIPELINERUN", "PIPELINE_RUN"):
-        v = os.environ.get(key, "").strip()
+        v = resolved_tekton_env_value(os.environ.get(key, ""))
         if v:
             return v
     p = Path("/etc/tekton/pipelineRunName")
@@ -32,12 +38,17 @@ def pipeline_run_name_from_env(*, required: bool = False) -> str:
 
 
 def namespace_from_env(*, required: bool = False) -> str:
+    from steps.tekton_util import resolved_tekton_env_value
+
     p = Path("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
     if p.is_file():
         file_value = p.read_text(encoding="utf-8").strip()
         if file_value:
             return file_value
-    v = os.environ.get("NAMESPACE", "").strip()
+    v = resolved_tekton_env_value(os.environ.get("NAMESPACE", ""))
+    if v:
+        return v
+    v = resolved_tekton_env_value(os.environ.get("PIPELINE_NAMESPACE", ""))
     if v:
         return v
     if required:
@@ -245,6 +256,36 @@ def _list_taskruns_for_pipeline_run(
     return [x for x in items if isinstance(x, dict)]
 
 
+def fetch_pipelinerun_in_cluster(
+    pipeline_run: str,
+    namespace: str,
+    *,
+    error_out: list[str] | None = None,
+) -> dict[str, Any] | None:
+    """Fetch a PipelineRun document from the in-cluster Tekton API."""
+    pr_name = (pipeline_run or "").strip()
+    ns = (namespace or "").strip()
+    if not pr_name or not ns:
+        return None
+    creds = _pipelinerun_list_credentials()
+    if creds is None:
+        if error_out is not None:
+            error_out.append("ERROR: in-cluster credentials unavailable for PipelineRun get")
+        return None
+    token, ca_path, base = creds
+    url = (
+        f"{base}/apis/tekton.dev/v1/namespaces/{urllib.parse.quote(ns)}"
+        f"/pipelineruns/{urllib.parse.quote(pr_name)}"
+    )
+    try:
+        doc = in_cluster_get(url, token, ca_path)
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError) as exc:
+        if error_out is not None:
+            error_out.append(f"ERROR: get PipelineRun {pr_name}: {exc}")
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
 def list_taskruns_in_cluster(
     pipeline_run: str,
     namespace: str,
@@ -274,3 +315,217 @@ def list_taskruns_in_cluster(
             )
         )
     return out
+
+
+def _pipelinerun_list_credentials() -> tuple[str, Path, str] | None:
+    token_path = Path("/var/run/secrets/kubernetes.io/serviceaccount/token")
+    ca_path = Path("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+    base = kubernetes_api_base_url()
+    if not (token_path.is_file() and ca_path.is_file() and base):
+        return None
+    return token_path.read_text(encoding="utf-8"), ca_path, base
+
+
+def _list_pipelineruns_for_snapshot_oc(
+    snapshot_name: str,
+    namespace: str,
+    *,
+    error_out: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    snap = (snapshot_name or "").strip()
+    ns = (namespace or namespace_from_env()).strip()
+    if not snap or not ns:
+        return []
+    try:
+        proc = subprocess.run(
+            ["oc", "get", "pipelinerun", "-n", ns, "-l", f"{_LABEL_SNAPSHOT}={snap}", "-o", "json"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_OC_SUBPROCESS_TIMEOUT_SEC,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        if error_out is not None:
+            error_out.append(f"ERROR: oc list PipelineRuns for snapshot {snap}: {exc}")
+        return []
+    if proc.returncode != 0:
+        if error_out is not None:
+            err = (proc.stderr or proc.stdout or "").strip()
+            error_out.append(f"ERROR: oc list PipelineRuns for snapshot {snap}: {err}")
+        return []
+    try:
+        doc = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        if error_out is not None:
+            error_out.append(f"ERROR: oc list PipelineRuns for snapshot {snap}: invalid JSON")
+        return []
+    items = doc.get("items")
+    if not isinstance(items, list):
+        return []
+    return [x for x in items if isinstance(x, dict)]
+
+
+def _pipeline_run_snapshot_label_oc(
+    pipeline_run: str | None = None,
+    namespace: str | None = None,
+) -> str:
+    pr_name = (pipeline_run or pipeline_run_name_from_env()).strip()
+    ns = (namespace or namespace_from_env()).strip()
+    if not pr_name or not ns:
+        return ""
+    try:
+        proc = subprocess.run(
+            [
+                "oc",
+                "get",
+                "pipelinerun",
+                pr_name,
+                "-n",
+                ns,
+                "-o",
+                f"jsonpath={{.metadata.labels['{_LABEL_SNAPSHOT}']}}",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_OC_SUBPROCESS_TIMEOUT_SEC,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return ""
+    if proc.returncode != 0:
+        return ""
+    return (proc.stdout or "").strip()
+
+
+def list_pipelineruns_for_snapshot(
+    snapshot_name: str,
+    namespace: str,
+    *,
+    error_out: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """List PipelineRuns labeled with ``appstudio.openshift.io/snapshot``."""
+    snap = (snapshot_name or "").strip()
+    ns = (namespace or namespace_from_env()).strip()
+    if not snap or not ns:
+        return []
+    creds = _pipelinerun_list_credentials()
+    if creds is None:
+        return _list_pipelineruns_for_snapshot_oc(snap, ns, error_out=error_out)
+    token, ca_path, base = creds
+    sel = urllib.parse.quote(f"{_LABEL_SNAPSHOT}={snap}")
+    url = (
+        f"{base}/apis/tekton.dev/v1/namespaces/{urllib.parse.quote(ns)}"
+        f"/pipelineruns?labelSelector={sel}"
+    )
+    try:
+        doc = in_cluster_get(url, token, ca_path)
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError) as exc:
+        oc_items = _list_pipelineruns_for_snapshot_oc(snap, ns, error_out=error_out)
+        if oc_items:
+            return oc_items
+        if error_out is not None:
+            error_out.append(f"ERROR: list PipelineRuns for snapshot {snap}: {exc}")
+        return []
+    items = doc.get("items")
+    if not isinstance(items, list):
+        oc_items = _list_pipelineruns_for_snapshot_oc(snap, ns, error_out=error_out)
+        if oc_items:
+            return oc_items
+        return []
+    return [x for x in items if isinstance(x, dict)]
+
+
+def pipeline_run_snapshot_label(
+    pipeline_run: str | None = None,
+    namespace: str | None = None,
+) -> str:
+    """Read ``appstudio.openshift.io/snapshot`` from the current PipelineRun."""
+    pr_name = (pipeline_run or pipeline_run_name_from_env()).strip()
+    ns = (namespace or namespace_from_env()).strip()
+    if not pr_name or not ns:
+        return ""
+    creds = _pipelinerun_list_credentials()
+    if creds is not None:
+        token, ca_path, base = creds
+        url = (
+            f"{base}/apis/tekton.dev/v1/namespaces/{urllib.parse.quote(ns)}"
+            f"/pipelineruns/{urllib.parse.quote(pr_name)}"
+        )
+        try:
+            doc = in_cluster_get(url, token, ca_path)
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError):
+            doc = None
+        else:
+            meta = doc.get("metadata")
+            if isinstance(meta, dict):
+                labels = meta.get("labels")
+                if isinstance(labels, dict):
+                    label = str(labels.get(_LABEL_SNAPSHOT) or "").strip()
+                    if label:
+                        return label
+    return _pipeline_run_snapshot_label_oc(pr_name, ns)
+
+
+def fetch_snapshot_metadata(
+    snapshot_name: str,
+    namespace: str | None = None,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Return Snapshot ``metadata.labels`` and ``metadata.annotations`` as string dicts."""
+    snap = (snapshot_name or "").strip()
+    ns = (namespace or namespace_from_env()).strip()
+    if not snap or not ns:
+        return {}, {}
+
+    doc: dict[str, Any] | None = None
+    try:
+        proc = subprocess.run(
+            ["oc", "get", "snapshot", snap, "-n", ns, "-o", "json"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_OC_SUBPROCESS_TIMEOUT_SEC,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        proc = None
+    if proc is not None and proc.returncode == 0:
+        try:
+            parsed = json.loads(proc.stdout or "{}")
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, dict):
+            doc = parsed
+
+    if doc is None:
+        creds = _pipelinerun_list_credentials()
+        if creds is None:
+            return {}, {}
+        token, ca_path, base = creds
+        url = (
+            f"{base}/apis/appstudio.redhat.com/v1alpha1/namespaces/{urllib.parse.quote(ns)}"
+            f"/snapshots/{urllib.parse.quote(snap)}"
+        )
+        try:
+            fetched = in_cluster_get(url, token, ca_path)
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError):
+            return {}, {}
+        doc = fetched if isinstance(fetched, dict) else None
+
+    if doc is None:
+        return {}, {}
+    return _metadata_string_maps(doc.get("metadata"))
+
+
+def _string_metadata_map(value: object) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: val
+        for key, val in value.items()
+        if isinstance(key, str) and isinstance(val, str)
+    }
+
+
+def _metadata_string_maps(meta: object) -> tuple[dict[str, str], dict[str, str]]:
+    if not isinstance(meta, dict):
+        return {}, {}
+    return _string_metadata_map(meta.get("labels")), _string_metadata_map(meta.get("annotations"))

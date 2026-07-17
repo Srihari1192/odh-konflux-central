@@ -11,6 +11,12 @@ class RhoaiChannelTest(unittest.TestCase):
     def test_version_35_maps_to_beta(self) -> None:
         self.assertEqual(resolve_rhoai_update_channel(version="3.5"), "beta")
 
+    def test_version_350_ea_maps_to_beta(self) -> None:
+        self.assertEqual(resolve_rhoai_update_channel(version="3.5.0-ea.2"), "beta")
+
+    def test_version_35_does_not_map_to_stable_35(self) -> None:
+        self.assertNotEqual(resolve_rhoai_update_channel(version="3.5-ea.2"), "stable-3.5")
+
     def test_resolved_app_v35_maps_to_beta(self) -> None:
         self.assertEqual(
             resolve_rhoai_update_channel(resolved_app="rhoai-v3-5-ea-2"),

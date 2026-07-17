@@ -54,11 +54,16 @@ class ExternalKubeconfigSecretCleanupTest(unittest.TestCase):
                     "sec-b" if cluster_source == "sec-b" else "sec-a"
                 ),
             ):
-                active = list_active_pipelineruns_for_cluster_source(
-                    namespace="rhoai-tenant",
-                    cluster_source="sec-a",
-                    exclude_name="olminstall-pr-self",
-                )
+                # Avoid secret lookups via the shared run_cmd mock (PLR list JSON).
+                with mock.patch(
+                    "k8s.external_kubeconfig.resolve_cluster_lock_key_for_external_cluster",
+                    return_value="",
+                ):
+                    active = list_active_pipelineruns_for_cluster_source(
+                        namespace="rhoai-tenant",
+                        cluster_source="sec-a",
+                        exclude_name="olminstall-pr-self",
+                    )
         self.assertEqual(active, ["olminstall-pr-active"])
 
     def test_list_active_returns_none_when_oc_fails(self) -> None:

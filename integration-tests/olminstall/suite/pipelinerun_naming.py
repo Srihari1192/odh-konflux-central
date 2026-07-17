@@ -7,7 +7,9 @@ from datetime import datetime, timezone
 
 from suite.its_trigger_params import CLUSTER_SOURCE_EAAS, is_external_cluster_source
 
-_OLMINSTALL_PREFIX = "olminstall"
+_E2E_PLR_PREFIX = "e2e"
+_LEGACY_PLR_PREFIX = "olminstall"
+_DEFAULT_PLR_GENERATE_PREFIX = f"{_E2E_PLR_PREFIX}-"
 _DNS_LABEL_RE = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
 _RHOAI_VERSION_TAIL_RE = re.compile(r"^v?(\d+)[.-](\d+)(?:-(.*))?$", re.IGNORECASE)
 _PLACEHOLDER_VERSION_RE = re.compile(
@@ -42,7 +44,7 @@ def _fit_generate_prefix(
         if len(prefix) <= _GENERATE_PREFIX_MAX_LEN:
             return prefix
     if user_seg and gates_seg:
-        short = _join_prefix_segments([_OLMINSTALL_PREFIX, f"cli-{user_seg}"] + tail)
+        short = _join_prefix_segments([_E2E_PLR_PREFIX, f"cli-{user_seg}", *tail])
         if len(short) <= _GENERATE_PREFIX_MAX_LEN:
             return short
     prefix = _join_prefix_segments(head + middle + tail)
@@ -146,6 +148,19 @@ def user_segment_for_name(run_owner: str) -> str:
     return _sanitize_segment(run_owner, max_len=12)
 
 
+def is_olminstall_pipelinerun_name(name: str) -> bool:
+    """True for current ``e2e-*`` PLRs and legacy ``olminstall-*`` during transition."""
+    text = (name or "").strip()
+    if not text:
+        return False
+    return text.startswith(f"{_E2E_PLR_PREFIX}-") or text.startswith(f"{_LEGACY_PLR_PREFIX}-")
+
+
+def default_pipelinerun_generate_prefix() -> str:
+    """Fallback ``generateName`` prefix when the runner has not set one yet."""
+    return _DEFAULT_PLR_GENERATE_PREFIX
+
+
 def build_olminstall_generate_prefix(
     *,
     product: str,
@@ -159,11 +174,11 @@ def build_olminstall_generate_prefix(
     """
     Return a ``generateName`` prefix ending with ``-``.
 
-    Pattern: ``olminstall-cli-{user}-{product?}-{version?}-{cluster?}-{gates}-``
+    Pattern: ``e2e-cli-{user}-{product?}-{version?}-{cluster?}-{gates}-``
     ``existing`` product is omitted; unknown version/cluster segments are dropped.
     CLI-direct runs use the ``cli-{user}`` segment (Integration Service uses ``its-`` in ITS YAML).
     """
-    segments: list[str] = [_OLMINSTALL_PREFIX]
+    segments: list[str] = [_E2E_PLR_PREFIX]
     user_seg = user_segment_for_name(run_owner)
     if user_seg:
         segments.append(f"cli-{user_seg}")

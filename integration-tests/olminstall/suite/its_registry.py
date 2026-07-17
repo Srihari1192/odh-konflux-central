@@ -11,12 +11,13 @@ _K8S_NAME_RE = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
 
 # metadata.name -> config snapshot YAML for ``--run-its NAME`` offline FBC fallback
 _ITS_RUN_ITS_SNAPSHOT_BY_NAME: dict[str, str] = {
-    "odh-olminstall-testops-rh-nightly": "config/test-snapshot-rh-nightly.yaml",
+    "rhoai-e2e-rh-nightly-pm-ocp420": "config/test-snapshot-rh-nightly.yaml",
 }
 
 # metadata.name -> Konflux Application when ``--konflux-app`` differs from DEFAULT_APP
 _ITS_DEFAULT_KONFLUX_APP_BY_NAME: dict[str, str] = {
-    "odh-olminstall-testops-rh-nightly": "rhoai-fbc-fragment-ocp-420",
+    "rhoai-e2e-rh-nightly-pm-ocp420": "rhoai-fbc-fragment-ocp-420",
+    "rhoai-e2e-eaas-ocp421": "rhoai-fbc-fragment-ocp-421",
 }
 
 
@@ -61,27 +62,52 @@ def integration_test_scenario_name_from_manifest(manifest_path: Path) -> str:
     return validate_integration_test_scenario_name(name)
 
 
-def _resolve_manifest_candidate(candidate: Path, *, repo_root: Path, ref: str) -> Path | None:
-    """Return *candidate* when it resolves under *repo_root* and exists."""
+def _resolve_manifest_candidate(
+    candidate: Path,
+    *,
+    repo_root: Path,
+    ref: str,
+    require_under_repo: bool,
+) -> Path | None:
+    """Return *candidate* when it exists; optionally require resolution under *repo_root*."""
     resolved = candidate.expanduser().resolve()
-    try:
-        resolved.relative_to(repo_root)
-    except ValueError as exc:
-        raise AppError(
-            f"ITS manifest path must stay under repository root: {ref!r}",
-            2,
-        ) from exc
+    if require_under_repo:
+        try:
+            resolved.relative_to(repo_root)
+        except ValueError as exc:
+            raise AppError(
+                f"ITS manifest path must stay under repository root: {ref!r}",
+                2,
+            ) from exc
     return resolved if resolved.is_file() else None
 
 
-def _its_manifest_path_candidates(olminstall_root: Path, ref: str) -> list[Path]:
-    """Build manifest path candidates: absolute, then olminstall-relative, then repo-relative."""
+def _explicit_manifest_path_ref(ref: str) -> bool:
+    """True when *ref* is an explicit filesystem path, not a short olminstall anchor."""
+    text = (ref or "").strip()
+    if not text:
+        return False
+    if Path(text).expanduser().is_absolute():
+        return True
+    if text.startswith(("./", "../")):
+        return True
+    return "integration-tests/" in text.replace("\\", "/")
+
+
+def _its_manifest_path_candidates(olminstall_root: Path, ref: str) -> list[tuple[Path, bool]]:
+    """Return (candidate, require_under_repo) in search order."""
     text = (ref or "").strip()
     raw = Path(text).expanduser()
     if raw.is_absolute():
-        return [raw]
+        return [(raw, False)]
+    if _explicit_manifest_path_ref(text):
+        return [(Path.cwd() / text, False)]
     repo_root = konflux_repo_root(olminstall_root)
-    return [olminstall_root / text, repo_root / text]
+    return [
+        (Path.cwd() / text, False),
+        (olminstall_root / text, True),
+        (repo_root / text, True),
+    ]
 
 
 def resolve_integration_test_scenario_manifest_path(olminstall_root: Path, ref: str) -> Path:
@@ -89,21 +115,30 @@ def resolve_integration_test_scenario_manifest_path(olminstall_root: Path, ref: 
 
     Accepted forms:
     - ``metadata.name`` (indexed under ``tekton/its/``)
+    - path relative to the current working directory (``./…``, ``../…``, or
+      ``integration-tests/olminstall/…`` from the repository root)
     - path relative to the olminstall tree (e.g. ``tekton/its/foo.yaml``)
-    - path relative to the repository root (e.g. ``integration-tests/olminstall/...``)
-    - absolute path when it resolves under the repository root
+    - absolute path to an existing manifest file
+
+    Explicit filesystem paths do not fall back to olminstall/repo anchors.
     """
     text = (ref or "").strip()
     if not text:
         raise AppError("IntegrationTestScenario reference must be non-empty.", 2)
     if looks_like_its_manifest_path(text):
         repo_root = konflux_repo_root(olminstall_root)
-        for candidate in _its_manifest_path_candidates(olminstall_root, text):
-            if path := _resolve_manifest_candidate(candidate, repo_root=repo_root, ref=text):
+        tried: list[str] = []
+        for candidate, require_under_repo in _its_manifest_path_candidates(olminstall_root, text):
+            tried.append(str(candidate.expanduser().resolve()))
+            if path := _resolve_manifest_candidate(
+                candidate,
+                repo_root=repo_root,
+                ref=text,
+                require_under_repo=require_under_repo,
+            ):
                 return path
         raise AppError(
-            f"ITS manifest not found for path {text!r} "
-            f"(tried olminstall-relative, repo-relative, and absolute paths under {repo_root}).",
+            f"ITS manifest not found for path {text!r}. Tried: {', '.join(tried)}",
             2,
         )
     return resolve_integration_test_scenario_manifest(olminstall_root, text)

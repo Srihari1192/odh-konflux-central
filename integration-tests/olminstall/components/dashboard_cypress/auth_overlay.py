@@ -50,6 +50,11 @@ def _load_yaml_dict(path: Path) -> dict[str, object]:
     return doc if isinstance(doc, dict) else {}
 
 
+def _is_rosa_hcp_dashboard_url(dashboard_url: str) -> bool:
+    """True for personal ROSA HCP rh-ai routes (``*.apps.rosa.<cluster>.*``)."""
+    return ".apps.rosa." in (dashboard_url or "").strip()
+
+
 def _htpasswd_test_user_from_vault(doc: dict[str, object]) -> dict[str, str] | None:
     """Jenkins ROSA HCP: htpasswd-cluster-admin user from pooled QE template (ods-qe-01)."""
     clusters = doc.get("TEST_CLUSTERS")
@@ -96,6 +101,71 @@ def _htpasswd_test_user_from_env() -> dict[str, str] | None:
     if not username or not password:
         return None
     return {"AUTH_TYPE": idp, "USERNAME": username, "PASSWORD": password}
+
+
+def _cluster_source_is_eaas(*, odh_dashboard_url: str = "") -> bool:
+    if os.environ.get("CLUSTER_SOURCE", "").strip() == CLUSTER_SOURCE_EAAS:
+        return True
+    url = (
+        odh_dashboard_url
+        or os.environ.get("ODH_DASHBOARD_URL", "").strip()
+        or os.environ.get("BASE_URL", "").strip()
+    )
+    return "konfluxeaas.com" in url.lower()
+
+
+def _eaas_vault_ldap_test_user(vault_doc: dict[str, object]) -> dict[str, str] | None:
+    """LDAP TEST_USER from vault YAML or flat env (Jenkins createIDP / MaaS EaaS parity)."""
+    top = vault_doc.get("TEST_USER")
+    if isinstance(top, dict):
+        auth_type = str(top.get("AUTH_TYPE") or "ldap").strip()
+        if auth_type.lower().startswith("ldap"):
+            user = str(top.get("USERNAME") or "").strip()
+            pwd = str(top.get("PASSWORD") or "").strip()
+            if user and pwd:
+                return {"AUTH_TYPE": auth_type, "USERNAME": user, "PASSWORD": pwd}
+    user = os.environ.get("TEST_USER_USERNAME", "").strip()
+    pwd = os.environ.get("TEST_USER_PASSWORD", "").strip()
+    auth_type = os.environ.get("TEST_USER_AUTH_TYPE", "").strip() or "ldap"
+    if user and pwd and _ldap_style_username(user):
+        return {"AUTH_TYPE": auth_type, "USERNAME": user, "PASSWORD": pwd}
+    return None
+
+
+def _eaas_gateway_auth_overlay(
+    vault_doc: dict[str, object],
+    cluster_label: str,
+    *,
+    odh_dashboard_url: str,
+) -> dict[str, object]:
+    """Konflux EaaS after Jenkins createIDP: vault htpasswd or LDAP (no OAuth IdP on HCP)."""
+    if not _cluster_source_is_eaas(odh_dashboard_url=odh_dashboard_url) or _ldap._cluster_is_byoidc():
+        return {}
+    if _ldap.cluster_has_htpasswd_identity():
+        return {}
+    if not _ldap._openldap_secret_ready():
+        return {}
+
+    htpasswd_user = _htpasswd_test_user_from_env() or _htpasswd_test_user_from_vault(vault_doc)
+    if htpasswd_user and str(htpasswd_user.get("USERNAME") or "").lower().startswith("htpasswd-"):
+        idp = str(htpasswd_user.get("AUTH_TYPE") or "htpasswd-cluster-admin").strip()
+        overlay: dict[str, object] = {
+            "CLUSTER_AUTH": idp,
+            "TEST_USER": htpasswd_user,
+            "OCP_ADMIN_USER": htpasswd_user,
+        }
+        entry = _test_clusters_entry(vault_doc, cluster_label) if cluster_label else {}
+        _patch_secondary_users_for_htpasswd(overlay, vault_doc, entry, htpasswd_user)
+        return overlay
+
+    ldap_user = _eaas_vault_ldap_test_user(vault_doc)
+    if ldap_user:
+        return {
+            "CLUSTER_AUTH": "",
+            "TEST_USER": ldap_user,
+            "OCP_ADMIN_USER": ldap_user,
+        }
+    return {}
 
 
 def _user_needs_htpasswd_auth_patch(user: object) -> bool:
@@ -203,7 +273,9 @@ def resolve_gateway_auth_overlay(
     """When vault defaults to OIDC but the cluster is htpasswd HCP, use htpasswd TEST_USER."""
     if dashboard_url_is_local(odh_dashboard_url):
         return {}
-    if gateway_use_byoidc_auth(odh_dashboard_url=odh_dashboard_url):
+    if gateway_cypress_uses_bearer_bypass(odh_dashboard_url=odh_dashboard_url):
+        return {}
+    if _ldap._cluster_is_byoidc():
         user = _resolve_byoidc_cypress_test_user()
         if user:
             return {
@@ -211,14 +283,11 @@ def resolve_gateway_auth_overlay(
                 "TEST_USER": user,
                 "OCP_ADMIN_USER": user,
             }
-        if is_konflux_eaas_gateway_url(odh_dashboard_url) or (
-            os.environ.get("CLUSTER_SOURCE", "").strip() == CLUSTER_SOURCE_EAAS
-        ):
-            print(
-                "WARN: EaaS/BYOIDC gateway Cypress missing oidc/byoidc-credentials test user",
-                file=sys.stderr,
-                flush=True,
-            )
+        print(
+            "WARN: BYOIDC cluster missing oidc/byoidc-credentials Cypress test user",
+            file=sys.stderr,
+            flush=True,
+        )
         return {}
     vault_doc = _load_yaml_dict(vault_path)
     entry = _test_clusters_entry(vault_doc, cluster_label) if cluster_label else {}
@@ -251,7 +320,6 @@ def resolve_gateway_auth_overlay(
                         overlay, vault_doc, entry, htpasswd_user
                     )
                     return overlay
-                return {}
             idp = str(test_user.get("AUTH_TYPE") or "htpasswd-cluster-admin").strip()
             htpasswd_user = {k: str(test_user.get(k) or "").strip() for k in ("AUTH_TYPE", "USERNAME", "PASSWORD")}
             htpasswd_user["AUTH_TYPE"] = idp
@@ -268,12 +336,24 @@ def resolve_gateway_auth_overlay(
         isinstance(top_user, dict) and str(top_user.get("AUTH_TYPE") or "").startswith("oidc")
     )
     if not uses_oidc:
-        return {}
+        return _eaas_gateway_auth_overlay(vault_doc, cluster_label, odh_dashboard_url=odh_dashboard_url)
     if gateway_use_byoidc_auth(odh_dashboard_url=odh_dashboard_url):
         return {}
-    htpasswd_user = _htpasswd_test_user_from_vault(vault_doc) or _htpasswd_test_user_from_env()
+    htpasswd_user = _htpasswd_test_user_from_env()
+    if not htpasswd_user and (
+        _ldap.cluster_has_htpasswd_identity()
+        or (cluster_label or "").startswith("ods-qe")
+        or _is_rosa_hcp_dashboard_url(odh_dashboard_url)
+        or (
+            _cluster_source_is_eaas(odh_dashboard_url=odh_dashboard_url)
+            and _ldap._openldap_secret_ready()
+        )
+    ):
+        htpasswd_user = _htpasswd_test_user_from_vault(vault_doc)
     if not htpasswd_user:
-        return {}
+        return _eaas_gateway_auth_overlay(
+            vault_doc, cluster_label, odh_dashboard_url=odh_dashboard_url
+        )
     idp = str(htpasswd_user.get("AUTH_TYPE") or "htpasswd-cluster-admin").strip()
     overlay = {
         "CLUSTER_AUTH": idp,
@@ -282,6 +362,35 @@ def resolve_gateway_auth_overlay(
     }
     _patch_secondary_users_for_htpasswd(overlay, vault_doc, entry, htpasswd_user)
     return overlay
+
+
+def _clear_runtime_oidc_auth(runtime_cfg: Path) -> None:
+    """Drop vault OIDC defaults when the cluster is not BYOIDC (jc5hq htpasswd path)."""
+    doc = _load_yaml_dict(runtime_cfg)
+    if not doc or _ldap._cluster_is_byoidc():
+        return
+    changed = False
+    if str(doc.get("CLUSTER_AUTH") or "").strip().lower() == "oidc":
+        doc["CLUSTER_AUTH"] = ""
+        changed = True
+    test_user = doc.get("TEST_USER")
+    if isinstance(test_user, dict) and str(test_user.get("AUTH_TYPE") or "").startswith("oidc"):
+        doc.pop("TEST_USER", None)
+        doc.pop("OCP_ADMIN_USER", None)
+        changed = True
+    if not changed:
+        return
+    _ensure_pyyaml_available()
+    import yaml
+
+    runtime_cfg.write_text(
+        yaml.safe_dump(doc, default_flow_style=False, sort_keys=False),
+        encoding="utf-8",
+    )
+    print(
+        "✓ Cleared vault OIDC defaults from Cypress runtime (cluster is not BYOIDC)",
+        flush=True,
+    )
 
 
 def _apply_gateway_auth_overlay(
@@ -297,6 +406,8 @@ def _apply_gateway_auth_overlay(
         odh_dashboard_url=odh_dashboard_url,
     )
     if not overlay:
+        if not _ldap._cluster_is_byoidc():
+            _clear_runtime_oidc_auth(runtime_cfg)
         return
     doc_before = _load_yaml_dict(runtime_cfg)
     existing_user = doc_before.get("TEST_USER")
@@ -314,6 +425,8 @@ def _apply_gateway_auth_overlay(
                 if str(overlay.get("CLUSTER_AUTH") or "") == "oidc":
                     overlay["CLUSTER_AUTH"] = ""
     if not overlay:
+        if not _ldap._cluster_is_byoidc():
+            _clear_runtime_oidc_auth(runtime_cfg)
         return
     _ensure_pyyaml_available()
     import yaml
@@ -341,6 +454,56 @@ def _htpasswd_idp_from_test_user(test_user: dict[str, object] | None) -> str:
     if auth_type and not auth_type.startswith("oidc"):
         return auth_type
     return ""
+
+
+def validate_gateway_cypress_auth(*, odh_dashboard_url: str) -> int | None:
+    """Fail fast when gateway Cypress would use OIDC on a non-BYOIDC cluster."""
+    if dashboard_url_is_local(odh_dashboard_url):
+        return None
+    if gateway_cypress_uses_bearer_bypass(odh_dashboard_url=odh_dashboard_url):
+        token = str(
+            os.environ.get("OC_TOKEN") or os.environ.get("CYPRESS_OC_TOKEN") or ""
+        ).strip()
+        if not token:
+            print(
+                "ERROR: Konflux EaaS gateway Cypress requires OC bearer token "
+                "(HostedCluster VAP blocks OAuth htpasswd/LDAP IdP)",
+                file=sys.stderr,
+            )
+            return 2
+        return None
+    if _ldap._cluster_is_byoidc():
+        auth_type = str(os.environ.get("TEST_USER_AUTH_TYPE") or "")
+        username = str(os.environ.get("TEST_USER_USERNAME") or "")
+        if auth_type.startswith("oidc") and not username:
+            print(
+                "ERROR: BYOIDC cluster but no Cypress test user (oidc/byoidc-credentials)",
+                file=sys.stderr,
+            )
+            return 2
+        return None
+    auth_type = str(os.environ.get("TEST_USER_AUTH_TYPE") or "")
+    cluster_auth = str(os.environ.get("CLUSTER_AUTH") or "").strip().lower()
+    if auth_type.startswith("oidc") or cluster_auth == "oidc":
+        print(
+            "ERROR: Cypress auth is OIDC but cluster is not BYOIDC "
+            "(check gateway auth overlay / vault CLUSTER_AUTH)",
+            file=sys.stderr,
+        )
+        return 2
+    if not auth_type and not cluster_auth and not _ldap.cluster_has_htpasswd_identity():
+        if (
+            _cluster_source_is_eaas(odh_dashboard_url=odh_dashboard_url)
+            and _ldap._openldap_secret_ready()
+            and os.environ.get("TEST_USER_USERNAME", "").strip()
+        ):
+            return None
+        print(
+            "ERROR: gateway Cypress requires BYOIDC credentials or htpasswd IdP on cluster",
+            file=sys.stderr,
+        )
+        return 2
+    return None
 
 
 def sync_cypress_auth_env_from_config(config_path: str | Path) -> None:
@@ -524,13 +687,27 @@ def is_konflux_eaas_gateway_url(url: str) -> bool:
     return "konfluxeaas.com" in host
 
 
+def gateway_cypress_uses_bearer_bypass(*, odh_dashboard_url: str) -> bool:
+    """Local port-forward or EaaS HCP without OAuth login IdP: kube bearer + ci-auth-bypass.
+
+    createIDP may stage ``openldap/openldap`` on HostedCluster EaaS, but VAP still blocks
+    OAuth identityProvider patches — vault htpasswd browser login then fails (401). Only
+    leave bearer when LDAP/htpasswd is actually registered on cluster OAuth.
+    """
+    if dashboard_url_is_local(odh_dashboard_url):
+        return True
+    if _ldap._cluster_is_byoidc():
+        return False
+    if is_konflux_eaas_gateway_url(odh_dashboard_url):
+        if _ldap.cluster_has_ldap_identity() or _ldap.cluster_has_htpasswd_identity():
+            return False
+        return True
+    return False
+
+
 def gateway_use_byoidc_auth(*, odh_dashboard_url: str) -> bool:
-    """Gateway Cypress should use Keycloak/BYOIDC login, not htpasswd vault fallback."""
+    """Gateway Cypress uses Keycloak/OIDC only when the cluster is actually BYOIDC."""
     if dashboard_url_is_local(odh_dashboard_url):
         return False
-    if os.environ.get("CLUSTER_SOURCE", "").strip() == CLUSTER_SOURCE_EAAS:
-        return True
-    if is_konflux_eaas_gateway_url(odh_dashboard_url):
-        return True
     return _ldap._cluster_is_byoidc()
 

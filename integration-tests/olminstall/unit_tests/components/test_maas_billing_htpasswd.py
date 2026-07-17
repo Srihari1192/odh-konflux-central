@@ -248,3 +248,20 @@ class MaasBillingRosaHcpPytestSkipTest(unittest.TestCase):
         ):
             self.assertEqual(maas_billing_aitenant_pytest_extra_args(), "")
 
+    def test_skip_aitenant_bootstrap_on_external_cluster(self) -> None:
+        from components.maas_billing.oidc_users import maas_billing_aitenant_bootstrap_pytest_extra_args
+
+        with mock.patch.dict(
+            os.environ,
+            {"CLUSTER_SOURCE": "olminstall-kubeconfig-nmanos-konflux1-nmanos"},
+            clear=False,
+        ):
+            extra = maas_billing_aitenant_bootstrap_pytest_extra_args()
+            self.assertIn("test_aitenant_bootstrap_creates_tenant_environment", extra)
+
+    def test_no_skip_aitenant_bootstrap_on_eaas(self) -> None:
+        from components.maas_billing.oidc_users import maas_billing_aitenant_bootstrap_pytest_extra_args
+
+        with mock.patch.dict(os.environ, {"CLUSTER_SOURCE": "EAAS"}, clear=False):
+            self.assertEqual(maas_billing_aitenant_bootstrap_pytest_extra_args(), "")
+

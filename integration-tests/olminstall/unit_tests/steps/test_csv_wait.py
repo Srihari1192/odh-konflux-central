@@ -41,3 +41,27 @@ class WaitForSucceededCsvVersionTest(unittest.TestCase):
             ver = iav.wait_for_succeeded_csv_version("redhat-ods-operator", "rhods-operator", timeout_sec=60)
         self.assertIsNone(ver)
 
+    def test_recovers_bundle_unpack_deadline_during_csv_wait(self) -> None:
+        failure = "bundle unpacking failed. Reason: DeadlineExceeded"
+        with (
+            patch("install.approve_transitive_installplans.approve_pending_installplans", return_value=0),
+            patch.object(
+                iav,
+                "subscription_bundle_unpack_failed",
+                side_effect=[failure, None],
+            ),
+            patch.object(iav, "recover_bundle_unpack_deadline_exceeded") as recover,
+            patch.object(iav, "_subscription_target_csv", return_value=None),
+            patch.object(iav, "pick_succeeded_csv_version", return_value="3.5.0-ea.2"),
+            patch.object(iav.time, "monotonic", side_effect=[0, 1, 2, 3, 4]),
+            patch.object(iav.time, "sleep"),
+        ):
+            ver = iav.wait_for_succeeded_csv_version(
+                "redhat-ods-operator",
+                "rhods-operator",
+                timeout_sec=60,
+                poll_sec=1,
+            )
+        self.assertEqual(ver, "3.5.0-ea.2")
+        recover.assert_called_once_with("rhods-operator", "redhat-ods-operator")
+

@@ -11,6 +11,7 @@ from collections import deque
 from typing import Any
 from urllib.parse import quote
 
+from suite.constants import PENDING_REASONS
 from suite.errors import AppError
 from k8s.oc_util import get_jsonpath, run_cmd, ts_now
 from .runner_support import (
@@ -380,5 +381,62 @@ class RunnerWatchMixin:
             time.sleep(15)
         self.pipeline_exit = 1
         raise AppError("Polling timed out before pipeline reached a terminal state")
+
+    def _run_post_trigger_watch(self) -> int:
+        """Wait for pipeline start, stream logs, and return exit code (trigger and --run-its)."""
+        self.print_run_summary(self._status_label_for_summary_preview(), phase="preview")
+
+        if self.watch_from_archive:
+            self._replay_archived_logs_to_log_file()
+            self.print_run_summary(self.ka_succeeded, phase="final")
+            if self.ka_succeeded != "Succeeded":
+                self.pipeline_exit = 1
+            return self.pipeline_exit
+
+        if not self.watch_completed:
+            wait_deadline = time.time() + self.pipeline_start_wait_seconds
+            wait_start = time.time()
+            print(
+                f"Waiting for pipeline to start running (up to {self.pipeline_start_wait_seconds}s, "
+                "override with OLMINSTALL_PIPELINE_START_WAIT_SECONDS)..."
+            )
+            while time.time() < wait_deadline:
+                cstat, reason, message = self.succeeded_condition_detail(self.pr)
+                if cstat == "False" and self._is_resolver_couldnt_get_pipeline(reason, message):
+                    self._raise_resolver_terminal(self.pr, reason, message)
+                if reason in PENDING_REASONS:
+                    elapsed = int(time.time() - wait_start)
+                    print(f"  {ts_now()}  {reason or 'pending'} ({elapsed}s)")
+                    time.sleep(10)
+                    continue
+                print(f"  {ts_now()}  {reason or 'starting'} - ready to stream")
+                break
+            else:
+                self.pipeline_exit = 1
+                wmin = max(1, self.pipeline_start_wait_seconds // 60)
+                raise AppError(
+                    f"Pipeline still pending after {wmin}m ({self.pipeline_start_wait_seconds}s). Check Konflux:\n"
+                    f"{self.konflux_ui}/ns/{self.args.namespace}/applications/{self.args.app}/pipelineruns/{self.pr}"
+                )
+
+        try:
+            logs_shown = self.stream_live_logs()
+        except KeyboardInterrupt:
+            self.mark_detached_from_logs()
+            return 130
+        if self._user_detached_from_logs:
+            return 130
+
+        if not logs_shown and self.watch_completed:
+            self._try_kubearchive_log_replay()
+
+        final_cstat, final_reason, final_msg = self.succeeded_condition_detail(self.pr)
+        self._reenable_external_secret_cleanup_on_terminal(final_cstat)
+        if final_cstat == "False" and self._is_resolver_couldnt_get_pipeline(final_reason, final_msg):
+            self._warn_couldnt_get_pipeline_git_source()
+        self.print_run_summary(self._terminal_status_label(), phase="final")
+        if final_cstat != "True":
+            self.pipeline_exit = 1
+        return self.pipeline_exit
 
 

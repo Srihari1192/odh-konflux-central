@@ -69,13 +69,21 @@ def _ensure_defusedxml() -> None:
 
 def require_env(name: str, default: str | None = None) -> str:
     """Return env var *name* (stripped). Exits non-zero when missing and no *default*."""
-    v = os.environ.get(name, "").strip()
+    v = resolved_tekton_env_value(os.environ.get(name, ""))
     if v:
         return v
     if default is not None:
         return default
     print(f"Required environment variable is missing: {name}", file=sys.stderr)
     sys.exit(1)
+
+
+def resolved_tekton_env_value(value: str) -> str:
+    """Return empty when *value* is an unsubstituted Tekton ``$(...)`` placeholder."""
+    v = (value or "").strip()
+    if v.startswith("$(") and v.endswith(")"):
+        return ""
+    return v
 
 
 _TEKTON_RESULTS_ROOT = Path("/tekton/results")
@@ -274,6 +282,27 @@ def write_tekton_task_result_files(
     root = tekton_results_root(directory)
     for name, value in results.items():
         write_result(root / name, value)
+
+
+def sync_tekton_task_result_files(
+    results: dict[str, str],
+    *,
+    directory: str | Path | None = None,
+) -> None:
+    """Rewrite *results* and remove stale Tekton result files not in *results*."""
+    root = tekton_results_root(directory)
+    keep = set(results)
+    if root.is_dir():
+        for path in root.iterdir():
+            if path.is_file() and path.name not in keep:
+                try:
+                    path.unlink()
+                except OSError as exc:
+                    print(
+                        f"WARN: could not remove stale Tekton result {path.name}: {exc}",
+                        file=sys.stderr,
+                    )
+    write_tekton_task_result_files(results, directory=directory)
 
 
 def write_tekton_results_at_paths(results: dict[str, str], paths: dict[str, str]) -> None:
@@ -908,14 +937,39 @@ def _token_has_cluster_admin(oc: str, token: str, kubeconfig_path: Path, env: di
         return proc.returncode == 0 and (proc.stdout or "").strip().lower() == "yes"
 
 
+def _olminstall_cluster_admin_sa_identity() -> str:
+    return f"system:serviceaccount:{_CLUSTER_ADMIN_SA_NS}:{_CLUSTER_ADMIN_SA_NAME}"
+
+
+def _olminstall_cluster_admin_sa_ready(oc: str, oc_env: dict[str, str], *, timeout: int = 120) -> bool:
+    """True when the olminstall cluster-admin SA already has cluster-admin."""
+    proc = run(
+        [
+            oc,
+            "auth",
+            "can-i",
+            "*",
+            "*",
+            "--as",
+            _olminstall_cluster_admin_sa_identity(),
+        ],
+        capture=True,
+        check=False,
+        env=oc_env,
+        timeout=timeout,
+    )
+    return proc.returncode == 0 and (proc.stdout or "").strip().lower() == "yes"
+
+
 def _ensure_olminstall_cluster_admin_sa(oc: str, oc_env: dict[str, str]) -> bool:
     """Ensure a cluster-admin SA exists for minting pytest/golang bearer tokens on EaaS."""
+    slow_timeout = int(os.environ.get("OLMINSTALL_OC_SLOW_TIMEOUT_SEC", "120"))
     get = run(
         [oc, "get", "sa", _CLUSTER_ADMIN_SA_NAME, "-n", _CLUSTER_ADMIN_SA_NS],
         capture=True,
         check=False,
         env=oc_env,
-        timeout=30,
+        timeout=slow_timeout,
     )
     if get.returncode != 0:
         create = run(
@@ -923,7 +977,7 @@ def _ensure_olminstall_cluster_admin_sa(oc: str, oc_env: dict[str, str]) -> bool
             capture=True,
             check=False,
             env=oc_env,
-            timeout=30,
+            timeout=slow_timeout,
         )
         if create.returncode != 0:
             err = ((create.stderr or "") + (create.stdout or "")).strip()[:200]
@@ -933,6 +987,8 @@ def _ensure_olminstall_cluster_admin_sa(oc: str, oc_env: dict[str, str]) -> bool
                 flush=True,
             )
             return False
+    if _olminstall_cluster_admin_sa_ready(oc, oc_env, timeout=slow_timeout):
+        return True
     bind = run(
         [
             oc,
@@ -940,12 +996,12 @@ def _ensure_olminstall_cluster_admin_sa(oc: str, oc_env: dict[str, str]) -> bool
             "policy",
             "add-cluster-role-to-user",
             "cluster-admin",
-            f"system:serviceaccount:{_CLUSTER_ADMIN_SA_NS}:{_CLUSTER_ADMIN_SA_NAME}",
+            _olminstall_cluster_admin_sa_identity(),
         ],
         capture=True,
         check=False,
         env=oc_env,
-        timeout=30,
+        timeout=slow_timeout,
     )
     bind_text = ((bind.stderr or "") + (bind.stdout or "")).lower()
     if bind.returncode != 0 and "already" not in bind_text:

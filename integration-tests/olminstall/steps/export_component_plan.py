@@ -34,6 +34,7 @@ def _cypress_to_dict(cy: CypressRunnerConfig) -> dict[str, object]:
         "skip_tags": cy.skip_tags,
         "test_timeout_seconds": cy.test_timeout_seconds,
         "parallel_stagger_sec": cy.parallel_stagger_sec,
+        "max_parallel": cy.max_parallel,
         "display_base": cy.display_base,
         "run_config": cy.run_config,
         "gates": {

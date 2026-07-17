@@ -799,38 +799,86 @@ def setup_dsc_resources() -> None:
 
 
 def require_dsc_ready_for_install() -> bool:
-    """Return True when install must fail if DSC is not Ready (BVT gate enabled)."""
-    run_bvt = os.environ.get("RUN_BVT", "").strip().lower()
-    return run_bvt in ("true", "1", "yes")
+    """True when install must fail if DSC is not Ready (BVT or smoke gate)."""
+    for key in ("RUN_BVT", "RUN_SMOKE"):
+        if os.environ.get(key, "").strip().lower() in ("true", "1", "yes"):
+            return True
+    return False
+
+
+def _trainer_selected_for_gate() -> bool:
+    """True when trainer is in COMPONENTS_CSV or the CSV is empty (full matrix)."""
+    raw = os.environ.get("COMPONENTS_CSV", "").strip()
+    if not raw:
+        return True
+    return "trainer" in {c.strip() for c in raw.split(",") if c.strip()}
+
+
+def _dsc_condition_status(cond_type: str) -> str:
+    r = oc_run(
+        [
+            "get",
+            "datasciencecluster",
+            "default-dsc",
+            "-o",
+            f"jsonpath={{.status.conditions[?(@.type==\"{cond_type}\")].status}}",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return (r.stdout or "").strip()
 
 
 def wait_dsc_ready(timeout_s: int = 600) -> bool:
-    """Poll until DataScienceCluster/default-dsc has Ready==True or timeout expires."""
-    print(f"Waiting for DataScienceCluster/default-dsc to be Ready (up to {timeout_s}s)...")
+    """Poll until DataScienceCluster/default-dsc has Ready==True (and TrainerReady when selected)."""
+    need_trainer = _trainer_selected_for_gate()
+    print(
+        f"Waiting for DataScienceCluster/default-dsc Ready"
+        f"{' + TrainerReady' if need_trainer else ''} (up to {timeout_s}s)...",
+        flush=True,
+    )
     deadline = time.time() + timeout_s
     iteration = 0
     while time.time() < deadline:
-        r = oc_run(
-            [
-                "get", "datasciencecluster", "default-dsc",
-                "-o", "jsonpath={.status.conditions[?(@.type==\"Ready\")].status}",
-            ],
-            check=False, capture_output=True, text=True, timeout=30,
-        )
-        status = (r.stdout or "").strip()
-        if status == "True":
-            print("✓ DataScienceCluster/default-dsc is Ready")
+        ready = _dsc_condition_status("Ready")
+        trainer = _dsc_condition_status("TrainerReady") if need_trainer else "True"
+        if ready == "True" and trainer == "True":
+            print("✓ DataScienceCluster/default-dsc is Ready", flush=True)
+            if need_trainer:
+                print("✓ TrainerReady=True", flush=True)
             return True
         iteration += 1
-        print(f"  DSC Ready status: {status or 'unknown'} (iter {iteration})")
+        trainer_part = f" TrainerReady={trainer or 'unknown'}" if need_trainer else ""
+        print(
+            f"  DSC Ready={ready or 'unknown'}{trainer_part} (iter {iteration})",
+            flush=True,
+        )
         if iteration % 4 == 0:
             oc_run(
-                ["get", "datasciencecluster", "default-dsc", "-o",
-                 "custom-columns=NAME:.metadata.name,PHASE:.status.phase,"
-                 "READY:.status.conditions[?(@.type==\"Ready\")].status"],
-                capture_output=False, check=False, timeout=60,
+                [
+                    "get",
+                    "datasciencecluster",
+                    "default-dsc",
+                    "-o",
+                    "custom-columns=NAME:.metadata.name,PHASE:.status.phase,"
+                    "READY:.status.conditions[?(@.type==\"Ready\")].status,"
+                    "TRAINER:.status.conditions[?(@.type==\"TrainerReady\")].status",
+                ],
+                capture_output=False,
+                check=False,
+                timeout=60,
             )
         time.sleep(15)
-    print(f"⚠ DataScienceCluster/default-dsc not Ready after {timeout_s}s — BVT tests may fail")
-    oc_run(["describe", "datasciencecluster", "default-dsc"], capture_output=False, check=False, timeout=120)
+    print(
+        f"⚠ DataScienceCluster/default-dsc not Ready after {timeout_s}s — tests may fail",
+        flush=True,
+    )
+    oc_run(
+        ["describe", "datasciencecluster", "default-dsc"],
+        capture_output=False,
+        check=False,
+        timeout=120,
+    )
     return False

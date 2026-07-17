@@ -14,7 +14,7 @@ from k8s.external_credentials import (
     refresh_working_kubeconfig_from_credentials,
     update_external_kubeconfig_secret,
 )
-from k8s.external_kubeconfig import verify_external_cluster_login
+from k8s.external_kubeconfig import sync_external_kubeconfig_secret_cluster_metadata, verify_external_cluster_login
 from suite.errors import AppError
 from suite.its_trigger_params import is_external_cluster_source
 
@@ -93,6 +93,11 @@ def refresh_external_kubeconfig() -> int:
                 namespace=namespace,
                 secret_name=cluster_source,
                 kubeconfig_path=str(work_path),
+            )
+            sync_external_kubeconfig_secret_cluster_metadata(
+                namespace=namespace,
+                secret_name=cluster_source,
+                kubeconfig_path=work_path,
             )
         except AppError as exc:
             print(

@@ -188,11 +188,15 @@ def pick_pipeline_test_output(taskruns: list[dict[str, Any]]) -> str:
     return ""
 
 
+_CONFORMA_GATE_TEST_OUTPUT_TASKS: tuple[str, ...] = ("wait-for-conforma",)
+
 _BVT_TEST_OUTPUT_TASKS: tuple[str, ...] = ("bvt-health-checks",)
 
 _SMOKE_TEST_OUTPUT_TASKS: tuple[str, ...] = ("test-finalize",)
 
-_ALL_TEST_OUTPUT_TASKS: tuple[str, ...] = _BVT_TEST_OUTPUT_TASKS + _SMOKE_TEST_OUTPUT_TASKS
+_ALL_TEST_OUTPUT_TASKS: tuple[str, ...] = (
+    _CONFORMA_GATE_TEST_OUTPUT_TASKS + _BVT_TEST_OUTPUT_TASKS + _SMOKE_TEST_OUTPUT_TASKS
+)
 
 
 def list_pipeline_test_outputs(

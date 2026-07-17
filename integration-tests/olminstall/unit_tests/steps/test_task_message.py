@@ -63,6 +63,24 @@ def test_build_task_message_success_with_hint() -> None:
         "secretRef=my-space-secret."
     )
 
+def test_build_task_message_wait_for_conforma_preserves_prewritten_skip_label() -> None:
+    from steps.write_task_message import build_task_message
+
+    msg = build_task_message(
+        pipeline_task="wait-for-conforma",
+        results={
+            "CONFORMA_GATE": "pass",
+            "TASK_MESSAGE": (
+                "wait-for-conforma: Succeeded\n"
+                "CONFORMA_GATE=skip.\n"
+                "bypassed (gate_disabled)."
+            ),
+        },
+    )
+    assert "CONFORMA_GATE=skip" in msg
+    assert "bypassed (gate_disabled)" in msg
+    assert "CONFORMA_GATE=pass" not in msg
+
 def test_build_task_message_prepare_includes_version_skipped(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -340,6 +358,10 @@ def test_test_finalize_declares_gate_summary_results() -> None:
     summary = next(s for s in doc["spec"]["steps"] if s["name"] == "write-konflux-task-summary")
     env_names = {e["name"] for e in summary["env"] if isinstance(e, dict)}
     assert {"BVT_GATE_PATH", "SMOKE_GATE_PATH", "TESTS_SUMMARY_PATH", "TEST_GATES"} <= env_names
+    step_names = [s.get("name") for s in doc["spec"]["steps"] if isinstance(s, dict)]
+    gate_idx = step_names.index("check-pipeline-test-gate")
+    summary_idx = step_names.index("write-konflux-task-summary")
+    assert summary_idx < gate_idx, "write-konflux-task-summary must run before gate check so Results survive gate failure"
 
 def test_finalize_test_finalize_writes_gate_summary_results(
     monkeypatch: pytest.MonkeyPatch,
@@ -733,11 +755,11 @@ def test_finalize_publish_results_sets_smoke_not_run_when_smoke_skipped(
     write_task_message._finalize_publish_results()
 
     payload = json.loads(test_output_path.read_text(encoding="utf-8"))
-    assert payload["result"] == "SUCCESS"
-    assert "smoke: N/A (not run)" in payload["note"]
+    assert payload["result"] == "FAILURE"
+    assert "hollow green" in payload.get("note", "").lower()
     assert smoke_gate_path.read_text(encoding="utf-8").strip() == "N/A (not run)"
     msg = task_message_path.read_text(encoding="utf-8")
-    assert "smoke: N/A (not run)" in msg
+    assert "Failed" in msg or "hollow" in msg.lower()
 
 
 def test_finalize_publish_results_ignores_prior_step_termination(

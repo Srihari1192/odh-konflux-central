@@ -13,6 +13,132 @@ from suite.errors import AppError
 OLM_BUNDLE_UNPACK_UTILITY_IMAGE = (
     "quay.io/openshift-release-dev/ocp-v4.0-art-dev"
 )
+_OPENSHIFT_RELEASE_DEV_QUAY = "quay.io/openshift-release-dev"
+_CLOUD_OPENSHIFT = "cloud.openshift.com"
+
+
+def _auth_username(entry: dict[str, Any] | None) -> str:
+    if not isinstance(entry, dict):
+        return ""
+    auth = entry.get("auth")
+    if not auth:
+        return ""
+    try:
+        raw = base64.standard_b64decode(str(auth)).decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+    return raw.split(":", 1)[0].strip()
+
+
+def _is_rhoai_scoped_quay_user(username: str) -> bool:
+    u = username.lower()
+    return "rhoai" in u
+
+
+def _is_openshift_release_dev_user(username: str) -> bool:
+    return username.startswith("openshift-release-dev+")
+
+
+def quay_auth_covers_openshift_release_dev(auths: dict[str, Any]) -> bool:
+    """True when pull-secret can authorize OLM util image pulls from quay.io/openshift-release-dev."""
+    for key in (
+        f"{_OPENSHIFT_RELEASE_DEV_QUAY}/ocp-v4.0-art-dev",
+        _OPENSHIFT_RELEASE_DEV_QUAY,
+    ):
+        if _is_openshift_release_dev_user(_auth_username(auths.get(key))):
+            return True
+        # Any non-empty auth under the scoped host is better than a RHOAI-only bare quay.io.
+        if (auths.get(key) or {}).get("auth") and not _is_rhoai_scoped_quay_user(
+            _auth_username(auths.get(key))
+        ):
+            return True
+    bare = _auth_username(auths.get("quay.io"))
+    return bool(bare) and not _is_rhoai_scoped_quay_user(bare)
+
+
+def ensure_openshift_release_dev_pull_auth() -> bool:
+    """Ensure pull-secret can pull OLM unpack util images from quay.io/openshift-release-dev.
+
+    A RHOAI robot under bare ``quay.io`` does not authorize ``openshift-release-dev``
+    repositories. Prefer a scoped ``quay.io/openshift-release-dev`` entry; when missing,
+    copy credentials from ``cloud.openshift.com`` when that entry is an openshift-release-dev+
+    robot (standard console.redhat.com pull-secret layout).
+    """
+    raw = run_oc(["get", "secret/pull-secret", "-n", "openshift-config", "-o", "json"]).stdout
+    pull_data = json.loads(raw)
+    b64 = pull_data["data"][".dockerconfigjson"]
+    existing = json.loads(base64.standard_b64decode(b64))
+    auths = dict(existing.get("auths") or {})
+    if quay_auth_covers_openshift_release_dev(auths):
+        print(
+            f"✓ Global pull-secret can authorize OLM unpack util "
+            f"({OLM_BUNDLE_UNPACK_UTILITY_IMAGE})",
+            flush=True,
+        )
+        return False
+
+    cloud = auths.get(_CLOUD_OPENSHIFT) if isinstance(auths.get(_CLOUD_OPENSHIFT), dict) else None
+    cloud_user = _auth_username(cloud)
+    if not cloud or not cloud.get("auth") or not _is_openshift_release_dev_user(cloud_user):
+        bare_user = _auth_username(auths.get("quay.io"))
+        print(
+            f"WARN: pull-secret cannot authorize {OLM_BUNDLE_UNPACK_UTILITY_IMAGE} "
+            f"(quay.io user={bare_user or 'missing'}; "
+            f"cloud.openshift.com user={cloud_user or 'missing'})",
+            flush=True,
+        )
+        return False
+
+    print(
+        f"Healing pull-secret: adding {_OPENSHIFT_RELEASE_DEV_QUAY} auth from "
+        f"{_CLOUD_OPENSHIFT} ({cloud_user}) so OLM can pull unpack util images...",
+        flush=True,
+    )
+    overlay = {
+        "auths": {
+            _OPENSHIFT_RELEASE_DEV_QUAY: {"auth": cloud["auth"]},
+            f"{_OPENSHIFT_RELEASE_DEV_QUAY}/ocp-v4.0-art-dev": {"auth": cloud["auth"]},
+        }
+    }
+    merged = merge_docker_auths(existing, overlay)
+    merged_raw = json.dumps(merged, separators=(",", ":")).encode()
+    patch_b64 = base64.standard_b64encode(merged_raw).decode("ascii")
+    obj = dict(pull_data)
+    obj.setdefault("data", {})[".dockerconfigjson"] = patch_b64
+    _strip_secret_metadata(obj)
+    run_oc(
+        ["apply", "-f", "-"],
+        stdin_text=json.dumps(obj),
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    print(
+        f"✓ Added {_OPENSHIFT_RELEASE_DEV_QUAY} auth for OLM bundle-unpack util pulls",
+        flush=True,
+    )
+    return True
+
+
+def preflight_openshift_release_dev_pull(*, strict: bool) -> None:
+    """OLM bundle-unpack uses quay.io/openshift-release-dev via the cluster pull secret."""
+    ensure_openshift_release_dev_pull_auth()
+    auths = load_global_pull_secret_auths()
+    if quay_auth_covers_openshift_release_dev(auths):
+        print(f"✓ Global pull-secret has credential for {OLM_BUNDLE_UNPACK_UTILITY_IMAGE}")
+        return
+    bare_user = _auth_username(auths.get("quay.io"))
+    msg = (
+        "Cluster openshift-config/pull-secret cannot pull "
+        f"{OLM_BUNDLE_UNPACK_UTILITY_IMAGE} "
+        f"(bare quay.io user={bare_user or 'missing'}). "
+        "A RHOAI-only robot under quay.io does not authorize openshift-release-dev. "
+        "Merge a valid pull-secret from console.redhat.com (keep cloud.openshift.com / "
+        "openshift-release-dev+ credentials; do not put RHOAI robot auth under bare quay.io)."
+    )
+    if strict:
+        raise AppError(f"❌ {msg}", code=1)
+    print(f"WARN: {msg}")
 
 
 def extract_quay_auth(auths: dict[str, Any]) -> str | None:

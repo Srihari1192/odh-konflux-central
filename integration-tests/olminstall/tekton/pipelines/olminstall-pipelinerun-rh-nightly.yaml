@@ -3,7 +3,7 @@
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
-  generateName: olminstall-its-rh-nightly-pm-bvt-smoke-
+  generateName: e2e-its-rh-nightly-pm-bvt-smoke-
   labels:
     pipelines.appstudio.openshift.io/type: test
     pac.test.appstudio.openshift.io/event-type: push

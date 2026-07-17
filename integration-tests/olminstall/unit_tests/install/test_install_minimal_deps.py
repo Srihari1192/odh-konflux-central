@@ -68,9 +68,14 @@ class InstallMinimalDepsTest(unittest.TestCase):
             "components.maas_billing.prep.try_prepare_maas_smoke",
         )
         cls._maas_prep_patcher.start()
+        cls._jobset_lws_patcher = patch(
+            "install.install_minimal_deps.ensure_jobset_and_lws_operator_crs",
+        )
+        cls._jobset_lws_patcher.start()
 
     @classmethod
     def tearDownClass(cls) -> None:
+        cls._jobset_lws_patcher.stop()
         cls._maas_prep_patcher.stop()
         cls._serverless_patcher.stop()
         cls._existing_stack_patcher.stop()
@@ -400,7 +405,7 @@ class InstallMinimalDepsTest(unittest.TestCase):
                                                 allow_deferred_authorino=True,
                                             )
 
-    def test_product_install_falls_through_after_finalize_nonzero_warn(self) -> None:
+    def test_product_install_fails_after_finalize_nonzero(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             kubeconfig = root / "kubeconfig"
@@ -435,14 +440,9 @@ class InstallMinimalDepsTest(unittest.TestCase):
                                 with patch(
                                     "install.install_minimal_deps.ensure_maas_rhcl_dependency_stack",
                                 ) as ensure:
-                                    with patch(
-                                        "install.install_minimal_deps.require_maas_dependency_operators",
-                                    ) as require:
-                                        self.assertEqual(main(), 0)
-                                        self.assertEqual(ensure.call_count, 2)
-                                        require.assert_called_once_with(
-                                            allow_deferred_authorino=True,
-                                        )
+                                    self.assertEqual(main(), 1)
+                                    # Preflight RHCL may run once before setup; no post-fail recovery.
+                                    self.assertLessEqual(ensure.call_count, 1)
 
     def test_product_install_deferred_authorino_when_rhcl_functional(self) -> None:
         with patch.dict(

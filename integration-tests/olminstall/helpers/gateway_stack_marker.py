@@ -61,3 +61,65 @@ def clear_gateway_stack_incomplete_marker() -> None:
 
 def gateway_stack_incomplete() -> bool:
     return any(path.is_file() for path in gateway_stack_marker_paths())
+
+
+def reconcile_gateway_stack_incomplete_marker() -> bool:
+    """Clear a stale incomplete marker when live Kuadrant/Authorino is Ready.
+
+    install-dep-operators may write ``.gateway-auth-stack-incomplete`` before
+    install-rhoai finishes reconciling Authorino. After reinstall, re-probe the
+    live stack and clear the marker so MaaS components are not false-blocked.
+
+    When the marker remains and a GatewayClass is present, restart Kuadrant to
+    clear Ready=False/MissingDependency (common after cleanup+reinstall).
+
+    Returns True when the stack is not blocking (no marker, or marker cleared).
+    """
+    if not gateway_stack_incomplete():
+        return True
+    try:
+        from components.maas_billing.auth import (
+            maas_gateway_auth_stack_live_ready,
+            recover_kuadrant_after_gateway_api_provider,
+        )
+    except Exception as exc:  # pragma: no cover - import/cluster edge
+        print(
+            f"WARN: could not import live gateway-stack probe ({exc}); "
+            "keeping incomplete marker",
+            flush=True,
+        )
+        return False
+    try:
+        live_ready = maas_gateway_auth_stack_live_ready()
+    except Exception as exc:
+        print(
+            f"WARN: live Kuadrant/Authorino probe failed ({exc}); "
+            "keeping incomplete marker",
+            flush=True,
+        )
+        return False
+    if not live_ready:
+        try:
+            live_ready = bool(recover_kuadrant_after_gateway_api_provider())
+        except Exception as exc:
+            print(
+                f"WARN: Kuadrant Gateway API provider recovery failed ({exc}); "
+                "keeping incomplete marker",
+                flush=True,
+            )
+            return False
+        if live_ready:
+            # recover clears the marker when Kuadrant becomes Ready; re-check TLS.
+            try:
+                live_ready = maas_gateway_auth_stack_live_ready() or not gateway_stack_incomplete()
+            except Exception:
+                live_ready = not gateway_stack_incomplete()
+    if not live_ready:
+        return False
+    clear_gateway_stack_incomplete_marker()
+    print(
+        "✓ Cleared stale gateway-auth-stack-incomplete marker "
+        "(Kuadrant Ready + Authorino TLS live-ready after reinstall)",
+        flush=True,
+    )
+    return True

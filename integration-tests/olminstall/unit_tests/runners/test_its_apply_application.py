@@ -53,7 +53,7 @@ def test_enable_its_rejects_external_kubeconfig() -> None:
             parser,
             [
                 "--enable-its",
-                "odh-olminstall-testops-rh-nightly",
+                "rhoai-e2e-rh-nightly-pm-ocp420",
                 "--external-kubeconfig",
                 "/etc/hosts",
             ],

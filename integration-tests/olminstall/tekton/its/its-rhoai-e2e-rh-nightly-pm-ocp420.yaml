@@ -1,16 +1,17 @@
 ---
 # Auto ITS: external rh-nightly-pm cluster, RHOAI install on component builds (ocp-420).
+# MIN_RHOAI_VERSION=3.5 is enforced in wait-for-conforma via Snapshot PAC metadata (catalog line).
 apiVersion: appstudio.redhat.com/v1beta2
 kind: IntegrationTestScenario
 metadata:
   labels:
     test.appstudio.openshift.io/optional: "true"
-  name: odh-olminstall-testops-rh-nightly
+  name: rhoai-e2e-rh-nightly-pm-ocp420
   namespace: rhoai-tenant
 spec:
   application: rhoai-fbc-fragment-ocp-420
   contexts:
-    - description: olminstall on rhoai-fbc-fragment-ocp-420 FBC build Snapshots
+    - description: RHOAI E2E on rh-nightly-pm when rhoai-fbc-fragment-ocp-420 FBC builds
       name: component_rhoai-fbc-fragment-ocp-420
   params:
     - name: CLUSTER_SOURCE

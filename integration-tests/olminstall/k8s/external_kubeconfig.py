@@ -8,16 +8,20 @@ import re
 import subprocess
 import tempfile
 import time
+from collections.abc import Callable
+from contextlib import contextmanager
 from pathlib import Path
 
 from suite.constants import (
     ANNOTATION_CLUSTER,
+    ANNOTATION_CLUSTER_KEY,
     DEFAULT_CLUSTER_IDLE_POLL_SEC,
     DEFAULT_CLUSTER_IDLE_WAIT_SEC,
     LABEL_CLUSTER,
 )
 from suite.errors import AppError
-from install.kubeconfig_cluster_label import cluster_label_from_kubeconfig
+from suite.pipelinerun_naming import is_olminstall_pipelinerun_name
+from install.kubeconfig_cluster_label import cluster_label_from_kubeconfig, cluster_lock_key_from_kubeconfig
 from .oc_util import filter_warning_lines, run_cmd
 
 RUN_OWNER_LABEL = "olminstall.run-owner"
@@ -118,10 +122,7 @@ def verify_external_cluster_rhoai_idms_mirror(
     *,
     timeout: float = EXTERNAL_CLUSTER_VERIFY_TIMEOUT_S,
 ) -> None:
-    """Fail fast when an external install cluster cannot mirror rhoai bundle pulls."""
-    if os.environ.get("OLMINSTALL_SKIP_IDMS_PREFLIGHT", "").strip().lower() in ("1", "true", "yes"):
-        print("WARN OLMINSTALL_SKIP_IDMS_PREFLIGHT set — skipping rhoai IDMS preflight")
-        return
+    """Check IDMS/Kyverno mirror state (diagnostic; CLI trigger skips this — see prepare-cluster-registry)."""
     path = Path(kubeconfig_path).expanduser().resolve()
     if external_cluster_has_rhoai_idms(path, timeout=timeout):
         print(f"✓ External cluster IDMS mirror configured ({RHOAI_IDMS_SOURCE} → {RHOAI_IDMS_MIRROR})")
@@ -139,7 +140,7 @@ def verify_external_cluster_rhoai_idms_mirror(
         "External cluster is missing the rhoai IDMS mirror required for OLM bundle-unpack "
         f"({RHOAI_IDMS_SOURCE} → {RHOAI_IDMS_MIRROR}). "
         "On HyperShift guest clusters, olminstall applies Jenkins-style Kyverno policies. "
-        "Set OLMINSTALL_SKIP_IDMS_PREFLIGHT=1 to bypass this check.",
+        "For olm_pipeline.py triggers, prepare-cluster-registry configures mirror in-pipeline.",
         2,
     )
 
@@ -168,6 +169,31 @@ def validate_kubeconfig_path(path: str) -> Path:
     return p.resolve()
 
 
+def kubeconfig_cluster_server(
+    kubeconfig_path: Path | str,
+    *,
+    timeout: float = EXTERNAL_CLUSTER_VERIFY_TIMEOUT_S,
+) -> str:
+    """Return API server URL from *kubeconfig_path*, or empty when unknown."""
+    path = Path(kubeconfig_path).expanduser().resolve()
+    proc = run_cmd(
+        [
+            "oc",
+            "--kubeconfig",
+            str(path),
+            "config",
+            "view",
+            "--minify",
+            "-o",
+            "jsonpath={.clusters[0].cluster.server}",
+        ],
+        capture=True,
+        check=False,
+        timeout=timeout,
+    )
+    return (proc.stdout or "").strip() if proc.returncode == 0 else ""
+
+
 def verify_external_cluster_login(
     kubeconfig_path: Path | str,
     *,
@@ -186,10 +212,19 @@ def verify_external_cluster_login(
     who = (proc.stdout or "").strip()
     if proc.returncode != 0 or not who or who == "system:anonymous":
         err = filter_warning_lines(f"{proc.stdout or ''}\n{proc.stderr or ''}").strip()[:500]
+        server = kubeconfig_cluster_server(path, timeout=timeout)
+        target = f"external cluster {server}" if server else f"external kubeconfig {path}"
+        login = (
+            f"oc --kubeconfig {path} login --server={server} --web"
+            if server
+            else f"oc --kubeconfig {path} login --web"
+        )
         raise AppError(
-            f"External cluster login required (oc --kubeconfig {path} whoami failed): "
-            f"{err or who or proc.returncode}",
-            2,
+            f"External cluster login required for {target} "
+            f"(oc --kubeconfig {path} whoami failed): {err or who or proc.returncode}\n"
+            "This is separate from the Konflux KUBECONFIG used to trigger olm_pipeline.py. "
+            f"Re-authenticate to the external cluster, then retry:\n  {login}",
+            1,
         )
     return who
 
@@ -429,6 +464,7 @@ def ensure_external_kubeconfig_secret(
         raise AppError(f"Failed to apply external kubeconfig Secret {name!r} in {namespace}")
 
     cluster_label = cluster_label_from_kubeconfig(kubeconfig_path)
+    cluster_key = cluster_lock_key_from_kubeconfig(kubeconfig_path)
     annotate_argv = [
         "oc",
         "annotate",
@@ -440,6 +476,8 @@ def ensure_external_kubeconfig_secret(
     ]
     if cluster_label:
         annotate_argv.append(f"{ANNOTATION_CLUSTER}={cluster_label}")
+    if cluster_key:
+        annotate_argv.append(f"{ANNOTATION_CLUSTER_KEY}={cluster_key}")
     annotate_argv.append("--overwrite")
     ann = run_cmd(annotate_argv, capture=True, check=False)
     lbl_argv = [
@@ -468,16 +506,38 @@ def ensure_external_kubeconfig_secret(
     return name
 
 
-def cluster_label_from_tenant_secret(*, namespace: str, secret_name: str) -> str:
-    """Context/cluster name from Secret annotation or embedded kubeconfig (best-effort)."""
-    import base64
-    import tempfile
+def sync_external_kubeconfig_secret_cluster_metadata(
+    *,
+    namespace: str,
+    secret_name: str,
+    kubeconfig_path: Path | str,
+) -> None:
+    """Refresh olminstall.cluster / cluster-key annotations after kubeconfig data changes."""
+    ns = (namespace or "").strip()
+    name = (secret_name or "").strip()
+    if not ns or not name:
+        return
+    cluster_label = cluster_label_from_kubeconfig(kubeconfig_path)
+    cluster_key = cluster_lock_key_from_kubeconfig(kubeconfig_path)
+    annotate_argv = ["oc", "annotate", "secret", name, "-n", ns, "--overwrite"]
+    if cluster_label:
+        annotate_argv.append(f"{ANNOTATION_CLUSTER}={cluster_label}")
+    if cluster_key:
+        annotate_argv.append(f"{ANNOTATION_CLUSTER_KEY}={cluster_key}")
+    if len(annotate_argv) <= 5:
+        return
+    proc = run_cmd(annotate_argv, capture=True, check=False)
+    msg = filter_warning_lines(f"{proc.stdout}\n{proc.stderr}").strip()
+    if proc.returncode != 0 and msg:
+        print(f"  WARN secret cluster metadata: {msg}")
 
+
+def _tenant_secret_annotation(*, namespace: str, secret_name: str, annotation_key: str) -> str:
     name = (secret_name or "").strip()
     ns = (namespace or "").strip()
     if not name or not ns:
         return ""
-    ann_proc = run_cmd(
+    proc = run_cmd(
         [
             "oc",
             "get",
@@ -486,16 +546,27 @@ def cluster_label_from_tenant_secret(*, namespace: str, secret_name: str) -> str
             "-n",
             ns,
             "-o",
-            f"jsonpath={{.metadata.annotations['{ANNOTATION_CLUSTER}']}}",
+            f"jsonpath={{.metadata.annotations['{annotation_key}']}}",
         ],
         capture=True,
         check=False,
         timeout=30,
     )
-    if ann_proc.returncode == 0:
-        label = (ann_proc.stdout or "").strip()
-        if label:
-            return label
+    if proc.returncode == 0:
+        return (proc.stdout or "").strip()
+    return ""
+
+
+@contextmanager
+def _tenant_secret_kubeconfig_file(*, namespace: str, secret_name: str):
+    """Yield a temp kubeconfig path decoded from a tenant Secret, or None."""
+    import base64
+
+    name = (secret_name or "").strip()
+    ns = (namespace or "").strip()
+    if not name or not ns:
+        yield None
+        return
     for key in ("kubeconfig", "config"):
         proc = run_cmd(
             [
@@ -523,13 +594,60 @@ def cluster_label_from_tenant_secret(*, namespace: str, secret_name: str) -> str
             with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".kubeconfig") as tf:
                 tf.write(raw)
                 path = tf.name
-            label = cluster_label_from_kubeconfig(path)
-            if label:
-                return label
+            yield Path(path)
+            return
         finally:
             if path:
                 Path(path).unlink(missing_ok=True)
+    yield None
+
+
+def _value_from_tenant_secret(
+    *,
+    namespace: str,
+    secret_name: str,
+    annotation_key: str,
+    from_kubeconfig: Callable[[Path], str],
+    normalize: bool = False,
+) -> str:
+    def _finish(value: str) -> str:
+        text = (value or "").strip()
+        return _normalize_cluster_id(text) if normalize and text else text
+
+    value = _tenant_secret_annotation(
+        namespace=namespace,
+        secret_name=secret_name,
+        annotation_key=annotation_key,
+    )
+    if value:
+        return _finish(value)
+    with _tenant_secret_kubeconfig_file(namespace=namespace, secret_name=secret_name) as path:
+        if path is not None:
+            derived = from_kubeconfig(path)
+            if derived:
+                return _finish(derived)
     return ""
+
+
+def cluster_label_from_tenant_secret(*, namespace: str, secret_name: str) -> str:
+    """Context/cluster name from Secret annotation or embedded kubeconfig (best-effort)."""
+    return _value_from_tenant_secret(
+        namespace=namespace,
+        secret_name=secret_name,
+        annotation_key=ANNOTATION_CLUSTER,
+        from_kubeconfig=cluster_label_from_kubeconfig,
+    )
+
+
+def cluster_lock_key_from_tenant_secret(*, namespace: str, secret_name: str) -> str:
+    """Normalized API hostname from Secret annotation or embedded kubeconfig."""
+    return _value_from_tenant_secret(
+        namespace=namespace,
+        secret_name=secret_name,
+        annotation_key=ANNOTATION_CLUSTER_KEY,
+        from_kubeconfig=cluster_lock_key_from_kubeconfig,
+        normalize=True,
+    )
 
 
 def _pipelinerun_cluster_source_param(item: dict) -> str:
@@ -556,14 +674,15 @@ def cluster_label_from_secret_name(secret_name: str) -> str:
     return secret
 
 
-def resolve_cluster_id_for_external_cluster(
+def _resolve_external_cluster_field(
     *,
     namespace: str,
     cluster_source: str,
-    cluster_id: str = "",
+    explicit_value: str = "",
+    tenant_resolver: Callable[..., str],
+    secret_name_fallback: Callable[[str], str] | None = None,
 ) -> str:
-    """Physical cluster id for single-flight locking (label on PR / Secret annotation)."""
-    explicit = _normalize_cluster_id(cluster_id)
+    explicit = _normalize_cluster_id(explicit_value)
     if explicit:
         return explicit
     source = (cluster_source or "").strip()
@@ -573,10 +692,43 @@ def resolve_cluster_id_for_external_cluster(
 
     if not is_external_cluster_source(source):
         return ""
-    label = cluster_label_from_tenant_secret(namespace=namespace, secret_name=source)
-    if label:
-        return _normalize_cluster_id(label)
-    return _normalize_cluster_id(cluster_label_from_secret_name(source))
+    value = tenant_resolver(namespace=namespace, secret_name=source)
+    if value:
+        return _normalize_cluster_id(value)
+    if secret_name_fallback:
+        return _normalize_cluster_id(secret_name_fallback(source))
+    return ""
+
+
+def resolve_cluster_id_for_external_cluster(
+    *,
+    namespace: str,
+    cluster_source: str,
+    cluster_id: str = "",
+) -> str:
+    """Physical cluster id for single-flight locking (label on PR / Secret annotation)."""
+    return _resolve_external_cluster_field(
+        namespace=namespace,
+        cluster_source=cluster_source,
+        explicit_value=cluster_id,
+        tenant_resolver=cluster_label_from_tenant_secret,
+        secret_name_fallback=cluster_label_from_secret_name,
+    )
+
+
+def resolve_cluster_lock_key_for_external_cluster(
+    *,
+    namespace: str,
+    cluster_source: str,
+    cluster_lock_key: str = "",
+) -> str:
+    """Canonical API hostname for single-flight locking."""
+    return _resolve_external_cluster_field(
+        namespace=namespace,
+        cluster_source=cluster_source,
+        explicit_value=cluster_lock_key,
+        tenant_resolver=cluster_lock_key_from_tenant_secret,
+    )
 
 
 _PIPELINE_RUN_WIND_DOWN_REASONS = frozenset(
@@ -612,10 +764,30 @@ def _pipelinerun_is_active(item: dict) -> bool:
     return True
 
 
-def _pipelinerun_cluster_label(item: dict) -> str:
+def _pipelinerun_normalized_field(item: dict, *, bucket: str, key: str) -> str:
     meta = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-    labels = meta.get("labels") if isinstance(meta.get("labels"), dict) else {}
-    return _normalize_cluster_id(str(labels.get(LABEL_CLUSTER) or ""))
+    fields = meta.get(bucket) if isinstance(meta.get(bucket), dict) else {}
+    return _normalize_cluster_id(str(fields.get(key) or ""))
+
+
+def _pipelinerun_cluster_label(item: dict) -> str:
+    return _pipelinerun_normalized_field(item, bucket="labels", key=LABEL_CLUSTER)
+
+
+def _pipelinerun_cluster_key(item: dict) -> str:
+    return _pipelinerun_normalized_field(item, bucket="annotations", key=ANNOTATION_CLUSTER_KEY)
+
+
+def _cached_secret_cluster_field(
+    pr_source: str,
+    cache: dict[str, str],
+    *,
+    namespace: str,
+    resolver: Callable[..., str],
+) -> str:
+    if pr_source not in cache:
+        cache[pr_source] = resolver(namespace=namespace, cluster_source=pr_source)
+    return cache[pr_source]
 
 
 def _pipelinerun_matches_external_cluster(
@@ -623,26 +795,40 @@ def _pipelinerun_matches_external_cluster(
     *,
     namespace: str,
     cluster_id: str,
+    cluster_key: str,
     cluster_source: str,
     secret_cluster_cache: dict[str, str],
+    secret_lock_key_cache: dict[str, str],
 ) -> bool:
     pr_source = _pipelinerun_cluster_source_param(item)
     target_source = (cluster_source or "").strip()
     target_id = _normalize_cluster_id(cluster_id)
+    target_key = _normalize_cluster_id(cluster_key)
     if target_source and pr_source == target_source:
         return True
+    if target_key:
+        pr_key = _pipelinerun_cluster_key(item)
+        if pr_key and pr_key == target_key:
+            return True
+        if pr_source and _cached_secret_cluster_field(
+            pr_source,
+            secret_lock_key_cache,
+            namespace=namespace,
+            resolver=resolve_cluster_lock_key_for_external_cluster,
+        ) == target_key:
+            return True
     if not target_id:
         return False
     pr_label = _pipelinerun_cluster_label(item)
     if pr_label and pr_label == target_id:
         return True
     if pr_source:
-        if pr_source not in secret_cluster_cache:
-            secret_cluster_cache[pr_source] = resolve_cluster_id_for_external_cluster(
-                namespace=namespace,
-                cluster_source=pr_source,
-            )
-        if secret_cluster_cache[pr_source] == target_id:
+        if _cached_secret_cluster_field(
+            pr_source,
+            secret_cluster_cache,
+            namespace=namespace,
+            resolver=resolve_cluster_id_for_external_cluster,
+        ) == target_id:
             return True
         derived = _normalize_cluster_id(cluster_label_from_secret_name(pr_source))
         if derived == target_id or derived.startswith(f"{target_id}-") or target_id.startswith(f"{derived}-"):
@@ -680,8 +866,9 @@ def list_active_pipelineruns_for_external_cluster(
 ) -> list[str] | None:
     """Incomplete olminstall PipelineRuns on the same physical external cluster.
 
-    Matches ``olminstall.cluster`` label, ``CLUSTER_SOURCE`` param, or resolved Secret
-    cluster id. Returns None when the Konflux API cannot be queried.
+    Matches ``olminstall.cluster-key`` (API hostname), ``olminstall.cluster`` label,
+    ``CLUSTER_SOURCE`` param, or resolved Secret cluster id. Returns None when the Konflux
+    API cannot be queried.
     """
     from suite.its_trigger_params import is_external_cluster_source
 
@@ -693,16 +880,21 @@ def list_active_pipelineruns_for_external_cluster(
         cluster_source=source,
         cluster_id=cluster_id,
     )
+    target_key = resolve_cluster_lock_key_for_external_cluster(
+        namespace=namespace,
+        cluster_source=source,
+    )
     items = _list_olminstall_pipelinerun_items(namespace=namespace)
     if items is None:
         return None
     exclude = (exclude_name or "").strip()
     secret_cluster_cache: dict[str, str] = {}
+    secret_lock_key_cache: dict[str, str] = {}
     active: list[str] = []
     for item in items:
         meta = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
         name = str(meta.get("name") or "").strip()
-        if not name or not name.startswith("olminstall"):
+        if not name or not is_olminstall_pipelinerun_name(name):
             continue
         if name == exclude:
             continue
@@ -712,8 +904,10 @@ def list_active_pipelineruns_for_external_cluster(
             item,
             namespace=namespace,
             cluster_id=target_id,
+            cluster_key=target_key,
             cluster_source=source,
             secret_cluster_cache=secret_cluster_cache,
+            secret_lock_key_cache=secret_lock_key_cache,
         ):
             continue
         active.append(name)

@@ -62,7 +62,7 @@ class AssertExternalClusterIdleTest(unittest.TestCase):
             "items": [
                 {
                     "metadata": {
-                        "name": "olminstall-a",
+                        "name": "e2e-a",
                         "labels": {"olminstall.cluster": "ods-qe-psi-07"},
                     },
                     "spec": {"params": [{"name": "CLUSTER_SOURCE", "value": "sec-a"}]},
@@ -72,6 +72,11 @@ class AssertExternalClusterIdleTest(unittest.TestCase):
                     "metadata": {"name": "olminstall-b"},
                     "spec": {"params": [{"name": "CLUSTER_SOURCE", "value": "sec-b"}]},
                     "status": {"completionTime": "2026-06-28T12:00:00Z"},
+                },
+                {
+                    "metadata": {"name": "unrelated-pipeline"},
+                    "spec": {"params": [{"name": "CLUSTER_SOURCE", "value": "sec-a"}]},
+                    "status": {},
                 },
             ]
         }
@@ -88,4 +93,38 @@ class AssertExternalClusterIdleTest(unittest.TestCase):
                     cluster_source="olminstall-kubeconfig-ods-qe-psi-07-nmanos",
                     cluster_id="ods-qe-psi-07",
                 )
-        self.assertEqual(active, ["olminstall-a"])
+        self.assertEqual(active, ["e2e-a"])
+
+    def test_list_active_matches_cluster_lock_key(self) -> None:
+        payload = {
+            "items": [
+                {
+                    "metadata": {
+                        "name": "e2e-a",
+                        "annotations": {
+                            "olminstall.cluster-key": "api.ods-qe-psi-23.osp.rh-ods.com",
+                        },
+                    },
+                    "spec": {"params": [{"name": "CLUSTER_SOURCE", "value": "sec-a"}]},
+                    "status": {},
+                },
+            ]
+        }
+        with mock.patch(
+            "k8s.external_kubeconfig._list_olminstall_pipelinerun_items",
+            return_value=payload["items"],
+        ):
+            with mock.patch(
+                "k8s.external_kubeconfig.resolve_cluster_id_for_external_cluster",
+                return_value="different-label",
+            ):
+                with mock.patch(
+                    "k8s.external_kubeconfig.resolve_cluster_lock_key_for_external_cluster",
+                    return_value="api.ods-qe-psi-23.osp.rh-ods.com",
+                ):
+                    active = list_active_pipelineruns_for_external_cluster(
+                        namespace="rhoai-tenant",
+                        cluster_source="olminstall-kubeconfig-other-name",
+                        cluster_id="other-label",
+                    )
+        self.assertEqual(active, ["e2e-a"])

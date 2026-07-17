@@ -238,16 +238,23 @@ def phase_olminstall_subscription(ctx: InstallContext) -> str:
         print(f"Subscription manifest: channel={ctx.update_channel} (no startingCSV from PackageManifest)")
     print("Applying OLM subscription manifest (bundle unpack may take 30m+ on HyperShift)...", flush=True)
     iav.oc_run(["apply", "-f", str(manifest_path)], check=True, capture_output=True, timeout=120)
-    unpack_timeout = int(os.environ.get("OLM_BUNDLE_UNPACK_TIMEOUT_SEC", "2700"))
+    iav.ensure_operatorgroup_bundle_unpack_annotations(ctx.operator_namespace)
+    # Keep under the Tekton install-rhoai/odh 45m task limit (catalog + unpack + CSV).
+    unpack_timeout = int(os.environ.get("OLM_BUNDLE_UNPACK_TIMEOUT_SEC", "1800"))
     if not iav.wait_subscription_bundle_unpacked(
         ctx.operator_name,
         ctx.operator_namespace,
         time.time() + unpack_timeout,
     ):
-        print(
-            f"⚠ OLM bundle unpack still in progress after {unpack_timeout}s; "
-            "continuing to install-operator.sh (extended InstallPlan wait)",
-            flush=True,
+        iav.oc_run(
+            ["describe", "sub", ctx.operator_name, "-n", ctx.operator_namespace],
+            capture_output=False,
+            check=False,
+            timeout=120,
+        )
+        iav.fail(
+            f"❌ OLM bundle unpack did not complete within {unpack_timeout}s; "
+            "not continuing to install-operator.sh (InstallPlan will never appear)"
         )
     print(
         f"Running olminstall (./install-operator.sh {ctx.operator_name} "
@@ -307,7 +314,7 @@ def phase_post_install_dsc(ctx: InstallContext) -> None:
             iav.fail("DSC not Ready")
         print(
             "⚠ DataScienceCluster/default-dsc not Ready — continuing install "
-            "(RUN_BVT=false; smoke-only pipeline)",
+            "(no BVT/smoke gate; RUN_BVT and RUN_SMOKE both false)",
             file=sys.stderr,
         )
     try:

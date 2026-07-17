@@ -121,6 +121,22 @@ class ComponentSmokePrereqTest(unittest.TestCase):
         )
         self.assertIn("not reachable", reason)
 
+
+class ClusterApiPrereqTest(unittest.TestCase):
+    @patch("suite.component_dsc_gate.cluster_smoke_infra_blocked_reason")
+    @patch("suite.component_dsc_gate.smoke_component_dsc_disabled")
+    def test_api_unreachable_blocks_before_dsc_probe(
+        self,
+        mock_disabled,
+        mock_api,
+    ) -> None:
+        mock_api.return_value = "cluster API unreachable: no such host"
+        unavailable, reason = smoke_component_prereq_unavailable("kuberay")
+        self.assertTrue(unavailable)
+        self.assertIn("cluster API unreachable", reason)
+        mock_disabled.assert_not_called()
+
+
 class WaitForSmokeDscReadyTest(unittest.TestCase):
     @patch("suite.component_dsc_gate._dsc_condition_types", return_value=["WorkbenchesReady"])
     @patch("suite.component_dsc_gate._dsc_condition", side_effect=[("True", "Reconciled", "")])

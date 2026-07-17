@@ -12,7 +12,7 @@ spec:
     - Image: quay.io/redhat-user-workloads/rh-platform-experien-tenant/cypress-e2e-image/cypress-e2e-image:9bc9e59.
     - Smoke command: cypress-parallel.
     - Requires tenant credentials supplied by the pipeline.
-    - Timeouts: smoke 25m, tier1 90m.
+    - Timeouts: smoke 45m, tier1 90m.
     - Cypress runs 5 parallel smoke set(s).
   params:
   - name: COMPONENT_ID
@@ -116,6 +116,8 @@ spec:
       value: $(params.COMPONENT_TEST_TIMEOUT)
     - name: PRODUCT
       value: $(params.PRODUCT)
+    - name: CLUSTER_SOURCE
+      value: $(params.CLUSTER_SOURCE)
     - name: SCRIPTS_REPO_ROOT
       value: $(workspaces.tests-shared.path)/scripts-repo/integration-tests/olminstall
     - name: CY_RETRY

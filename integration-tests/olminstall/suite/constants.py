@@ -6,16 +6,19 @@ DEFAULT_NAMESPACE = "rhoai-tenant"
 DEFAULT_APP = "testops-playpen"
 # EaaS provision-eaas-space needs create on namespaces.eaas.konflux-ci.dev (konflux-integration-runner CR).
 KONFLUX_INTEGRATION_SERVICE_ACCOUNT = "konflux-integration-runner"
-# Canonical sandbox EaaS ITS (its-olminstall-testops-eaas.yaml).
-OLMINSTALL_EAAS_ITS_NAME = "odh-olminstall-testops-eaas"
-# External rh-nightly-pm cluster ITS (its-olminstall-testops-rh-nightly.yaml).
-OLMINSTALL_RH_NIGHTLY_ITS_NAME = "odh-olminstall-testops-rh-nightly"
-# Legacy IntegrationTestScenario names still present on some tenants; Konflux starts one PipelineRun
-# per ITS when a Snapshot is created for the same application. ``olm_pipeline.py`` deletes these
-# before triggering when using default --konflux-namespace / --konflux-app.
+# Canonical EaaS ITS (its-rhoai-e2e-eaas-ocp421.yaml).
+RHOAI_E2E_EAAS_ITS_NAME = "rhoai-e2e-eaas-ocp421"
+# External rh-nightly-pm cluster ITS (its-rhoai-e2e-rh-nightly-pm-ocp420.yaml).
+RHOAI_E2E_RH_NIGHTLY_ITS_NAME = "rhoai-e2e-rh-nightly-pm-ocp420"
+# Retired IntegrationTestScenario names on testops-playpen; Konflux starts one PipelineRun per ITS
+# when a Snapshot is created for the same application. Used by ``runners/report/prune_stale_testops_its.py``
+# — not by default ``olm_pipeline.py`` direct trigger.
 # Canonical list: config/olminstall-stale-its.yaml
 _STALE_TESTOPS_PLAYPEN_ITS_FALLBACK = frozenset(
     (
+        "odh-olminstall-testops",
+        "odh-olminstall-testops-eaas",
+        "odh-olminstall-testops-rh-nightly",
         "odh-olminstall-smoke-testops",
         "rhoai-test",
         "testops-playpen-enterprise-contract",
@@ -113,6 +116,7 @@ RHOAI_FBCF_IMAGE_REF_PATTERN = r"rhoai-fbc-fragment(?:@|:)"
 
 ANNOTATION_RUN_OWNER = "olminstall.run-owner"
 ANNOTATION_CLUSTER = "olminstall.cluster"
+ANNOTATION_CLUSTER_KEY = "olminstall.cluster-key"
 ANNOTATION_PRODUCT = "olminstall.product"
 ANNOTATION_OPERATOR_VERSION = "olminstall.operator-version"
 ANNOTATION_TEST_RESULTS_URL = "olminstall.test-results-url"
@@ -163,6 +167,7 @@ OLMINSTALL_WRITE_ANNOTATION_KEYS = (
     ANNOTATION_PRODUCT,
     ANNOTATION_TESTS,
     ANNOTATION_CLUSTER,
+    ANNOTATION_CLUSTER_KEY,
     ANNOTATION_TRIGGER_TYPE,
     ANNOTATION_TRIGGER_COMMAND,
     ANNOTATION_REFERENCE,
@@ -226,6 +231,7 @@ OLMINSTALL_ANNOTATION_LABELS: dict[str, str] = {
     ANNOTATION_REFERENCE: "Reference (FBC + context)",
     ANNOTATION_FBCF_IMAGE: "FBC catalog pullspec",
     ANNOTATION_CLUSTER: "Cluster",
+    ANNOTATION_CLUSTER_KEY: "Cluster lock key",
     ANNOTATION_PRODUCT: "Product",
     ANNOTATION_TESTS: "Test gates",
     ANNOTATION_OPERATOR_VERSION: "Operator version",

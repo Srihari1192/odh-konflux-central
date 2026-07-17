@@ -90,7 +90,15 @@ def main() -> int:
     if not plan_path:
         print("COMPONENT_TEST_PLAN_JSON is required when RUN_COMPONENT_TESTS=true", file=sys.stderr)
         return 1
-    plan = _load_plan(Path(plan_path))
+    plan_file = Path(plan_path)
+    if not plan_file.is_file():
+        print(
+            f"ERROR: component test plan missing at {plan_path}; "
+            "opendatahub-tests-prepare must export it first",
+            file=sys.stderr,
+        )
+        return 1
+    plan = _load_plan(plan_file)
     flags = compute_version_aware_run_smoke_flags(
         plan,
         run_component_tests=True,

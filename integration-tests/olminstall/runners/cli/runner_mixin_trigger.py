@@ -14,25 +14,24 @@ from typing import Any
 
 from suite.constants import (
     ANNOTATION_RUN_OWNER,
-    DEFAULT_APP,
-    DEFAULT_NAMESPACE,
     DEFAULT_OLMINSTALL_PIPELINE_TIMEOUT,
     DEFAULT_UPSTREAM_KONFLUX_GIT,
     ITS_TEST_GATES_PARAM_DEFAULT,
     KONFLUX_INTEGRATION_SERVICE_ACCOUNT,
-    OLMINSTALL_EAAS_ITS_NAME,
+    RHOAI_E2E_EAAS_ITS_NAME,
     RHOAI_FBCF_IMAGE_REF_PATTERN,
-    STALE_TESTOPS_PLAYPEN_ITS_NAMES,
 )
 from suite.its_trigger_params import (
     is_external_cluster_source,
+    ocp_install_prefix,
     resolve_cluster_source_for_trigger,
     resolve_version_display_params,
     validate_cluster_source,
 )
+from suite.its_registry import integration_test_scenario_application
 from suite.rhoai_fbc_ocp import rhoai_fbc_name_from_ocp_minor
 from k8s.cluster_ocp_version import cluster_ocp_minor_from_kubeconfig
-from suite.pipelinerun_naming import build_olminstall_generate_prefix
+from suite.pipelinerun_naming import build_olminstall_generate_prefix, default_pipelinerun_generate_prefix, is_olminstall_pipelinerun_name
 from suite.errors import AppError
 from k8s.external_kubeconfig import validate_kubeconfig_path, wait_for_external_cluster_idle
 from k8s.oc_util import filter_warning_lines, parse_json_output, run_cmd
@@ -120,9 +119,10 @@ class RunnerTriggerMixin:
         update_channel, _channel_explicit = self._effective_update_channel(
             its_param_path=tmp_path
         )
-        effective_ocp = (self.args.ocp_version or "").strip() or (
-            getattr(self, "resolved_ocp_minor", "") or ""
-        ).strip()
+        effective_ocp = ocp_install_prefix(
+            (self.args.ocp_version or "").strip()
+            or (getattr(self, "resolved_ocp_minor", "") or "").strip()
+        )
         version_display = resolve_version_display_params(
             product=self.args.product,
             cli_version=self.args.version or "",
@@ -343,46 +343,66 @@ class RunnerTriggerMixin:
         print(f"WARN {reason} — using pinned fallback from snapshot YAML: {pinned}")
         self.image = pinned
 
+    def _ordered_rhoai_version_stream_apps(self) -> list[str]:
+        """``rhoai-v*`` applications in priority order (3.5 EA streams first)."""
+        apps = [a for a in self.get_applications("rhoai-tenant") if a.startswith("rhoai-v")]
+        priority = ("rhoai-v3-5-ea-2", "rhoai-v3-5-ea-1", "rhoai-v3-5")
+        ordered_priority = [a for a in priority if a in apps]
+        rest = sorted(a for a in apps if a not in priority)
+        return list(dict.fromkeys([*ordered_priority, *rest]))
+
     def _resolve_rhoai_fbc_latest_for_component(self, fbc_component_name: str) -> None:
-        """Newest Konflux snapshot for ``fbc_component_name`` across ``rhoai-v*`` apps."""
+        """Newest Konflux snapshot for ``fbc_component_name``.
+
+        Searches the FBC fragment application (e.g. ``rhoai-fbc-fragment-ocp-420`` when
+        the component name matches the app) and ``rhoai-v*`` version-stream apps; picks
+        the newest ``creationTimestamp`` unless ``--image`` was set earlier.
+        """
         want = (fbc_component_name or "").strip()
         if not want:
             return
-        apps = [a for a in self.get_applications("rhoai-tenant") if a.startswith("rhoai-v")]
-        preferred = [a for a in apps if re.match(r"^rhoai-v3-5", a)]
-        priority = [
-            "rhoai-v3-5-ea-2",
-            "rhoai-v3-5-ea-1",
-            "rhoai-v3-5",
-        ]
-        search_apps = [
-            a
-            for a in priority + sorted(preferred or apps)
-            if a in apps or a in priority
-        ]
-        seen: set[str] = set()
-        ordered_apps: list[str] = []
-        for app in search_apps:
-            if app in seen:
-                continue
-            seen.add(app)
-            ordered_apps.append(app)
-        best_rank: tuple[tuple[int, ...], str] = ((), "")
-        for app in ordered_apps:
+
+        best_ts = ""
+        best_img = ""
+        best_app = ""
+        best_meta: dict[str, Any] | None = None
+
+        for app in (want, *self._ordered_rhoai_version_stream_apps()):
             ts, img, snap_meta = self.latest_named_component_image(
                 "rhoai-tenant",
                 app,
                 want,
                 RHOAI_FBCF_IMAGE_REF_PATTERN,
             )
-            if not img:
-                continue
-            rank = (self._rhoai_app_version_key(app), ts)
-            if rank > best_rank:
-                best_rank = rank
-                self.image = img
-                self.resolved_app = app
-                self._fbc_source_snapshot_meta = snap_meta
+            if img and ts > best_ts:
+                best_ts, best_img, best_app, best_meta = ts, img, app, snap_meta
+
+        if best_img:
+            self.image = best_img
+            self.resolved_app = best_app
+            self._fbc_source_snapshot_meta = best_meta
+
+    def _resolve_rhoai_fbc_for_its_application(
+        self,
+        konflux_app: str,
+        component_name: str,
+    ) -> None:
+        """Newest FBC image on the ITS ``spec.application`` only (fast ``--run-its`` path)."""
+        want_comp = (component_name or "").strip()
+        want_app = (konflux_app or component_name or "").strip()
+        if not want_app or not want_comp:
+            return
+        _, img, snap_meta = self.latest_named_component_image_on_application(
+            "rhoai-tenant",
+            want_app,
+            want_comp,
+            RHOAI_FBCF_IMAGE_REF_PATTERN,
+        )
+        if not img:
+            return
+        self.image = img
+        self.resolved_app = want_app
+        self._fbc_source_snapshot_meta = snap_meta
 
     def resolve_image(self, odh_overrides: bool) -> None:
         if self.image:
@@ -455,14 +475,27 @@ class RunnerTriggerMixin:
             ocp_minor = self._resolve_target_ocp_minor()
             if ocp_minor:
                 self.resolved_ocp_minor = ocp_minor
-            with spin_while(f"Resolving latest Konflux FBCF image for {fbc_name}"):
-                self._resolve_rhoai_fbc_latest_for_component(fbc_name)
+            run_its = bool((getattr(self.args, "run_its", "") or "").strip())
+            if run_its:
+                manifest = Path(getattr(self.args, "its_manifest_path", "") or "")
+                its_app = integration_test_scenario_application(manifest) if manifest.is_file() else ""
+                its_app = its_app or fbc_name
+                with spin_while(
+                    f"Resolving latest Konflux FBCF image for {fbc_name} (ITS application {its_app})"
+                ):
+                    self._resolve_rhoai_fbc_for_its_application(its_app, fbc_name)
+                miss_reason = f"no Konflux snapshot found for {fbc_name} on ITS application {its_app!r}"
+            else:
+                with spin_while(f"Resolving latest Konflux FBCF image for {fbc_name}"):
+                    self._resolve_rhoai_fbc_latest_for_component(fbc_name)
+                miss_reason = (
+                    f"no Konflux snapshot found for {fbc_name} "
+                    f"(searched FBC app {fbc_name!r} and rhoai-v* streams)"
+                )
             if self.image:
                 print(f"Latest FBCF image for {fbc_name}: {self.image} (from {self.resolved_app})")
             else:
-                self._apply_pinned_fbcf_fallback(
-                    reason=f"no Konflux snapshot found for {fbc_name}",
-                )
+                self._apply_pinned_fbcf_fallback(reason=miss_reason)
         elif self.args.product == "rhoai":
             with spin_while("Fetching latest FBCF image across all RHOAI apps (highest version)"):
                 apps = [a for a in self.get_applications("rhoai-tenant") if a.startswith("rhoai-v")]
@@ -526,29 +559,6 @@ class RunnerTriggerMixin:
                     else self.resolved_app or "rhoai app"
                 )
                 print(f"Auto-selected channel: {self.update_channel_override} (from {source})")
-
-
-    def prune_stale_integration_test_scenarios(self) -> None:
-        """Remove legacy ITS objects so one Snapshot does not fan out to extra pipelines (EC, rhoai-test, …)."""
-        if self.args.namespace != DEFAULT_NAMESPACE or self.args.app != DEFAULT_APP:
-            return
-        stale = sorted(STALE_TESTOPS_PLAYPEN_ITS_NAMES)
-        if not stale:
-            return
-        print(
-            "Pruning legacy IntegrationTestScenario objects so the next Snapshot only starts "
-            f"{OLMINSTALL_EAAS_ITS_NAME!r} for application {self.args.app!r}: "
-            + ", ".join(stale)
-        )
-        for name in stale:
-            proc = run_cmd(
-                ["oc", "delete", "integrationtestscenario", name, "-n", self.args.namespace, "--ignore-not-found"],
-                capture=True,
-                check=False,
-            )
-            if proc.returncode != 0:
-                msg = filter_warning_lines(f"{proc.stdout}\n{proc.stderr}").strip()
-                print(f"  WARN oc delete integrationtestscenario/{name}: {msg or proc.returncode}", file=sys.stderr)
 
 
     def ensure_its_applied(self, odh_overrides: bool) -> None:
@@ -864,11 +874,15 @@ class RunnerTriggerMixin:
         if cluster_source:
             its_params["CLUSTER_SOURCE"] = cluster_source
         resolver_url, resolver_rev = self._read_its_resolver_ref()
-        generate_prefix = getattr(self, "_pipelinerun_generate_prefix", "olminstall-")
+        generate_prefix = getattr(self, "_pipelinerun_generate_prefix", default_pipelinerun_generate_prefix())
 
         pr_params: list[dict[str, str]] = [{"name": "SNAPSHOT", "value": snapshot_json}]
         for pname, pvalue in its_params.items():
+            if pname == "WAIT_FOR_CONFORMA":
+                continue
             pr_params.append({"name": pname, "value": pvalue})
+        # Manual CLI/--run-its: skip conforma wait (ITS auto runs use pipeline default true).
+        pr_params.append({"name": "WAIT_FOR_CONFORMA", "value": "false"})
 
         force_cluster = bool(getattr(self.args, "force_cluster_run", False))
         wait_for_external_cluster_idle(
@@ -977,7 +991,7 @@ class RunnerTriggerMixin:
         for item in items:
             name = item.get("metadata", {}).get("name", "")
             app = item.get("metadata", {}).get("labels", {}).get("appstudio.openshift.io/application", "")
-            if "olminstall" not in name or app != self.args.app:
+            if not is_olminstall_pipelinerun_name(name) or app != self.args.app:
                 continue
             snap = ""
             for p in item.get("spec", {}).get("params", []):
@@ -1023,7 +1037,7 @@ class RunnerTriggerMixin:
                 f"{self.konflux_ui}/ns/{self.args.namespace}/applications/{self.args.app}/activity/pipelineruns\n"
                 f"Snapshot: {self.snapshot_name}\n"
                 "If the Snapshot shows ``No required IntegrationTestScenarios found``, confirm "
-                f"``oc get integrationtestscenario -n {self.args.namespace} {OLMINSTALL_EAAS_ITS_NAME}`` "
+                f"``oc get integrationtestscenario -n {self.args.namespace} {RHOAI_E2E_EAAS_ITS_NAME}`` "
                 "exists and was applied by this trigger (``olm_pipeline.py`` labels manual snapshots for "
                 "the ``push`` ITS context).\n"
                 f"When the run appears, follow logs with:\n  {watch_hint}"
@@ -1184,7 +1198,7 @@ class RunnerTriggerMixin:
         for item in self.get_pipelineruns(self.args.namespace):
             name = item.get("metadata", {}).get("name", "")
             app = item.get("metadata", {}).get("labels", {}).get("appstudio.openshift.io/application", "")
-            if "olminstall" not in name or app != self.args.app:
+            if not is_olminstall_pipelinerun_name(name) or app != self.args.app:
                 continue
             if item.get("status", {}).get("completionTime"):
                 continue

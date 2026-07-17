@@ -212,6 +212,43 @@ def _models_as_service_selector_conflict() -> bool:
     )
 
 
+_MAAS_INGRESS_CLEANUP_DEPLOYS = (_BBR_PRE_DEPLOY, _BBR_POST_DEPLOY)
+
+
+def cleanup_stale_maas_ingress_workloads() -> None:
+    """Delete MaaS ingress Deployments left on pooled clusters after operator cleanup."""
+    for name in _MAAS_INGRESS_CLEANUP_DEPLOYS:
+        proc = oc_run(
+            [
+                "delete",
+                "deployment",
+                name,
+                "-n",
+                _GATEWAY_NS,
+                "--ignore-not-found",
+                "--wait=false",
+            ],
+            check=False,
+            capture_output=True,
+            timeout=120,
+        )
+        if proc.returncode == 0 and "deleted" in f"{proc.stdout or ''}{proc.stderr or ''}".lower():
+            print(f"✓ Removed stale MaaS ingress deployment {_GATEWAY_NS}/{name}", flush=True)
+
+
+def _wait_models_as_service_after_repair() -> None:
+    from components.maas_billing.timeouts import maas_resync_timeout_sec
+    from components.maas_billing.wait import _wait_for_dsc_component_ready
+
+    try:
+        _wait_for_dsc_component_ready(
+            condition_type="ModelsAsServiceReady",
+            timeout_sec=maas_resync_timeout_sec(),
+        )
+    except RuntimeError as exc:
+        print(f"WARN: ModelsAsServiceReady not True after repair ({exc})", flush=True)
+
+
 def repair_payload_pre_processing_selector_conflict() -> bool:
     """Delete stale pre-auth Deployment so operator or olminstall can recreate it."""
     if not _models_as_service_selector_conflict():
@@ -238,6 +275,7 @@ def repair_payload_pre_processing_selector_conflict() -> bool:
         capture_output=True,
         timeout=180,
     )
+    _wait_models_as_service_after_repair()
     return True
 
 

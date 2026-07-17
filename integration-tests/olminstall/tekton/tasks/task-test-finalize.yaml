@@ -119,26 +119,6 @@ spec:
         os.chdir(os.environ["SCRIPTS_REPO_ROOT"])
         os.execvp(sys.executable, [sys.executable, "-m", "steps.finalize_component_tests"])
 
-    - name: check-pipeline-test-gate
-      displayName: Enforce bvt and smoke gates
-      image: quay.io/konflux-ci/konflux-test:stable@sha256:09328e5f47da168ffe951ec9c4242cd6761e61e0a235df1bba3f5158e757446d
-      env:
-        - name: PIPELINE_RUN_NAME
-          value: $(params.PIPELINE_RUN_NAME)
-        - name: TEST_GATES
-          value: $(params.TEST_GATES)
-        - name: SMOKE_TEST_OUTPUT_PATH
-          value: $(workspaces.tests-shared.path)/tests-payload/.olminstall-smoke-test-output.json
-        - name: BVT_TEST_OUTPUT_PATH
-          value: $(workspaces.tests-shared.path)/tests-payload/.olminstall-bvt-test-output.json
-        - name: SCRIPTS_REPO_ROOT
-          value: $(workspaces.tests-shared.path)/scripts-repo/integration-tests/olminstall
-      script: |
-        #!/usr/bin/env python3
-        import os, sys
-        os.chdir(os.environ["SCRIPTS_REPO_ROOT"])
-        os.execvp(sys.executable, [sys.executable, "-m", "runners.report.check_pipeline_test_gate"])
-
     - name: write-konflux-task-summary
       displayName: Write Konflux task summary
       onError: continue
@@ -165,3 +145,23 @@ spec:
         set -euo pipefail
         [[ -n "${SCRIPTS_REPO_ROOT:-}" ]] || exit 0
         exec bash "${SCRIPTS_REPO_ROOT}/tekton/scripts/run_write_task_message.sh"
+
+    - name: check-pipeline-test-gate
+      displayName: Enforce bvt and smoke gates
+      image: quay.io/konflux-ci/konflux-test:stable@sha256:09328e5f47da168ffe951ec9c4242cd6761e61e0a235df1bba3f5158e757446d
+      env:
+        - name: PIPELINE_RUN_NAME
+          value: $(params.PIPELINE_RUN_NAME)
+        - name: TEST_GATES
+          value: $(params.TEST_GATES)
+        - name: SMOKE_TEST_OUTPUT_PATH
+          value: $(workspaces.tests-shared.path)/tests-payload/.olminstall-smoke-test-output.json
+        - name: BVT_TEST_OUTPUT_PATH
+          value: $(workspaces.tests-shared.path)/tests-payload/.olminstall-bvt-test-output.json
+        - name: SCRIPTS_REPO_ROOT
+          value: $(workspaces.tests-shared.path)/scripts-repo/integration-tests/olminstall
+      script: |
+        #!/usr/bin/env python3
+        import os, sys
+        os.chdir(os.environ["SCRIPTS_REPO_ROOT"])
+        os.execvp(sys.executable, [sys.executable, "-m", "runners.report.check_pipeline_test_gate"])

@@ -22,6 +22,7 @@ from install.dsc_install import (
 from install.ldap import install_identity_providers
 from install.rhoai_gateway_prep import ensure_rhoai_gateway_stack_for_components
 from install.rosa_hcp_imagestream_mirror import ensure_rosa_hcp_imagestream_mirror
+from suite.cluster_api_health import cluster_smoke_infra_blocked_reason, is_definitive_infra_error
 from steps.cluster_prep_state import (
     cluster_prep_already_done,
     mark_cluster_prep_done,
@@ -124,6 +125,16 @@ def _ensure_dsc_managed_for_component(smoke_id: str) -> None:
 
 def refresh_maas_smoke_before_pytest(*, component_id: str = "") -> None:
     """Re-apply MaaS state maas-controller may revert between dep-operators and pytest."""
+    api_reason = cluster_smoke_infra_blocked_reason()
+    if api_reason:
+        raise RuntimeError(api_reason)
+
+    from steps.cluster_prep_state import maas_gateway_https_blocked_reason
+
+    blocked = maas_gateway_https_blocked_reason()
+    if blocked:
+        raise RuntimeError(blocked)
+
     from components.maas_billing.bbr_pre_processing import (
         ensure_maas_bbr_pre_processing,
         repair_payload_pre_processing_selector_conflict,
@@ -152,6 +163,8 @@ def refresh_maas_smoke_before_pytest(*, component_id: str = "") -> None:
             ensure_maas_gateway_before_models_as_service()
             return
         except Exception as exc:
+            if is_definitive_infra_error(str(exc)):
+                raise
             print(
                 f"WARN: MaaS gateway/modelsAsService refresh before pytest failed ({exc}); "
                 "continuing with gateway Programmed wait",
@@ -219,9 +232,15 @@ def _external_existing_cluster() -> bool:
     )
 
 
+def _external_cluster() -> bool:
+    from suite.its_trigger_params import is_external_cluster_source
+
+    return is_external_cluster_source(os.environ.get("CLUSTER_SOURCE", ""))
+
+
 def run_pooled_external_smoke_prep(smoke_id: str) -> bool:
-    """Per-component leak cleanup on pooled external clusters (always safe to re-run)."""
-    if not _external_existing_cluster():
+    """Per-component leak cleanup on external clusters (rhoai reinstall or existing)."""
+    if not _external_cluster():
         return True
     ok = True
     if smoke_id == "model_registry":
@@ -237,7 +256,20 @@ def run_pooled_external_smoke_prep(smoke_id: str) -> bool:
                 file=sys.stderr,
                 flush=True,
             )
-    if smoke_id == "mlflow":
+    if smoke_id == "model_runtime":
+        try:
+            from components.model_runtime.smoke_prep import cleanup_model_runtime_smoke_leaks
+
+            cleanup_model_runtime_smoke_leaks()
+        except Exception as exc:
+            ok = False
+            print(
+                f"WARN: model_runtime cleanup for {smoke_id} failed ({exc}); "
+                "vLLM fixtures may hit Namespace AlreadyExists (409)",
+                file=sys.stderr,
+                flush=True,
+            )
+    if smoke_id == "mlflow" and _external_cluster():
         try:
             from components.mlflow.smoke_prep import ensure_mlflow_smoke_ready_on_existing
 
@@ -336,6 +368,11 @@ def prepare_component_for_smoke(smoke_id: str) -> bool:
 
     if smoke_enables_models_as_service({smoke_id}):
         try:
+            from steps.cluster_prep_state import maas_gateway_https_blocked_reason
+
+            blocked = maas_gateway_https_blocked_reason()
+            if blocked:
+                raise RuntimeError(blocked)
             from components.maas_billing.prep import try_prepare_maas_smoke
 
             try_prepare_maas_smoke()
@@ -489,10 +526,15 @@ def prepare_components_for_smoke(component_ids: set[str]) -> bool:
         )
     if components_need_models_as_service(component_ids):
         try:
-            from components.maas_billing.prep import ensure_maas_gateway_before_models_as_service
+            # try_prepare_maas_smoke retries RHCL when the incomplete marker survives
+            # install-dep-operators; ensure_maas_gateway_* alone skipped that path.
+            from components.maas_billing.prep import try_prepare_maas_smoke
 
-            ensure_maas_gateway_before_models_as_service()
+            try_prepare_maas_smoke()
         except Exception as exc:
+            from steps.cluster_prep_state import mark_maas_gateway_https_failed
+
+            mark_maas_gateway_https_failed(str(exc))
             print(
                 f"WARN: MaaS gateway/modelsAsService prep before smoke matrix failed ({exc}); "
                 "BVT and MaaS smoke may fail until maas-default-gateway is programmed",

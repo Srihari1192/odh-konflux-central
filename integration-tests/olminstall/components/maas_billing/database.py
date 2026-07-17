@@ -7,10 +7,12 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 from install.dsc_install import oc_run
+from install.dependency_operators import unblock_terminating_namespace
 from steps.tekton_util import git_clone
 
 from components.maas_billing.common import (
@@ -23,6 +25,8 @@ from components.maas_billing.common import (
 )
 
 _MAAS_INFRA_NS = "odh-ai-gateway-infra"
+_MAAS_TENANT_NS = "models-as-a-service"
+_DEFAULT_MAAS_INFRA_CLEANUP_TIMEOUT_SEC = 300
 
 
 def _maas_infra_namespace() -> str:
@@ -221,32 +225,280 @@ def _namespace_exists(name: str) -> bool:
     return r.returncode == 0
 
 
+def _namespace_phase(name: str) -> str | None:
+    r = oc_run(
+        ["get", "namespace", name, "-o", "jsonpath={.status.phase}"],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    if r.returncode != 0:
+        return None
+    phase = (r.stdout or "").strip()
+    return phase or None
+
+
+def _wait_namespace_deleted(name: str, *, timeout_sec: int) -> None:
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        phase = _namespace_phase(name)
+        if phase is None:
+            return
+        if phase == "Terminating":
+            unblock_terminating_namespace(name)
+        time.sleep(5)
+    phase = _namespace_phase(name)
+    if phase is not None:
+        raise RuntimeError(
+            f"namespace {name} still {phase} after {timeout_sec}s (MaaS infra cleanup)"
+        )
+
+
+def _delete_maas_db_secrets() -> None:
+    infra_ns = _maas_infra_namespace()
+    for ns in (_MAAS_APPS_NS, infra_ns):
+        if not _secret_exists(ns, _MAAS_DB_SECRET):
+            continue
+        oc_run(
+            ["delete", "secret", _MAAS_DB_SECRET, "-n", ns, "--ignore-not-found"],
+            check=False,
+            capture_output=True,
+            timeout=60,
+        )
+        print(f"✓ Removed stale MaaS DB secret {ns}/{_MAAS_DB_SECRET}", flush=True)
+
+
+def _delete_namespace_if_present(name: str, *, wait: bool, timeout_sec: int) -> None:
+    if not _namespace_exists(name):
+        return
+    print(f"Deleting namespace {name} (stale MaaS infra)...", flush=True)
+    oc_run(
+        ["delete", "namespace", name, "--wait=false"],
+        check=False,
+        capture_output=True,
+        timeout=120,
+    )
+    if wait:
+        _wait_namespace_deleted(name, timeout_sec=timeout_sec)
+
+
+def cleanup_maas_postgres_infra(*, wait: bool = True) -> None:
+    """Remove MaaS Postgres/DB secrets and infra namespace before operator cleanup."""
+    timeout_sec = int(
+        os.environ.get("MAAS_INFRA_CLEANUP_TIMEOUT_SEC", str(_DEFAULT_MAAS_INFRA_CLEANUP_TIMEOUT_SEC))
+    )
+    _delete_maas_db_secrets()
+    _delete_namespace_if_present(_maas_infra_namespace(), wait=wait, timeout_sec=timeout_sec)
+
+
+def cleanup_maas_tenant_namespace(*, wait: bool = True) -> None:
+    """Remove MaaS tenant namespace after operator cleanup.
+
+    Operators can recreate ``models-as-a-service`` while RHCL/MaaS CSVs still exist;
+    run this only after ``cleanup.sh -t operator``.
+    """
+    timeout_sec = int(
+        os.environ.get("MAAS_INFRA_CLEANUP_TIMEOUT_SEC", str(_DEFAULT_MAAS_INFRA_CLEANUP_TIMEOUT_SEC))
+    )
+    _delete_namespace_if_present(_MAAS_TENANT_NS, wait=wait, timeout_sec=timeout_sec)
+
+
+def cleanup_maas_database_infra(*, wait: bool = True) -> None:
+    """Remove pooled-cluster MaaS Postgres/DB secrets left after operator cleanup.
+
+    olminstall ``cleanup.sh -t operator`` does not delete ``odh-ai-gateway-infra``;
+    reusing its Postgres leaves ``schema_migrations`` from a prior MaaS version and
+    breaks ``maas-api`` on the next RHOAI install.
+    """
+    cleanup_maas_postgres_infra(wait=wait)
+    cleanup_maas_tenant_namespace(wait=wait)
+
+
+def _postgres_deploy_ready(infra_ns: str) -> bool:
+    r = oc_run(
+        [
+            "get",
+            "deployment",
+            _maas_postgres_service(),
+            "-n",
+            infra_ns,
+            "-o",
+            "jsonpath={.status.readyReplicas}",
+        ],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    if r.returncode != 0:
+        return False
+    try:
+        return int((r.stdout or "0").strip() or "0") >= 1
+    except ValueError:
+        return False
+
+
+def _read_maas_postgres_schema_version() -> int | None:
+    infra_ns = _maas_infra_namespace()
+    if not _namespace_exists(infra_ns) or not _postgres_deploy_ready(infra_ns):
+        return None
+    proc = oc_run(
+        [
+            "exec",
+            "-n",
+            infra_ns,
+            f"deploy/{_maas_postgres_service()}",
+            "--",
+            "psql",
+            "-U",
+            "maas",
+            "-d",
+            "maas",
+            "-tAc",
+            "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+        ],
+        check=False,
+        capture_output=True,
+        timeout=60,
+    )
+    if proc.returncode != 0:
+        return None
+    raw = (proc.stdout or "").strip()
+    if not raw or raw.lower() == "null":
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _maas_api_deployment_ready() -> bool:
+    r = oc_run(
+        [
+            "get",
+            "deployment",
+            "maas-api",
+            "-n",
+            _MAAS_APPS_NS,
+            "-o",
+            "jsonpath={.status.readyReplicas}",
+        ],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    if r.returncode != 0:
+        return False
+    try:
+        return int((r.stdout or "0").strip() or "0") >= 1
+    except ValueError:
+        return False
+
+
+def _needs_maas_postgres_reset() -> bool:
+    version = _read_maas_postgres_schema_version()
+    if version is None or version <= 0:
+        return False
+    if _maas_api_deployment_ready():
+        return False
+    print(
+        f"WARN: MaaS Postgres schema_migrations version={version} with maas-api not ready "
+        "(likely incompatible with current maas-api image)",
+        flush=True,
+    )
+    return True
+
+
+def _apps_namespace_ready_for_secrets() -> bool:
+    """True when redhat-ods-applications exists and accepts creates (not Terminating).
+
+    After cleanup-external the apps NS often sticks Terminating; promoting maas-db-config
+    then fails with Forbidden. Wait it out (unblock finalizers) and treat as missing.
+    """
+    phase = _namespace_phase(_MAAS_APPS_NS)
+    if phase is None:
+        return False
+    if phase == "Active":
+        return True
+    if phase == "Terminating":
+        timeout = int(os.environ.get("MAAS_APPS_NS_DELETE_TIMEOUT_SEC", "300"))
+        print(
+            f"NOTE: {_MAAS_APPS_NS} is Terminating; waiting up to {timeout}s before MaaS DB setup...",
+            flush=True,
+        )
+        _wait_namespace_deleted(_MAAS_APPS_NS, timeout_sec=timeout)
+        return False
+    print(
+        f"WARN: {_MAAS_APPS_NS} phase={phase}; treating as not ready for {_MAAS_DB_SECRET}",
+        flush=True,
+    )
+    return False
+
+
 def ensure_maas_database() -> None:
     """Ensure maas-db-config exists in redhat-ods-applications (models-as-a-service parity)."""
-    if not _namespace_exists(_MAAS_APPS_NS):
+    if not _apps_namespace_ready_for_secrets():
         from install.dependency_operators import product_install_path
 
         if product_install_path():
+            # Jenkins creates redhat-ods-applications + postgres before setup.sh
             print(
-                f"NOTE: deferring {_MAAS_DB_SECRET} until {_MAAS_APPS_NS} exists "
-                "(post install-rhoai; prepare-components will retry)",
+                f"Creating {_MAAS_APPS_NS} before RHOAI install (Jenkins MaaS prep parity)...",
                 flush=True,
             )
-            return
-        raise RuntimeError(
-            f"namespace {_MAAS_APPS_NS} not found; cannot ensure {_MAAS_DB_SECRET}"
-        )
+            create = oc_run(
+                [
+                    "create",
+                    "namespace",
+                    _MAAS_APPS_NS,
+                    "--dry-run=client",
+                    "-o",
+                    "yaml",
+                ],
+                check=False,
+                capture_output=True,
+                timeout=30,
+            )
+            if create.returncode == 0 and (create.stdout or "").strip():
+                apply = oc_run(
+                    ["apply", "-f", "-"],
+                    stdin_text=create.stdout,
+                    check=False,
+                    capture_output=True,
+                    timeout=60,
+                )
+                if apply.returncode != 0:
+                    err = (apply.stderr or apply.stdout or "").strip()
+                    print(
+                        f"WARN: could not create {_MAAS_APPS_NS}: {err[:200]}; "
+                        "deferring maas-db-config until post install-rhoai",
+                        flush=True,
+                    )
+                    return
+            if not _apps_namespace_ready_for_secrets():
+                print(
+                    f"NOTE: deferring {_MAAS_DB_SECRET} until {_MAAS_APPS_NS} is Active "
+                    "(post install-rhoai; prepare-components will retry)",
+                    flush=True,
+                )
+                return
+        else:
+            raise RuntimeError(
+                f"namespace {_MAAS_APPS_NS} not found; cannot ensure {_MAAS_DB_SECRET}"
+            )
 
     if _secret_exists(_MAAS_APPS_NS, _MAAS_DB_SECRET):
-        if _repair_apps_maas_db_connection_url_if_needed():
-            print(
-                f"✓ MaaS database secret {_MAAS_APPS_NS}/{_MAAS_DB_SECRET} repaired for apps-namespace maas-api",
-                flush=True,
-            )
-            _restart_maas_api_after_db_config()
+        if _needs_maas_postgres_reset():
+            cleanup_maas_database_infra()
         else:
-            print(f"✓ MaaS database secret {_MAAS_APPS_NS}/{_MAAS_DB_SECRET} exists", flush=True)
-        return
+            if _repair_apps_maas_db_connection_url_if_needed():
+                print(
+                    f"✓ MaaS database secret {_MAAS_APPS_NS}/{_MAAS_DB_SECRET} repaired for apps-namespace maas-api",
+                    flush=True,
+                )
+                _restart_maas_api_after_db_config()
+            else:
+                print(f"✓ MaaS database secret {_MAAS_APPS_NS}/{_MAAS_DB_SECRET} exists", flush=True)
+            return
 
     external_url = os.environ.get("MAAS_DB_CONNECTION_URL", "").strip()
     if external_url:

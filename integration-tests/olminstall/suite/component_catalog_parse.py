@@ -243,11 +243,27 @@ def _parse_cypress_runner_config(raw: dict[str, Any], label: str, path: Path) ->
         if not isinstance(config_raw, str) or not config_raw.strip():
             raise AppError(f"{label}.konflux.runner.cypress.runConfig must be a non-empty string in {path}", 2)
         run_config = normalize_cypress_run_config(config_raw)
+    max_parallel: int | None = None
+    max_raw = cy.get("maxParallel")
+    if max_raw is not None:
+        try:
+            max_parallel = int(max_raw)
+        except (TypeError, ValueError) as exc:
+            raise AppError(
+                f"{label}.konflux.runner.cypress.maxParallel must be an integer in {path}",
+                2,
+            ) from exc
+        if max_parallel < 1:
+            raise AppError(
+                f"{label}.konflux.runner.cypress.maxParallel must be >= 1 in {path}",
+                2,
+            )
     return CypressRunnerConfig(
         skip_tags=skip_raw.strip(),
         gates=gates,
         test_timeout_seconds=test_timeout,
         parallel_stagger_sec=stagger,
+        max_parallel=max_parallel,
         display_base=display_base,
         run_config=run_config,
     )

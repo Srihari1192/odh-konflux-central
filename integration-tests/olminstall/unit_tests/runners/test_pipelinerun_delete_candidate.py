@@ -44,26 +44,26 @@ def _pr(
 
 class PipelinerunDeleteCandidateTest(unittest.TestCase):
     def test_pending_incomplete(self) -> None:
-        item = _pr("odh-olminstall-testops-x", reason="PipelineRunPending")
+        item = _pr("e2e-cli-testops-x", reason="PipelineRunPending")
         ok, why = pipelinerun_delete_candidate(item, app="testops-playpen", run_owner="alice")
         self.assertTrue(ok)
         self.assertEqual(why, "pending")
 
     def test_resolving_pipeline_ref_pending(self) -> None:
-        item = _pr("odh-olminstall-testops-x", reason="ResolvingPipelineRef")
+        item = _pr("e2e-cli-testops-x", reason="ResolvingPipelineRef")
         ok, why = pipelinerun_delete_candidate(item, app="testops-playpen", run_owner="alice")
         self.assertTrue(ok)
         self.assertEqual(why, "pending")
 
     def test_owned_incomplete(self) -> None:
-        item = _pr("odh-olminstall-testops-x", reason="ResolvingTaskRef", owner="alice")
+        item = _pr("e2e-cli-testops-x", reason="ResolvingTaskRef", owner="alice")
         ok, why = pipelinerun_delete_candidate(item, app="testops-playpen", run_owner="alice")
         self.assertTrue(ok)
         self.assertEqual(why, "owned")
 
     def test_owned_via_snapshot_when_pr_annotation_missing(self) -> None:
         item = _pr(
-            "odh-olminstall-testops-x",
+            "e2e-cli-testops-x",
             reason="Running",
             snapshot="snap-alice-1",
         )
@@ -77,13 +77,13 @@ class PipelinerunDeleteCandidateTest(unittest.TestCase):
         self.assertEqual(why, "owned")
 
     def test_stuck_running_without_owner_or_tasks_skipped_by_default(self) -> None:
-        item = _pr("odh-olminstall-testops-x", reason="Running", child_refs=[])
+        item = _pr("e2e-cli-testops-x", reason="Running", child_refs=[])
         ok, why = pipelinerun_delete_candidate(item, app="testops-playpen", run_owner="alice")
         self.assertFalse(ok)
         self.assertEqual(why, "")
 
     def test_include_unowned_stuck_selects_stuck_runs(self) -> None:
-        item = _pr("odh-olminstall-testops-x", reason="Running", child_refs=[])
+        item = _pr("e2e-cli-testops-x", reason="Running", child_refs=[])
         ok, why = pipelinerun_delete_candidate(
             item,
             app="testops-playpen",
@@ -95,7 +95,7 @@ class PipelinerunDeleteCandidateTest(unittest.TestCase):
 
     def test_skip_other_users_running_with_tasks(self) -> None:
         item = _pr(
-            "odh-olminstall-testops-x",
+            "e2e-cli-testops-x",
             reason="Running",
             owner="bob",
             child_refs=[{"name": "tr-1", "kind": "TaskRun"}],
@@ -105,7 +105,7 @@ class PipelinerunDeleteCandidateTest(unittest.TestCase):
 
     def test_skip_owned_running_with_tasks(self) -> None:
         item = _pr(
-            "odh-olminstall-testops-x",
+            "e2e-cli-testops-x",
             reason="Running",
             owner="alice",
             child_refs=[{"name": "tr-1", "kind": "TaskRun"}],
@@ -115,7 +115,7 @@ class PipelinerunDeleteCandidateTest(unittest.TestCase):
 
     def test_stop_owned_running_includes_active_owned(self) -> None:
         item = _pr(
-            "odh-olminstall-testops-x",
+            "e2e-cli-testops-x",
             reason="Running",
             owner="alice",
             child_refs=[{"name": "tr-1", "kind": "TaskRun"}],
@@ -131,7 +131,7 @@ class PipelinerunDeleteCandidateTest(unittest.TestCase):
 
     def test_skip_completed(self) -> None:
         item = _pr(
-            "odh-olminstall-testops-x",
+            "e2e-cli-testops-x",
             reason="Failed",
             owner="alice",
             completion_time="2026-06-17T10:00:00Z",
@@ -140,12 +140,12 @@ class PipelinerunDeleteCandidateTest(unittest.TestCase):
         self.assertFalse(ok)
 
     def test_skip_wrong_app_label(self) -> None:
-        item = _pr("odh-olminstall-testops-x", reason="PipelineRunPending", app="other-app")
+        item = _pr("e2e-cli-testops-x", reason="PipelineRunPending", app="other-app")
         ok, _ = pipelinerun_delete_candidate(item, app="testops-playpen", run_owner="alice")
         self.assertFalse(ok)
 
     def test_pending_without_app_label(self) -> None:
-        item = _pr("odh-olminstall-testops-x", reason="PipelineRunPending")
+        item = _pr("e2e-cli-testops-x", reason="PipelineRunPending")
         item["metadata"]["labels"].pop("appstudio.openshift.io/application")
         ok, why = pipelinerun_delete_candidate(item, app="testops-playpen", run_owner="alice")
         self.assertFalse(ok)

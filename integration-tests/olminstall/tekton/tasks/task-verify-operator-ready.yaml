@@ -10,6 +10,10 @@ spec:
   workspaces:
     - name: tests-shared
   params:
+    - name: CONFORMA_GATE
+      type: string
+      default: ""
+      description: Pipeline when-binding only (Conforma pass/fail from wait-for-conforma)
     - name: SCRIPTS_REPO_URL
       type: string
     - name: SCRIPTS_REPO_REVISION
@@ -32,6 +36,8 @@ spec:
   results:
     - name: TASK_MESSAGE
       description: Pass/fail summary for Konflux task Results panel
+    - name: OPERATOR_VERIFY_ARMED
+      description: Set to true when verify-operator-ready completes (test prep when gate)
   volumes:
     - name: credentials
       emptyDir: {}
@@ -195,3 +201,4 @@ spec:
           echo "ERROR: verify-operator-dashboard failed (exit ${rc})" >&2
           exit "$rc"
         fi
+        printf '%s' true > "$(results.OPERATOR_VERIFY_ARMED.path)"

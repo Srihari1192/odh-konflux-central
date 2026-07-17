@@ -24,6 +24,7 @@ from pathlib import Path
 from install.dependency_operators import (
     authorino_deferred_to_component_prep,
     components_csv_requires_authorino,
+    ensure_jobset_and_lws_operator_crs,
     ensure_setup_dependency_namespaces_ready,
     existing_dependency_stack_ready,
     finalize_dependency_operators_after_setup_script,
@@ -245,6 +246,11 @@ def main() -> int:
             if setup_rc == 0:
                 if require_authorino and not maas_dependency_operators_ready():
                     recover_authorino_after_setup_script(olm_path, setup_rc)
+                try:
+                    ensure_jobset_and_lws_operator_crs(olm_dir=olm_path)
+                except RuntimeError as exc:
+                    print(f"ERROR: {exc}", file=sys.stderr)
+                    return 1
             elif setup_rc != 0:
                 try:
                     finalize_rc = finalize_dependency_operators_after_setup_script(
@@ -299,11 +305,12 @@ def main() -> int:
                 elif finalize_rc != 0:
                     if require_authorino and product_install_path():
                         print(
-                            f"WARN: dependency finalize exited {finalize_rc}; "
-                            "continuing with RHCL pin/post-install for product install",
+                            f"ERROR: dependency finalize exited {finalize_rc} on product install; "
+                            "not soft-continuing (Jenkins InstallDeps hard-fail parity)",
                             file=sys.stderr,
                             flush=True,
                         )
+                        return 1
                     elif require_authorino:
                         print(
                             f"ERROR: install-dep-operators failed (exit {finalize_rc})",

@@ -11,6 +11,14 @@ spec:
   workspaces:
     - name: tests-shared
   params:
+    - name: CONFORMA_GATE
+      type: string
+      default: ""
+      description: Pipeline when-binding only (Conforma pass/fail from wait-for-conforma)
+    - name: RUN_INSTALL_DEP_OPERATORS
+      type: string
+      default: ""
+      description: Pipeline when-binding only (parse-pipeline-tests RUN_INSTALL_DEP_OPERATORS)
     - name: CLUSTER_SOURCE
       type: string
       default: ""
@@ -51,6 +59,8 @@ spec:
   results:
     - name: TASK_MESSAGE
       description: Pass/fail summary for Konflux task Results panel
+    - name: INSTALL_DEP_COMPLETE
+      description: Set to true when dependency install completes (install-chain when gate)
   volumes:
     - name: credentials
       emptyDir: {}
@@ -256,3 +266,4 @@ spec:
             exit "$prc"
           fi
         fi
+        printf '%s' true > "$(results.INSTALL_DEP_COMPLETE.path)"

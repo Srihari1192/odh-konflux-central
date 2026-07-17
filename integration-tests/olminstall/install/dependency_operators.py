@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -35,6 +36,11 @@ _SETUP_DEPENDENCY_NAMESPACES: tuple[str, ...] = (
 )
 _AUTHORINO_AUTHCONFIG_CRD = "authconfigs.authorino.kuadrant.io"
 _AUTHORINO_CR_NAME = "authorino"
+# Jenkins InstallDeps: resources/post-install-jobset-operator.sh + post-install-leader-worker-set.sh
+_JOBSET_POST_INSTALL = "resources/post-install-jobset-operator.sh"
+_LWS_POST_INSTALL = "resources/post-install-leader-worker-set.sh"
+_JOBSET_OPERATOR_KIND = "jobsetoperator.operator.openshift.io"
+_LWS_OPERATOR_KIND = "leaderworkersetoperator.operator.openshift.io"
 
 
 def maas_dependency_operators_ready() -> bool:
@@ -169,6 +175,116 @@ def product_install_path() -> bool:
     return os.environ.get("PRODUCT", "").strip().lower() in ("rhoai", "odh")
 
 
+def _cluster_operator_cr_exists(kind: str, name: str = "cluster") -> bool:
+    proc = oc_run(
+        ["get", kind, name, "-o", "name"],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    return proc.returncode == 0 and bool((proc.stdout or "").strip())
+
+
+def _cluster_operator_crd_available(kind: str) -> bool:
+    """True when the operator CRD is on the API (CSV may still be installing)."""
+    # kind is like jobsetoperator.operator.openshift.io — CRD name matches plural API group.
+    crd = {
+        _JOBSET_OPERATOR_KIND: "jobsetoperators.operator.openshift.io",
+        _LWS_OPERATOR_KIND: "leaderworkersetoperators.operator.openshift.io",
+    }.get(kind)
+    if not crd:
+        return False
+    proc = oc_run(
+        ["get", "crd", crd, "-o", "name"],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    return proc.returncode == 0 and bool((proc.stdout or "").strip())
+
+
+def _run_olminstall_post_install_script(olm_dir: Path, rel_script: str) -> bool:
+    script = olm_dir / rel_script
+    if not script.is_file():
+        print(f"WARN: {rel_script} missing under {olm_dir}; skipping", flush=True)
+        return False
+    print(f"Running {script.name} (Jenkins InstallDeps parity)...", flush=True)
+    proc = subprocess.run(
+        ["bash", str(script)],
+        cwd=str(olm_dir),
+        env=os.environ.copy(),
+        check=False,
+        timeout=300,
+    )
+    if proc.returncode != 0:
+        print(
+            f"WARN: {script.name} exited {proc.returncode}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return False
+    return True
+
+
+def ensure_jobset_and_lws_operator_crs(*, olm_dir: Path | None = None) -> None:
+    """Create JobSetOperator/cluster and LeaderWorkerSetOperator/cluster (Jenkins parity).
+
+    ``setup-dependencies.sh`` / odh-gitops may install the operator CSV without the
+    cluster CR. After CLEANUP that CR is gone; without it TrainerReady stays False
+    (JobSetOperator CR not found). Prefer olminstall ``post-install-*.sh`` scripts.
+    """
+    root = olm_dir
+    if root is None:
+        raw = os.environ.get("OLMINSTALL_DIR", "").strip()
+        root = Path(raw) if raw else None
+    if root is None or not root.is_dir():
+        print(
+            "WARN: OLMINSTALL_DIR unset; cannot run JobSet/LWS post-install scripts",
+            file=sys.stderr,
+            flush=True,
+        )
+        return
+
+    for rel, kind, label in (
+        (_JOBSET_POST_INSTALL, _JOBSET_OPERATOR_KIND, "JobSetOperator"),
+        (_LWS_POST_INSTALL, _LWS_OPERATOR_KIND, "LeaderWorkerSetOperator"),
+    ):
+        if not _cluster_operator_crd_available(kind):
+            print(
+                f"NOTE: {label} CRD not present yet; skip {rel} until operator installs",
+                flush=True,
+            )
+            continue
+        if _cluster_operator_cr_exists(kind):
+            print(f"✓ {label}/cluster already present", flush=True)
+            continue
+        if not _run_olminstall_post_install_script(root, rel):
+            # Inline apply matching Jenkins resources/*.yaml when script missing/failed
+            manifest = root / "resources" / (
+                "jobset-instance.yaml"
+                if "jobset" in rel
+                else "leader-worker-set-instance.yaml"
+            )
+            if manifest.is_file():
+                print(f"Applying {manifest.name}...", flush=True)
+                apply = oc_run(
+                    ["apply", "-f", str(manifest)],
+                    check=False,
+                    capture_output=True,
+                    timeout=60,
+                )
+                if apply.returncode != 0:
+                    err = (apply.stderr or apply.stdout or "").strip()
+                    raise RuntimeError(f"Failed to create {label}/cluster: {err[:300]}")
+            else:
+                raise RuntimeError(
+                    f"{label}/cluster missing and neither {rel} nor {manifest.name} available"
+                )
+        if not _cluster_operator_cr_exists(kind):
+            raise RuntimeError(f"{label}/cluster still missing after post-install")
+        print(f"✓ {label}/cluster created", flush=True)
+
+
 def existing_smoke_without_install_dependencies() -> bool:
     """True when install-dep-operators is skipped on a pooled external cluster."""
     if product_install_path():
@@ -221,36 +337,58 @@ def _namespace_phase(name: str) -> str:
 
 
 _TERMINATING_FORCE_DELETE_KINDS: tuple[str, ...] = (
+    "cronjob",
+    "job",
     "pod",
     "replicaset",
     "deployment",
     "statefulset",
-    "job",
 )
 
 
 def _force_delete_terminating_namespace_resources(name: str) -> None:
-    """Delete leftover workload objects that keep a namespace in Terminating."""
+    """Delete leftover workload objects that keep a namespace in Terminating.
+
+    ``oc delete --all`` can hang on stuck pods. Use a soft subprocess timeout so
+    ``dsc_install.oc_run`` does not ``sys.exit`` the whole setup-dependencies step.
+    """
     print(
         f"Namespace {name} still Terminating - force-deleting remaining workload objects...",
         flush=True,
     )
+    oc = shutil.which("oc") or "oc"
     for kind in _TERMINATING_FORCE_DELETE_KINDS:
-        oc_run(
-            [
-                "delete",
-                kind,
-                "--all",
-                "-n",
-                name,
-                "--grace-period=0",
-                "--force",
-                "--ignore-not-found",
-            ],
-            check=False,
-            capture_output=True,
-            timeout=120,
-        )
+        cmd = [
+            oc,
+            "delete",
+            kind,
+            "--all",
+            "-n",
+            name,
+            "--grace-period=0",
+            "--force",
+            "--ignore-not-found",
+            "--wait=false",
+        ]
+        try:
+            proc = subprocess.run(
+                cmd,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=45,
+            )
+            if proc.returncode != 0:
+                err = (proc.stderr or proc.stdout or "").strip()
+                print(
+                    f"WARN: force-delete {kind} in {name} exit {proc.returncode}: {err[:200]}",
+                    flush=True,
+                )
+        except subprocess.TimeoutExpired:
+            print(
+                f"WARN: force-delete {kind} in {name} timed out after 45s; continuing unblock",
+                flush=True,
+            )
 
 
 def unblock_terminating_namespace(name: str) -> None:
@@ -364,13 +502,34 @@ def _gitops_make_env() -> dict[str, str]:
     return env
 
 
+def _seed_odh_gitops_yq(gitops: Path, env: dict[str, str]) -> None:
+    """Point odh-gitops Makefile at PATH yq so ``bin/yq`` download (Error 127) is skipped."""
+    yq = shutil.which("yq", path=env.get("PATH", ""))
+    if not yq:
+        return
+    bin_dir = gitops / "bin"
+    target = bin_dir / "yq"
+    try:
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        if target.is_file() and os.access(target, os.X_OK):
+            return
+        if target.exists() or target.is_symlink():
+            target.unlink()
+        target.symlink_to(yq)
+        print(f"Seeded odh-gitops bin/yq -> {yq}", flush=True)
+    except OSError as exc:
+        print(f"WARN: could not seed odh-gitops bin/yq ({exc})", file=sys.stderr, flush=True)
+
+
 def _run_odh_gitops_make(olm_dir: Path, *make_args: str) -> int:
     gitops = olm_dir / "odh-gitops"
     if not gitops.is_dir():
         return 127
+    env = _gitops_make_env()
+    _seed_odh_gitops_yq(gitops, env)
     cmd = ["make", "-C", str(gitops), *make_args]
     print(f"Running: {' '.join(cmd)}", flush=True)
-    return subprocess.run(cmd, env=_gitops_make_env(), check=False).returncode
+    return subprocess.run(cmd, env=env, check=False).returncode
 
 
 def _authorino_crd_available() -> bool:
@@ -517,6 +676,14 @@ def finalize_dependency_operators_after_setup_script(olm_dir: Path, setup_rc: in
         return rc
 
     if rc != 0:
+        if product_install_path():
+            print(
+                f"ERROR: dependency setup exited {rc} on product install; "
+                "not soft-continuing (Jenkins InstallDeps hard-fail parity)",
+                file=sys.stderr,
+                flush=True,
+            )
+            return rc
         print(
             f"WARN: dependency setup exited {rc} but Authorino CRD is available; continuing",
             flush=True,
@@ -525,6 +692,12 @@ def finalize_dependency_operators_after_setup_script(olm_dir: Path, setup_rc: in
 
     recovery_warnings = _ensure_authorino_operators_after_setup(olm_dir, setup_rc)
     had_warnings = had_warnings or recovery_warnings
+
+    try:
+        ensure_jobset_and_lws_operator_crs(olm_dir=olm_dir)
+    except RuntimeError as exc:
+        print(f"ERROR: JobSet/LWS operator CR ensure failed ({exc})", file=sys.stderr)
+        return 1
 
     if maas_dependency_operators_ready():
         print("✓ MaaS dependency operators ready after setup-dependencies recovery", flush=True)

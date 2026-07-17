@@ -14,6 +14,10 @@ from install.dsc_install import (
     oc_run,
 )
 from install.llama_stack_deps import _LLAMA_STACK_CRD, llama_stack_crd_present
+from suite.cluster_api_health import (
+    cluster_api_unreachable_text,
+    cluster_smoke_infra_blocked_reason,
+)
 from suite.errors import AppError
 from components.maas_billing.common import _dsc_condition_types, _maas_smoke_ready
 
@@ -294,6 +298,12 @@ def smoke_component_dsc_disabled(smoke_id: str) -> tuple[bool, str]:
         print(f"WARN: skipping DSC disabled probe for {smoke_id}: {exc}", file=sys.stderr, flush=True)
         return False, ""
     if probe.returncode != 0:
+        api_reason = cluster_api_unreachable_text(
+            stderr=probe.stderr or "",
+            stdout=probe.stdout or "",
+        )
+        if api_reason:
+            return True, api_reason
         return False, ""
 
     ready_type = _SMOKE_READY_CONDITION.get(smoke_id, "")
@@ -438,6 +448,10 @@ def _maas_prereq_unavailable_reason(smoke_id: str) -> str:
 
 def smoke_component_prereq_unavailable(smoke_id: str) -> tuple[bool, str]:
     """Return (unavailable, reason) when a component should fail smoke without pytest."""
+    api_reason = cluster_smoke_infra_blocked_reason()
+    if api_reason:
+        return True, api_reason
+
     disabled, reason = smoke_component_dsc_disabled(smoke_id)
     if disabled:
         return True, reason

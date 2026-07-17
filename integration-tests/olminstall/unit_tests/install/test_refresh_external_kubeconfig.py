@@ -38,10 +38,12 @@ def test_refresh_external_kubeconfig_uses_credentials(
         mock.patch.object(mod, "refresh_working_kubeconfig_from_credentials", return_value=True),
         mock.patch.object(mod, "verify_external_cluster_login", return_value="dev"),
         mock.patch.object(mod, "update_external_kubeconfig_secret") as update_secret,
+        mock.patch.object(mod, "sync_external_kubeconfig_secret_cluster_metadata") as sync_metadata,
     ):
         assert mod.refresh_external_kubeconfig() == 0
 
     update_secret.assert_called_once()
+    sync_metadata.assert_called_once()
     assert (shared / "credentials" / "kubeconfig").read_text(encoding="utf-8") == work.read_text(encoding="utf-8")
 
 

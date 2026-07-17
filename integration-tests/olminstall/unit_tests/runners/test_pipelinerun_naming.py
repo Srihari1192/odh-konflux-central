@@ -11,6 +11,7 @@ from suite.pipelinerun_naming import (
     compact_version_for_name,
     diagnostic_version_segment,
     gates_segment_for_name,
+    is_olminstall_pipelinerun_name,
 )
 
 class TestPipelinerunNaming(unittest.TestCase):
@@ -36,7 +37,7 @@ class TestPipelinerunNaming(unittest.TestCase):
             tests_csv="bvt,smoke",
             run_owner="nmanos@redhat.com",
         )
-        self.assertEqual(prefix, "olminstall-cli-nmanos-rhoai-3.5ea2-eaas-bvt-smoke-")
+        self.assertEqual(prefix, "e2e-cli-nmanos-rhoai-3.5ea2-eaas-bvt-smoke-")
 
     def test_existing_omits_product(self) -> None:
         prefix = build_olminstall_generate_prefix(
@@ -44,7 +45,7 @@ class TestPipelinerunNaming(unittest.TestCase):
             tests_csv="bvt,smoke",
             run_owner="nmanos",
         )
-        self.assertEqual(prefix, "olminstall-cli-nmanos-bvt-smoke-")
+        self.assertEqual(prefix, "e2e-cli-nmanos-bvt-smoke-")
 
     def test_odh_without_version(self) -> None:
         prefix = build_olminstall_generate_prefix(
@@ -55,7 +56,7 @@ class TestPipelinerunNaming(unittest.TestCase):
             tests_csv="bvt,smoke",
             run_owner="jdoe",
         )
-        self.assertEqual(prefix, "olminstall-cli-jdoe-odh-eaas-bvt-smoke-")
+        self.assertEqual(prefix, "e2e-cli-jdoe-odh-eaas-bvt-smoke-")
 
     def test_external_cluster_label(self) -> None:
         prefix = build_olminstall_generate_prefix(
@@ -67,7 +68,7 @@ class TestPipelinerunNaming(unittest.TestCase):
             tests_csv="bvt",
             run_owner="alice",
         )
-        self.assertEqual(prefix, "olminstall-cli-alice-rhoai-3.5-ods-qe-psi-09-bvt-")
+        self.assertEqual(prefix, "e2e-cli-alice-rhoai-3.5-ods-qe-psi-09-bvt-")
 
     def test_existing_external_cluster_label(self) -> None:
         prefix = build_olminstall_generate_prefix(
@@ -78,7 +79,7 @@ class TestPipelinerunNaming(unittest.TestCase):
             tests_csv="smoke",
             run_owner="nmanos",
         )
-        self.assertEqual(prefix, "olminstall-cli-nmanos-nmanos-konflux1-smoke-")
+        self.assertEqual(prefix, "e2e-cli-nmanos-nmanos-konflux1-smoke-")
 
     def test_cluster_segment_skips_auto_kubeconfig_secret_name(self) -> None:
         self.assertEqual(
@@ -105,7 +106,7 @@ class TestPipelinerunNaming(unittest.TestCase):
             tests_csv="bvt",
             run_owner="bob",
         )
-        self.assertEqual(prefix, "olminstall-cli-bob-rhoai-bvt-")
+        self.assertEqual(prefix, "e2e-cli-bob-rhoai-bvt-")
 
     def test_rhoai_version_and_cluster_keeps_descriptive_name(self) -> None:
         prefix = build_olminstall_generate_prefix(
@@ -119,22 +120,28 @@ class TestPipelinerunNaming(unittest.TestCase):
         )
         self.assertEqual(
             prefix,
-            "olminstall-cli-nmanos-rhoai-3.5-nmanos-konflux-bvt-smoke-",
+            "e2e-cli-nmanos-rhoai-3.5-nmanos-konflux-bvt-smoke-",
         )
 
     def test_overflow_drops_version_before_cluster(self) -> None:
         prefix = build_olminstall_generate_prefix(
             product="rhoai",
             version="rhoai-v3-5-ea-2",
-            cluster_label="rh-nightly-pm",
+            cluster_label="rh-nightly-pm-staging-01",
             target_type="external",
             tests_csv="bvt,smoke,tier1",
             run_owner="nmanos",
         )
-        self.assertIn("rh-nightly-pm", prefix)
+        self.assertIn("rh-nightly-pm-stagin", prefix)
         self.assertIn("rhoai", prefix)
         self.assertNotIn("3.5ea2", prefix)
-        self.assertNotEqual(prefix, "olminstall-cli-nmanos-bvt-smoke-tier1-")
+        self.assertNotEqual(prefix, "e2e-cli-nmanos-bvt-smoke-tier1-")
+
+    def test_is_olminstall_pipelinerun_name(self) -> None:
+        self.assertTrue(is_olminstall_pipelinerun_name("e2e-cli-nmanos-bvt-smoke-abc"))
+        self.assertTrue(is_olminstall_pipelinerun_name("olminstall-its-rh-nightly-pm-bvt-smoke-abc"))
+        self.assertFalse(is_olminstall_pipelinerun_name("other-pipeline-abc"))
+        self.assertFalse(is_olminstall_pipelinerun_name(""))
 
     def test_diagnostic_artifact_log_name_existing_cluster(self) -> None:
         name = build_diagnostic_artifact_log_name(

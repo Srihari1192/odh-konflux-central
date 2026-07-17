@@ -59,3 +59,8 @@ def maas_gateway_prep_programmed_wait_sec() -> int:
             str(default),
         )
     )
+
+
+def bvt_dsc_ready_timeout_sec() -> int:
+    """Wait for DSC Ready before operator_health BVT (pytest only allows 120s)."""
+    return int(os.environ.get("BVT_DSC_READY_TIMEOUT_SEC", "600"))

@@ -217,8 +217,10 @@ def _gateway_cypress_url(env_defaults: dict[str, str] | None = None) -> str:
 
 
 def _cypress_uses_bearer_bypass(*, env_defaults: dict[str, str] | None = None) -> bool:
+    from components.dashboard_cypress.auth_overlay import gateway_cypress_uses_bearer_bypass
+
     url = _gateway_cypress_url(env_defaults)
-    return bool(url) and ("127.0.0.1" in url or "localhost" in url)
+    return gateway_cypress_uses_bearer_bypass(odh_dashboard_url=url)
 
 
 def _ldap_gateway_cypress_login(*, env_defaults: dict[str, str] | None = None) -> bool:
@@ -477,6 +479,30 @@ def cypress_set_command(
     )
 
 
+def resolve_cypress_max_parallel(config_max: int | None = None) -> int | None:
+    """Cap concurrent Cypress browsers to reduce gateway/Authorino 503 under load.
+
+    Order: ``CYPRESS_MAX_PARALLEL`` env → catalog ``maxParallel`` → auto ``2`` for
+    ``rh-ai.`` / RHCL gateway URLs → unlimited (None).
+    """
+    raw = os.environ.get("CYPRESS_MAX_PARALLEL", "").strip()
+    if raw:
+        try:
+            value = int(raw)
+        except ValueError:
+            value = 0
+        return value if value >= 1 else None
+    if config_max is not None and config_max >= 1:
+        return config_max
+    url = (
+        os.environ.get("ODH_DASHBOARD_URL", "").strip()
+        or os.environ.get("BASE_URL", "").strip()
+    )
+    if "rh-ai." in url:
+        return 2
+    return None
+
+
 def cypress_parallel_sets_command(
     *,
     sets: Sequence[CypressParallelSet],
@@ -485,10 +511,16 @@ def cypress_parallel_sets_command(
     run_config: str,
     parallel_stagger_sec: int,
     display_base: int,
+    max_parallel: int | None = None,
 ) -> str:
-    """Run catalog-defined tag sets in parallel (Jenkins dashboard-e2e-tests)."""
+    """Run catalog-defined tag sets in parallel (Jenkins dashboard-e2e-tests).
+
+    When *max_parallel* is set, a bash fifo semaphore limits concurrent browsers
+    (gateway/Authorino 503 mitigation under five SmokeSets).
+    """
     jobs: list[str] = []
     set_dirs: list[str] = []
+    limit = resolve_cypress_max_parallel(max_parallel)
     for i, item in enumerate(sets):
         set_dirs.append(item.results_subdir)
         display = display_base + i
@@ -500,9 +532,12 @@ def cypress_parallel_sets_command(
             test_timeout_seconds=test_timeout_seconds,
             run_config=run_config,
         )
+        acquire = "read -u 3; " if limit else ""
+        release = "echo >&3; " if limit else ""
         jobs.append(
             "("
             f"sleep {stagger}; "
+            f"{acquire}"
             f'mkdir -p "${{ARTIFACTS}}/{item.results_subdir}"; '
             f"export DISPLAY=:{display}; "
             f"Xvfb :{display} -screen 0 1920x1080x24 -ac -nolisten tcp "
@@ -513,7 +548,8 @@ def cypress_parallel_sets_command(
             f"{set_cmd} 2>&1 | tee \"${{ARTIFACTS}}/{item.results_subdir}/cypress.log\"; "
             f"ec=${{PIPESTATUS[0]}}; "
             f"kill $xvfb_pid 2>/dev/null || true; "
-            f'echo $ec > "${{ARTIFACTS}}/{item.results_subdir}/exit"'
+            f'echo $ec > "${{ARTIFACTS}}/{item.results_subdir}/exit"; '
+            f"{release}"
             ") &"
         )
     dirs = " ".join(f'"${{ARTIFACTS}}/{d}"' for d in set_dirs)
@@ -522,7 +558,16 @@ def cypress_parallel_sets_command(
         '[ -f "$d/exit" ] && [ "$(cat "$d/exit")" -eq 0 ] || fail=1; '
         "done; exit $fail"
     )
-    return " ".join(jobs) + " " + aggregate
+    body = " ".join(jobs) + " " + aggregate
+    if not limit:
+        return body
+    # Named fifo as counting semaphore (N tokens on fd 3).
+    tokens = " ".join(["echo >&3;"] * limit)
+    return (
+        f'sem=$(mktemp -u); mkfifo "$sem"; exec 3<>"$sem"; rm -f "$sem"; '
+        f"{tokens} "
+        f"{body}"
+    )
 
 
 def cypress_results_subdirs(config: CypressRunnerConfig, phases: tuple[str, ...]) -> tuple[str, ...]:
@@ -554,6 +599,7 @@ def resolve_cypress_run_command(
                 run_config=config.run_config,
                 parallel_stagger_sec=config.parallel_stagger_sec,
                 display_base=config.display_base,
+                max_parallel=config.max_parallel,
             )
         )
     return " && ".join(parts)
@@ -585,11 +631,16 @@ def _parse_cypress_runner_config(raw: dict[str, object]) -> CypressRunnerConfig 
             gates[str(gate_key)] = tuple(sets)
     if not gates:
         return None
+    max_parallel: int | None = None
+    max_raw = cy.get("max_parallel")
+    if max_raw is not None and str(max_raw).strip():
+        max_parallel = int(max_raw)
     return CypressRunnerConfig(
         skip_tags=skip_tags,
         gates=gates,
         test_timeout_seconds=str(cy.get("test_timeout_seconds") or "480").strip(),
         parallel_stagger_sec=int(cy.get("parallel_stagger_sec") or 15),
+        max_parallel=max_parallel,
         display_base=int(cy.get("display_base") or 99),
         run_config=normalize_cypress_run_config(str(cy.get("run_config") or (
             "numTestsKeptInMemory=0,experimentalMemoryManagement=true,"

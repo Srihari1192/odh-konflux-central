@@ -33,7 +33,9 @@ from components.dashboard_cypress.runtime import (
     dashboard_url_is_local,
     ensure_cypress_cli_packages,
     ensure_google_chrome,
+    gateway_cypress_uses_bearer_bypass,
     gateway_use_byoidc_auth,
+    validate_gateway_cypress_auth,
     cypress_extra_skip_tags,
     inject_ci_auth_bypass,
     load_component_vault_env,
@@ -46,6 +48,7 @@ from components.dashboard_cypress.runtime import (
     sync_cypress_auth_env_from_config,
     unset_in_cluster_k8s_env,
     verify_dashboard_reachable,
+    verify_dashboard_serves_html,
     verify_gateway_stack_healthy,
     gateway_auth_stack_ready,
 )
@@ -53,7 +56,7 @@ from helpers.gateway_stack_marker import (
     clear_gateway_stack_incomplete_marker,
     gateway_stack_incomplete,
 )
-from install.kubeconfig_cluster_label import cluster_label_from_kubeconfig
+from install.kubeconfig_cluster_label import resolve_cypress_cluster_label
 from runners.orchestrator import stage_cypress_cli_tools
 from suite.component_test_timeout import parse_component_timeout_seconds
 from suite.component_task_exit import component_from_plan, resolve_component_exit_codes
@@ -161,7 +164,25 @@ def main() -> int:
     working_dir = Path(runner_env["WORKING_DIR"])
     results_dir = Path(runner_env["RESULTS_DIR"])
     source_repo = runner_env.get("SOURCE_REPO", "").strip()
-    cluster_label = cluster_label_from_kubeconfig(staged_kubeconfig)
+
+    for key, val in load_component_vault_env().items():
+        if key == "CY_TEST_CONFIG":
+            os.environ[key] = val
+        else:
+            os.environ.setdefault(key, val)
+
+    dashboard_url_for_label = (
+        os.environ.get("ODH_DASHBOARD_URL", "").strip()
+        or os.environ.get("BASE_URL", "").strip()
+    )
+    cluster_label = resolve_cypress_cluster_label(
+        staged_kubeconfig,
+        cluster_source=os.environ.get("CLUSTER_SOURCE", ""),
+        dashboard_url=dashboard_url_for_label,
+    )
+    if cluster_label:
+        print(f"✓ Resolved Cypress cluster label: {cluster_label}", flush=True)
+
     if source_repo:
         working_dir, results_dir = prepare_dashboard_worktree(
             artifacts_dir=artifacts_dir,
@@ -170,14 +191,6 @@ def main() -> int:
             working_dir_rel=runner_env["WORKING_DIR"],
             results_dir_rel=runner_env["RESULTS_DIR"],
         )
-
-    for key, val in load_component_vault_env().items():
-        if key == "CY_TEST_CONFIG":
-            # Vault test-variables.yml is authoritative; orchestrate writes a minimal
-            # CY_TEST_CONFIG (dashboard URL only) which loses S3/bucket config.
-            os.environ[key] = val
-        else:
-            os.environ.setdefault(key, val)
 
     cy_test_config = os.environ.get("CY_TEST_CONFIG", "").strip()
     dashboard_url_for_patch = (
@@ -200,7 +213,9 @@ def main() -> int:
         os.environ.get("ODH_DASHBOARD_URL", "").strip()
         or os.environ.get("BASE_URL", "").strip()
     )
-    use_bearer_bypass = dashboard_url_is_local(odh_dashboard_url)
+    use_bearer_bypass = gateway_cypress_uses_bearer_bypass(
+        odh_dashboard_url=odh_dashboard_url
+    )
     oc_token = ""
     if use_bearer_bypass:
         if source_repo:
@@ -244,16 +259,31 @@ def main() -> int:
 
     if odh_dashboard_url:
         _apply_dashboard_url(odh_dashboard_url)
+        login_mode = (
+            "bearer auth bypass"
+            if use_bearer_bypass
+            else "vault/OAuth login"
+        )
         print(
-            f"Using gateway URL {odh_dashboard_url} (vault/OAuth login)",
+            f"Using gateway URL {odh_dashboard_url} ({login_mode})",
             flush=True,
         )
 
     if not odh_dashboard_url:
         print("ERROR: ODH_DASHBOARD_URL or BASE_URL is not set", file=sys.stderr)
         return 2
+    auth_err = validate_gateway_cypress_auth(odh_dashboard_url=odh_dashboard_url)
+    if auth_err is not None:
+        return auth_err
     if not verify_dashboard_reachable(odh_dashboard_url):
         print(f"ERROR: dashboard not reachable at {odh_dashboard_url}", file=sys.stderr)
+        return 2
+    if not verify_dashboard_serves_html(odh_dashboard_url):
+        print(
+            f"ERROR: dashboard did not serve text/html at {odh_dashboard_url} "
+            "(gateway text/plain breaks cy.visit; wait for Authorino/OAP recovery)",
+            file=sys.stderr,
+        )
         return 2
 
     gateway_healthy = verify_gateway_stack_healthy()

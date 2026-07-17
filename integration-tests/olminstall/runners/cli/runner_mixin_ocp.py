@@ -156,7 +156,7 @@ class RunnerOcpMixin:
         )
 
     def list_supported_ocp(self) -> None:
-        merged = self._merged_pipelinerun_rows(LIST_SUPPORTED_OCP_MAX_PRS, name_substr="olminstall")
+        merged = self._merged_pipelinerun_rows(LIST_SUPPORTED_OCP_MAX_PRS, olminstall_family_only=True)
         print(
             f"EaaS-supported OpenShift minors (from get-supported-versions step logs), "
             f"app={self.args.app!r} namespace={self.args.namespace!r}, "

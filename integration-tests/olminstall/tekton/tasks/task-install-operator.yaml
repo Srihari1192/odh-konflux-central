@@ -10,6 +10,10 @@ spec:
   workspaces:
     - name: tests-shared
   params:
+    - name: CONFORMA_GATE
+      type: string
+      default: ""
+      description: Pipeline when-binding only (Conforma pass/fail from wait-for-conforma)
     - name: FBCF_IMAGE
       type: string
       description: FBCF catalog image from the Konflux snapshot (extract-fbcf-image)

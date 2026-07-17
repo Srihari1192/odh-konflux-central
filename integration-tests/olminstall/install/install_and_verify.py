@@ -38,6 +38,13 @@ MANIFEST_STARTING_CSV_PATTERN = re.compile(r'^(\s*startingCSV:\s*)(""|\'\'|)\s*$
 OC_WAIT_NEEDLE = 'local namespace="${2:-default}"'
 RHOAI_IDMS_SOURCE = "registry.redhat.io/rhoai"
 RHOAI_IDMS_MIRROR = "quay.io/rhoai"
+# OLM OperatorGroup annotations (see operator-framework bundle_unpacker.go).
+_BUNDLE_UNPACK_TIMEOUT_ANN = "operatorframework.io/bundle-unpack-timeout"
+_BUNDLE_UNPACK_RETRY_ANN = "operatorframework.io/bundle-unpack-min-retry-interval"
+# Per-Job ActiveDeadlineSeconds via OperatorGroup annotation. Keep well under the
+# 45m install-rhoai/odh Tekton task so DeadlineExceeded can fire and recoveries run.
+_DEFAULT_BUNDLE_UNPACK_JOB_TIMEOUT = "20m"
+_MARKETPLACE_NS = "openshift-marketplace"
 RHOAI_IDMS_NAME = "rhoai-idms-mirror"
 
 
@@ -317,6 +324,7 @@ def reset_stale_operator_install(
         ["delete", "catalogsource", catalog_name, "-n", "openshift-marketplace"],
     ):
         oc_run([*args, "--ignore-not-found"], capture_output=True, check=False, timeout=120)
+    delete_failed_olm_bundle_unpack_jobs()
     deadline = time.time() + 120
     while time.time() < deadline:
         r = oc_run(
@@ -704,6 +712,17 @@ def _named_csv_succeeded_version(namespace: str, csv_name: str) -> str | None:
     return ver or None
 
 
+def _bundle_unpack_failure_recoverable(failure: str) -> bool:
+    return "DeadlineExceeded" in failure or "deadline" in failure.lower()
+
+
+def _max_bundle_unpack_recoveries() -> int:
+    try:
+        return int(os.environ.get("OLM_BUNDLE_UNPACK_RECOVERIES", "3"))
+    except ValueError:
+        return 3
+
+
 def wait_for_succeeded_csv_version(
     namespace: str,
     olminstall_operator: str,
@@ -720,12 +739,27 @@ def wait_for_succeeded_csv_version(
     deadline = time.monotonic() + timeout_sec
     last_phase: str | None = None
     poll_count = 0
+    bundle_unpack_recoveries = 0
+    max_bundle_unpack_recoveries = _max_bundle_unpack_recoveries()
     print(
         f"Waiting for CSV {olminstall_operator} Succeeded in {namespace} "
         f"(up to {int(timeout_sec)}s)...",
         flush=True,
     )
     while time.monotonic() < deadline:
+        unpack_failure = subscription_bundle_unpack_failed(olminstall_operator, namespace)
+        if unpack_failure and _bundle_unpack_failure_recoverable(unpack_failure):
+            if bundle_unpack_recoveries < max_bundle_unpack_recoveries:
+                bundle_unpack_recoveries += 1
+                print(
+                    f"OLM bundle unpack DeadlineExceeded during CSV wait for "
+                    f"{olminstall_operator} — recovering "
+                    f"({bundle_unpack_recoveries}/{max_bundle_unpack_recoveries})...",
+                    flush=True,
+                )
+                recover_bundle_unpack_deadline_exceeded(olminstall_operator, namespace)
+                time.sleep(poll_sec)
+                continue
         if poll_count % 4 == 0:
             try:
                 from install.approve_transitive_installplans import approve_pending_installplans
@@ -923,6 +957,212 @@ def wait_catalog_ready(catalog_name: str, deadline_s: float) -> bool:
     return False
 
 
+def ensure_operatorgroup_bundle_unpack_annotations(
+    operator_namespace: str,
+    *,
+    unpack_timeout: str | None = None,
+    min_retry_interval: str = "5m",
+) -> None:
+    """Raise OLM unpack Job ActiveDeadlineSeconds via OperatorGroup annotations.
+
+    Default OLM unpack Jobs use activeDeadlineSeconds=600. Large FBC bundles on
+    HyperShift often exceed 10m and leave BundleUnpackFailed/DeadlineExceeded.
+    """
+    timeout = (
+        unpack_timeout
+        or os.environ.get("OLM_BUNDLE_UNPACK_JOB_TIMEOUT", "").strip()
+        or _DEFAULT_BUNDLE_UNPACK_JOB_TIMEOUT
+    )
+    r = oc_run(
+        ["get", "operatorgroup", "-n", operator_namespace, "-o", "json"],
+        capture_output=True,
+        check=False,
+        timeout=60,
+    )
+    if r.returncode != 0:
+        print(
+            f"WARN: no OperatorGroup in {operator_namespace}; "
+            "cannot set bundle-unpack-timeout yet",
+            flush=True,
+        )
+        return
+    try:
+        items = json.loads(r.stdout or "{}").get("items") or []
+    except json.JSONDecodeError:
+        items = []
+    if not items:
+        print(
+            f"WARN: no OperatorGroup in {operator_namespace}; "
+            "cannot set bundle-unpack-timeout yet",
+            flush=True,
+        )
+        return
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name = str((item.get("metadata") or {}).get("name") or "").strip()
+        if not name:
+            continue
+        patch = {
+            "metadata": {
+                "annotations": {
+                    _BUNDLE_UNPACK_TIMEOUT_ANN: timeout,
+                    _BUNDLE_UNPACK_RETRY_ANN: min_retry_interval,
+                }
+            }
+        }
+        pr = oc_run(
+            [
+                "patch",
+                "operatorgroup",
+                name,
+                "-n",
+                operator_namespace,
+                "--type=merge",
+                "-p",
+                json.dumps(patch),
+            ],
+            capture_output=True,
+            check=False,
+            timeout=60,
+        )
+        if pr.returncode == 0:
+            print(
+                f"✓ OperatorGroup/{name}: {_BUNDLE_UNPACK_TIMEOUT_ANN}={timeout}, "
+                f"{_BUNDLE_UNPACK_RETRY_ANN}={min_retry_interval}",
+                flush=True,
+            )
+        else:
+            print(
+                f"WARN: could not annotate OperatorGroup/{name}: "
+                f"{(pr.stderr or pr.stdout or '').strip()}",
+                flush=True,
+            )
+
+
+def _job_is_failed(job: dict[str, Any]) -> bool:
+    status = job.get("status") or {}
+    if int(status.get("failed") or 0) > 0:
+        return True
+    for cond in status.get("conditions") or []:
+        if not isinstance(cond, dict):
+            continue
+        if (
+            str(cond.get("type") or "") == "Failed"
+            and str(cond.get("status") or "").lower() == "true"
+        ):
+            return True
+    return False
+
+
+def _job_looks_like_bundle_unpack(job: dict[str, Any]) -> bool:
+    """True for OLM ConfigMap unpack Jobs (extract + pull containers)."""
+    pod_spec = ((job.get("spec") or {}).get("template") or {}).get("spec") or {}
+    containers = list(pod_spec.get("containers") or []) + list(pod_spec.get("initContainers") or [])
+    names = {str(c.get("name") or "") for c in containers if isinstance(c, dict)}
+    if "extract" in names and ("pull" in names or "util" in names):
+        return True
+    for c in containers:
+        if not isinstance(c, dict):
+            continue
+        for env in c.get("env") or []:
+            if not isinstance(env, dict):
+                continue
+            if str(env.get("name") or "") != "CONTAINER_IMAGE":
+                continue
+            val = str(env.get("value") or "")
+            if "rhoai" in val or "odh-operator-bundle" in val or "rhods" in val:
+                return True
+    return False
+
+
+def delete_failed_olm_bundle_unpack_jobs(
+    *,
+    marketplace_namespace: str = _MARKETPLACE_NS,
+    include_active: bool = False,
+) -> int:
+    """Delete Failed (and optionally active) unpack Jobs so OLM can retry."""
+    r = oc_run(
+        ["get", "jobs", "-n", marketplace_namespace, "-o", "json"],
+        capture_output=True,
+        check=False,
+        timeout=120,
+    )
+    if r.returncode != 0:
+        return 0
+    try:
+        items = json.loads(r.stdout or "{}").get("items") or []
+    except json.JSONDecodeError:
+        return 0
+    deleted = 0
+    for job in items:
+        if not isinstance(job, dict):
+            continue
+        if not include_active and not _job_is_failed(job):
+            continue
+        if not _job_looks_like_bundle_unpack(job):
+            continue
+        # Skip completed successful jobs when sweeping active/failed.
+        if include_active and not _job_is_failed(job):
+            status = job.get("status") or {}
+            if int(status.get("succeeded") or 0) > 0:
+                continue
+        name = str((job.get("metadata") or {}).get("name") or "").strip()
+        if not name:
+            continue
+        kind = "failed" if _job_is_failed(job) else "active"
+        print(
+            f"Deleting {kind} OLM bundle-unpack Job/{name} in {marketplace_namespace}...",
+            flush=True,
+        )
+        oc_run(
+            ["delete", "job", name, "-n", marketplace_namespace, "--ignore-not-found", "--wait=false"],
+            capture_output=True,
+            check=False,
+            timeout=60,
+        )
+        oc_run(
+            [
+                "delete",
+                "configmap",
+                name,
+                "-n",
+                marketplace_namespace,
+                "--ignore-not-found",
+                "--wait=false",
+            ],
+            capture_output=True,
+            check=False,
+            timeout=60,
+        )
+        deleted += 1
+    if deleted:
+        label = "failed/active" if include_active else "failed"
+        print(f"✓ Removed {deleted} {label} OLM bundle-unpack Job(s)", flush=True)
+    return deleted
+
+
+def recover_bundle_unpack_deadline_exceeded(
+    operator_name: str,
+    operator_namespace: str,
+) -> None:
+    """Clear stale unpack Jobs (failed or stuck-active) and ensure OG unpack timeout."""
+    try:
+        from install.cluster_registry import ensure_openshift_release_dev_pull_auth
+
+        ensure_openshift_release_dev_pull_auth()
+    except Exception as exc:
+        print(f"WARN: openshift-release-dev pull-secret heal failed ({exc})", flush=True)
+    ensure_operatorgroup_bundle_unpack_annotations(operator_namespace)
+    deleted = delete_failed_olm_bundle_unpack_jobs(include_active=True)
+    if deleted == 0:
+        print(
+            f"WARN: BundleUnpack recover for {operator_name} but no unpack Jobs found "
+            f"in {_MARKETPLACE_NS}",
+            flush=True,
+        )
+
+
 def _subscription_bundle_unpack_condition(
     operator_name: str, operator_namespace: str, *, condition_type: str
 ) -> dict | None:
@@ -995,17 +1235,42 @@ def wait_subscription_bundle_unpacked(
     if r.returncode != 0:
         print(f"⚠ Subscription {operator_name} not found in {operator_namespace}")
         return False
-    unpack_failure = subscription_bundle_unpack_failed(operator_name, operator_namespace)
-    if unpack_failure:
+    ensure_operatorgroup_bundle_unpack_annotations(operator_namespace)
+    max_recoveries = _max_bundle_unpack_recoveries()
+    recoveries = 0
+
+    def _try_recover(failure: str) -> bool:
+        nonlocal recoveries
+        if not _bundle_unpack_failure_recoverable(failure):
+            return False
+        if recoveries >= max_recoveries:
+            return False
+        recoveries += 1
         print(
-            f"❌ OLM bundle unpack failed for {operator_name}: {unpack_failure}",
-            file=sys.stderr,
+            f"OLM bundle unpack DeadlineExceeded for {operator_name} — "
+            f"recovering ({recoveries}/{max_recoveries})...",
             flush=True,
         )
-        return False
-    if not subscription_bundle_unpack_in_progress(operator_name, operator_namespace):
-        print("✓ OLM bundle unpack not in progress")
+        recover_bundle_unpack_deadline_exceeded(operator_name, operator_namespace)
         return True
+
+    unpack_failure = subscription_bundle_unpack_failed(operator_name, operator_namespace)
+    if unpack_failure:
+        if _try_recover(unpack_failure):
+            unpack_failure = None
+        else:
+            print(
+                f"❌ OLM bundle unpack failed for {operator_name}: {unpack_failure}",
+                file=sys.stderr,
+                flush=True,
+            )
+            return False
+    if not subscription_bundle_unpack_in_progress(operator_name, operator_namespace):
+        if unpack_failure is None and not subscription_bundle_unpack_failed(
+            operator_name, operator_namespace
+        ):
+            print("✓ OLM bundle unpack not in progress")
+            return True
     print(
         f"Waiting for OLM bundle unpack on {operator_name} "
         f"(FBC catalogs can have 100+ related images on HyperShift)..."
@@ -1015,6 +1280,9 @@ def wait_subscription_bundle_unpacked(
         if not subscription_bundle_unpack_in_progress(operator_name, operator_namespace):
             unpack_failure = subscription_bundle_unpack_failed(operator_name, operator_namespace)
             if unpack_failure:
+                if _try_recover(unpack_failure):
+                    time.sleep(15)
+                    continue
                 print(
                     f"❌ OLM bundle unpack failed for {operator_name}: {unpack_failure}",
                     file=sys.stderr,
@@ -1035,7 +1303,6 @@ def wait_subscription_bundle_unpacked(
     return False
 
 
-
 def main() -> int:
     from install.install_phases import run_install
 
@@ -1051,7 +1318,7 @@ if __name__ == "__main__":
     except json.JSONDecodeError as exc:
         fail(f"❌ Invalid JSON in command output: {exc}")
     except subprocess.TimeoutExpired:
-        fail("❌ Command timed out (install step limit is 45m)")
+        fail("❌ Command timed out (install step limit is 90m)")
     except subprocess.CalledProcessError as exc:
         if exc.stderr:
             print(exc.stderr, file=sys.stderr, end="" if exc.stderr.endswith("\n") else "\n")

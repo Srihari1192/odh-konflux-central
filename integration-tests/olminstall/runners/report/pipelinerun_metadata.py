@@ -16,6 +16,7 @@ from suite.constants import (
     ANNOTATION_BUILD_COMMIT_SHA,
     ANNOTATION_BUILD_REPO,
     ANNOTATION_CLUSTER,
+    ANNOTATION_CLUSTER_KEY,
     ANNOTATION_FBCF_IMAGE,
     ANNOTATION_OPERATOR_VERSION,
     ANNOTATION_PRODUCT,
@@ -363,6 +364,7 @@ def build_cli_trigger_metadata(
     product: str,
     tests: str = "",
     cluster: str = "",
+    cluster_key: str = "",
     fbcf_image: str = "",
     ocp_version: str = "",
     scripts_git_url: str = "",
@@ -373,7 +375,9 @@ def build_cli_trigger_metadata(
     trigger_type: str = TRIGGER_TYPE_MANUAL,
 ) -> dict[str, str]:
     """Annotations for CLI-triggered olminstall Snapshot / PipelineRun."""
-    out = build_trigger_annotations(product=product, tests=tests, cluster=cluster)
+    out = build_trigger_annotations(
+        product=product, tests=tests, cluster=cluster, cluster_key=cluster_key
+    )
     out[ANNOTATION_TRIGGER_TYPE] = (trigger_type or TRIGGER_TYPE_MANUAL).strip() or TRIGGER_TYPE_MANUAL
     cmd = format_olm_pipeline_trigger_command(script_dir, trigger_argv)
     if cmd:
@@ -461,13 +465,15 @@ def build_trigger_annotations(
     product: str,
     tests: str = "",
     cluster: str = "",
+    cluster_key: str = "",
 ) -> dict[str, str]:
     """Annotations set at Snapshot / PipelineRun trigger (CLI)."""
     out: dict[str, str] = {ANNOTATION_PRODUCT: (product or "existing").strip().lower()}
     if (tests or "").strip():
         out[ANNOTATION_TESTS] = tests.strip()
-    if (cluster or "").strip():
-        out[ANNOTATION_CLUSTER] = cluster.strip()
+    for key, val in ((ANNOTATION_CLUSTER, cluster), (ANNOTATION_CLUSTER_KEY, cluster_key)):
+        if (val or "").strip():
+            out[key] = val.strip()
     return out
 
 

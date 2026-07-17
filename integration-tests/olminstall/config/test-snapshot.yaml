@@ -13,7 +13,7 @@
 #
 # Prerequisites:
 #   1. The ITS CR must already be applied:
-#      oc apply -n rhoai-tenant -f integration-tests/olminstall/tekton/its/its-olminstall-testops-eaas.yaml
+#      oc apply -n rhoai-tenant -f integration-tests/olminstall/tekton/its/its-rhoai-e2e-eaas-ocp421.yaml
 #
 # Usage:
 #   oc create -n rhoai-tenant -f integration-tests/olminstall/config/test-snapshot.yaml

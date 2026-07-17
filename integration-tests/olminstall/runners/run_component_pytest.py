@@ -37,15 +37,17 @@ from suite.component_test_timeout import (
 from suite.component_task_exit import resolve_component_exit_codes
 from suite.component_catalog import SmokeComponent, load_components_smoke_catalog
 from suite.component_dsc_gate import smoke_component_prereq_unavailable
+from suite.cluster_api_health import cluster_smoke_infra_blocked_reason, is_definitive_infra_error
 from suite.dsc_baseline import reconcile_baseline_dsc_before_component
 from install.dsc_install import components_need_models_as_service
 from runners.component_prereqs import (
     cluster_prep_already_done,
     prepare_component_for_smoke,
     refresh_maas_smoke_before_pytest,
+    run_pooled_external_smoke_prep,
 )
 from suite.component_plan import parse_components_selection
-from runners.run_pytest_subprocess import run_single as run_single_pytest
+from runners.run_bvt_pytest import run_single as run_single_pytest
 from k8s.shift_left_env import (
     apply_cluster_router_ca_from_kubeconfig,
     load_shift_left_env_from_mount,
@@ -69,13 +71,15 @@ _CLUSTER_SANITY_SKIP_RHOAI = "--cluster-sanity-skip-rhoai-check"
 
 
 def _needs_image_validation_skip() -> bool:
-    """Skip registry.redhat.io-only image checks on mirrored clusters (EaaS IDMS, HCP Kyverno)."""
+    """Skip registry.redhat.io-only image checks on mirrored clusters (EaaS IDMS, HCP Kyverno).
+
+    External ROSA HCP rewrites pulls to quay.io/rhoai; PRODUCT=rhoai cleanup/reinstall
+    hits the same mirror as PRODUCT=existing, so skip for every external CLUSTER_SOURCE.
+    """
     cluster_source = os.environ.get("CLUSTER_SOURCE", "").strip()
     if cluster_source == CLUSTER_SOURCE_EAAS:
         return True
-    if os.environ.get("PRODUCT", "").strip().lower() == "existing":
-        return is_external_cluster_source(cluster_source)
-    return False
+    return is_external_cluster_source(cluster_source)
 
 
 def _needs_cluster_sanity_rhoai_skip() -> bool:
@@ -228,11 +232,6 @@ def _artifacts_dir() -> Path:
     return _validate_artifacts_dir(os.environ.get("ARTIFACTS_DIR", "/artifacts").strip())
 
 
-def _parse_component_timeout_seconds(raw: str) -> float | None:
-    """Backward-compatible alias; prefer suite.component_test_timeout."""
-    return parse_component_timeout_seconds(raw)
-
-
 def _truthy_env(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in ("1", "true", "yes")
 
@@ -281,6 +280,37 @@ def _write_single_failure_junit(
         file=sys.stderr,
         flush=True,
     )
+
+
+from runners.component_junit import prereq_junit_outcome
+def _return_infra_junit_failure(
+    comp: dict[str, str],
+    *,
+    artifacts_dir: Path,
+    prefix_by_id: dict[str, str],
+    testcase_name: str,
+    message: str,
+    refresh_test_output: Any,
+    outcome: str = "failure",
+) -> int:
+    cid = comp.get("id", "unknown")
+    _write_single_failure_junit(
+        comp,
+        artifacts_dir=artifacts_dir,
+        testcase_name=testcase_name,
+        message=message,
+        outcome=outcome,
+    )
+    prefix_by_id[cid] = comp["artifact_prefix"]
+    strict_ec, tekton_ec = resolve_component_exit_codes(
+        comp,
+        raw_ec=1,
+        artifacts_dir=artifacts_dir,
+    )
+    if _filter_component_id():
+        _accumulate_exit_file(strict_ec)
+    refresh_test_output()
+    return tekton_ec
 
 
 def _ensure_timeout_junit(comp: dict[str, str], artifacts_dir: Path, timeout_seconds: float | None) -> None:
@@ -420,6 +450,26 @@ def _materialize_ogx_ea_conftest(artifacts_dir: Path) -> None:
 
 
 _MODEL_SERVING_COMPONENT_IDS = frozenset({"model_server", "model_runtime", "maas_billing"})
+# Pytest cluster sanity is only ~120s; these suites exit with 0 tests when DSC is Not Ready
+# (MaaSPrerequisites / dashboard lag after install). Wait like BVT before invoking pytest.
+_FULL_DSC_READY_COMPONENT_IDS = frozenset(
+    {
+        "ogx",
+        "ai_safety",
+        "ai_safety_evalhub",
+        "ai_safety_guardrails",
+        "ai_safety_lmeval",
+        "ai_safety_trustyai_operator",
+        "ai_safety_trustyai_service",
+    }
+)
+
+
+def _needs_full_dsc_ready_before_pytest(cid: str) -> bool:
+    """True when component pytest requires DSC Ready (avoid empty JUnit from sanity exit)."""
+    if cid in _FULL_DSC_READY_COMPONENT_IDS:
+        return True
+    return cid.startswith("ai_safety")
 
 
 def _collect_only_mode() -> bool:
@@ -493,7 +543,7 @@ def _run_one_component(
         timeout_raw=comp_timeout_raw,
     )
     try:
-        comp_timeout_seconds = _parse_component_timeout_seconds(comp_timeout_raw)
+        comp_timeout_seconds = parse_component_timeout_seconds(comp_timeout_raw)
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
@@ -506,9 +556,12 @@ def _run_one_component(
     os.environ["PYTEST_MARKER"] = marker
     extra = _apply_cluster_source_pytest_extra_args(comp["pytest_extra_args"])
     if cid == "maas_billing":
+        from components.maas_billing.oidc_users import maas_billing_aitenant_bootstrap_pytest_extra_args
+
         for skip_fn in (
             maas_billing_rosa_hcp_pytest_extra_args,
             maas_billing_aitenant_pytest_extra_args,
+            maas_billing_aitenant_bootstrap_pytest_extra_args,
         ):
             maas_skip = skip_fn()
             if maas_skip:
@@ -551,10 +604,37 @@ def _run_one_component(
     if not collect_only:
         tekton_kubeconfig = os.environ.get("KUBECONFIG", "").strip()
         prepare_kubeconfig_auth_for_tests(tekton_kubeconfig_path=tekton_kubeconfig)
+        api_reason = cluster_smoke_infra_blocked_reason()
+        if api_reason:
+            print(
+                f"FAIL component tests {cid}: {api_reason} — skipping pytest",
+                flush=True,
+            )
+            return _return_infra_junit_failure(
+                comp,
+                artifacts_dir=artifacts_dir,
+                prefix_by_id=prefix_by_id,
+                testcase_name="cluster_smoke_infra_blocked",
+                message=api_reason,
+                refresh_test_output=refresh_test_output,
+            )
     if not collect_only and components_need_models_as_service({cid}):
         try:
             refresh_maas_smoke_before_pytest(component_id=cid)
         except Exception as exc:
+            if is_definitive_infra_error(str(exc)):
+                print(
+                    f"FAIL component tests {cid}: MaaS/infra ({exc}) — skipping pytest",
+                    flush=True,
+                )
+                return _return_infra_junit_failure(
+                    comp,
+                    artifacts_dir=artifacts_dir,
+                    prefix_by_id=prefix_by_id,
+                    testcase_name="maas_infra_blocked",
+                    message=str(exc),
+                    refresh_test_output=refresh_test_output,
+                )
             print(
                 f"WARN: MaaS pre-pytest refresh for {cid} failed ({exc}); continuing",
                 file=sys.stderr,
@@ -563,8 +643,33 @@ def _run_one_component(
     pytest_extra_env: dict[str, str] = {}
     if not collect_only and cid == "maas_billing":
         pytest_extra_env = apply_maas_billing_htpasswd_test_user_overrides()
-    if not collect_only and not cluster_prep_already_done(artifacts_dir):
-        prepare_component_for_smoke(cid)
+    if not collect_only:
+        run_pooled_external_smoke_prep(cid)
+        if not cluster_prep_already_done(artifacts_dir):
+            prepare_component_for_smoke(cid)
+    if not collect_only and _needs_full_dsc_ready_before_pytest(cid):
+        from components.maas_billing.timeouts import bvt_dsc_ready_timeout_sec
+        from components.maas_billing.wait import require_dsc_ready_for_bvt
+
+        try:
+            print(
+                f"Waiting for DSC Ready before {cid} pytest (cluster sanity is only 120s)...",
+                flush=True,
+            )
+            require_dsc_ready_for_bvt(timeout_sec=bvt_dsc_ready_timeout_sec())
+        except RuntimeError as exc:
+            print(
+                f"FAIL component tests {cid}: DSC not Ready ({exc}) — skipping pytest",
+                flush=True,
+            )
+            return _return_infra_junit_failure(
+                comp,
+                artifacts_dir=artifacts_dir,
+                prefix_by_id=prefix_by_id,
+                testcase_name="dsc_not_ready",
+                message=str(exc),
+                refresh_test_output=refresh_test_output,
+            )
     if _truthy_env("FAIL_FAST_DISABLED_COMPONENT"):
         reconcile_baseline_dsc_before_component(cid, artifacts_dir)
         unavailable, reason = smoke_component_prereq_unavailable(cid)
@@ -578,7 +683,7 @@ def _run_one_component(
                 artifacts_dir=artifacts_dir,
                 testcase_name="component_not_ready",
                 message=f"Component not ready for {cid}: {reason}",
-                outcome="skip",
+                outcome=prereq_junit_outcome(reason),
             )
             prefix_by_id[cid] = comp["artifact_prefix"]
             strict_ec, tekton_ec = resolve_component_exit_codes(

@@ -68,15 +68,31 @@ def main() -> int:
         )
         strict_ec = max(strict_ec, 1)
         tekton_ec = 1
-    exit_path.write_text(str(strict_ec), encoding="ascii")
-    if _component_test_output_published():
-        if tekton_ec != 0:
+    if component_id == "platform":
+        try:
+            from components.maas_billing.gateway import ensure_maas_gateway
+
             print(
-                f"Component {component_id}: recorded exit {strict_ec} in component-test.exit; "
-                "Tekton finalize exit 0 so Konflux UI shows TEST_OUTPUT results",
+                "Re-asserting MaaS gateway Authorino TLS annotation after platform tests...",
                 flush=True,
             )
-        return 0
+            ensure_maas_gateway()
+        except Exception as exc:  # noqa: BLE001 - best-effort restore for later components
+            print(
+                f"WARN: post-platform MaaS gateway re-assert failed ({exc})",
+                file=sys.stderr,
+                flush=True,
+            )
+    exit_path.write_text(str(strict_ec), encoding="ascii")
+    # Do not force Tekton exit 0 just because TEST_OUTPUT exists — 0 successes must
+    # fail the TaskRun so Konflux DAG is red; partial pass (successes>0) stays exit 0
+    # (yellow WARNING via TEST_OUTPUT) while publish still ran in summarize.
+    if _component_test_output_published() and tekton_ec != 0:
+        print(
+            f"Component {component_id}: recorded exit {strict_ec} in component-test.exit; "
+            f"Tekton finalize exit {tekton_ec} for red DAG (TEST_OUTPUT already published)",
+            flush=True,
+        )
     return tekton_ec
 
 

@@ -27,8 +27,9 @@ ensure_olminstall_path()
 
 from runners.report.pipelinerun_summary import _k8s_request, kubernetes_api_base_url  # noqa: E402
 from steps.external_kubeconfig_mount import copy_external_kubeconfig_mount  # noqa: E402
-from suite.its_trigger_params import external_kubeconfig_secret_name  # noqa: E402
 from steps.tekton_util import require_env, write_result  # noqa: E402
+from suite.conforma_gate import CONFORMA_GATE_SKIP  # noqa: E402
+from suite.its_trigger_params import external_kubeconfig_secret_name  # noqa: E402
 
 _CREDENTIALS = Path("/credentials")
 _KUBECONFIG = _CREDENTIALS / "kubeconfig"
@@ -64,6 +65,11 @@ def _fetch_external_kubeconfig(secret_name: str, namespace: str) -> str:
 
 def main() -> int:
     result_path = require_env("KUBECONFIG_PATH_RESULT")
+    if (os.environ.get("CONFORMA_GATE") or "").strip().lower() == CONFORMA_GATE_SKIP:
+        print("CONFORMA_GATE=skip - no target cluster; diagnostics kubeconfig skipped")
+        write_result(result_path, "")
+        return 0
+
     external = external_kubeconfig_secret_name(os.environ.get("CLUSTER_SOURCE", ""))
     eaas_rel = os.environ.get("EAAS_KUBECONFIG_REL", "").strip()
     tests_shared_kubeconfig = os.environ.get("TESTS_SHARED_KUBECONFIG", "").strip()

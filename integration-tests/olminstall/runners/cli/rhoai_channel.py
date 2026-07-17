@@ -26,6 +26,7 @@ def resolve_rhoai_update_channel(*, version: str = "", resolved_app: str = "") -
 
     Examples:
         version=3.5 → beta
+        version=3.5-ea.2 → beta
         resolved_app=rhoai-v3-5-ea-2 → beta
         resolved_app=rhoai-v3-4-foo → stable-3.4
     """
@@ -34,7 +35,12 @@ def resolve_rhoai_update_channel(*, version: str = "", resolved_app: str = "") -
         return "beta"
 
     ver = version.strip()
-    if ver == "3.5" or re.match(r"^rhoai-v3-5(?:-|$)", app):
+    if (
+        re.search(r"-ea[.-]", ver)
+        or re.search(r"-ea-\d", ver)
+        or ver == "3.5"
+        or re.match(r"^rhoai-v3-5(?:-|$)", app)
+    ):
         return "beta"
 
     if ver:

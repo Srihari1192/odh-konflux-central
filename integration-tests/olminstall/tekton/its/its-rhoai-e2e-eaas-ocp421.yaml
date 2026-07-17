@@ -1,16 +1,18 @@
 ---
-# EaaS sandbox ITS (testops-playpen). Auto on ocp-421 component builds only.
+# EaaS ITS: auto on rhoai-fbc-fragment-ocp-421 component builds (ephemeral HyperShift).
+# Konflux has no rhoai-v3-5 Application; the fragment app receives 2.25/3.3/3.5 catalog patches.
+# MIN_RHOAI_VERSION=3.5 is enforced in wait-for-conforma via Snapshot PAC metadata (catalog line).
 apiVersion: appstudio.redhat.com/v1beta2
 kind: IntegrationTestScenario
 metadata:
   labels:
     test.appstudio.openshift.io/optional: "true"
-  name: odh-olminstall-testops-eaas
+  name: rhoai-e2e-eaas-ocp421
   namespace: rhoai-tenant
 spec:
-  application: testops-playpen
+  application: rhoai-fbc-fragment-ocp-421
   contexts:
-    - description: rhoai-fbc-fragment-ocp-421 component builds (EaaS)
+    - description: RHOAI E2E on EaaS when rhoai-fbc-fragment-ocp-421 builds
       name: component_rhoai-fbc-fragment-ocp-421
   params:
     - name: CLUSTER_SOURCE
@@ -29,8 +31,12 @@ spec:
       value: "rhoai-fbc-fragment-ocp-421"
     - name: RHOAI_FBC_IMAGE
       value: "unspecified (default)"
+    - name: MIN_RHOAI_VERSION
+      value: "3.5"
     - name: TEST_GATES
       value: "bvt,smoke"
+    - name: QUAY_PULL_SECRET_NAME
+      value: "rhoai-quay-secret"
     - name: SCRIPTS_REPO_URL
       value: https://github.com/opendatahub-io/odh-konflux-central.git
     - name: SCRIPTS_REPO_REVISION

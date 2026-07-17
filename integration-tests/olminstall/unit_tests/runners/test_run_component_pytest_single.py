@@ -32,9 +32,25 @@ def test_eaas_pytest_extra_args_skip_image_validation() -> None:
         assert "-k" in args
         assert "image_validation" in args[args.index("-k") + 1]
     with mock.patch.dict(os.environ, {"CLUSTER_SOURCE": "my-secret"}, clear=False):
-        assert (
-            run_component_pytest._apply_cluster_source_pytest_extra_args("-svv") == "-svv"
+        merged = run_component_pytest._apply_cluster_source_pytest_extra_args("-svv")
+        assert "image_validation" in merged
+    with mock.patch.dict(os.environ, {"CLUSTER_SOURCE": ""}, clear=False):
+        assert run_component_pytest._apply_cluster_source_pytest_extra_args("-svv") == "-svv"
+
+def test_external_rhoai_pytest_extra_args_skip_image_validation() -> None:
+    with mock.patch.dict(
+        os.environ,
+        {
+            "CLUSTER_SOURCE": "olminstall-kubeconfig-nmanos-konflux1-nmanos",
+            "PRODUCT": "rhoai",
+        },
+        clear=False,
+    ):
+        merged = run_component_pytest._apply_cluster_source_pytest_extra_args(
+            "--tc use_unprivileged_client:False"
         )
+        assert "image_validation" in merged
+        assert "--cluster-sanity-skip-rhoai-check" not in merged
 
 def test_external_existing_pytest_extra_args_skip_image_validation() -> None:
     with mock.patch.dict(
@@ -63,6 +79,14 @@ def test_external_existing_pytest_extra_args_skip_rhoai_cluster_sanity() -> None
             )
             == "--tc use_unprivileged_client:False -k 'not image_validation' --cluster-sanity-skip-rhoai-check"
         )
+
+
+def test_needs_full_dsc_ready_before_pytest() -> None:
+    assert run_component_pytest._needs_full_dsc_ready_before_pytest("ogx") is True
+    assert run_component_pytest._needs_full_dsc_ready_before_pytest("ai_safety_evalhub") is True
+    assert run_component_pytest._needs_full_dsc_ready_before_pytest("ai_safety_trustyai_service") is True
+    assert run_component_pytest._needs_full_dsc_ready_before_pytest("workbenches") is False
+    assert run_component_pytest._needs_full_dsc_ready_before_pytest("maas_billing") is False
 
 def test_maas_billing_rosa_hcp_merges_pytest_k_skip() -> None:
     with (
@@ -171,6 +195,7 @@ def test_main_runs_single_component_without_workbenches_in_plan(
 
     with (
         mock.patch("runners.run_component_pytest.prepare_kubeconfig_auth_for_tests"),
+        mock.patch("runners.run_component_pytest.cluster_smoke_infra_blocked_reason", return_value=""),
         mock.patch("runners.run_component_pytest.load_shift_left_env_from_mount"),
         mock.patch("runners.run_component_pytest.apply_cluster_router_ca_from_kubeconfig"),
         mock.patch("runners.orchestrator.stage_git_for_prereqs"),
@@ -180,6 +205,53 @@ def test_main_runs_single_component_without_workbenches_in_plan(
         assert run_component_pytest.main() == 0
 
     run_mock.assert_called_once()
+
+
+def test_pooled_external_smoke_prep_runs_when_cluster_prep_done(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TEST_ARTIFACTS_DIR", str(tmp_path))
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    from steps.cluster_prep_state import mark_cluster_prep_done
+
+    mark_cluster_prep_done(artifacts)
+    plan = {
+        "component_test_phases": ["smoke"],
+        "components": [
+            {
+                "id": "kuberay",
+                "pytest_marker": "smoke",
+                "pytest_extra_args": "",
+                "tests_subdir": "tests/kuberay/",
+                "artifact_prefix": "kuberay-smoke",
+            }
+        ],
+    }
+    plan_path = artifacts / "plan.json"
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+    monkeypatch.setenv("ARTIFACTS_DIR", str(artifacts))
+    monkeypatch.setenv("COMPONENT_TEST_PLAN_JSON", str(plan_path))
+    monkeypatch.setenv("COMPONENT_TEST_COMPONENT_ID", "kuberay")
+    monkeypatch.setenv("PRODUCT", "rhoai")
+    monkeypatch.setenv("CLUSTER_SOURCE", "olminstall-kubeconfig-nmanos-konflux1-nmanos")
+    monkeypatch.delenv("TEST_OUTPUT_PATH", raising=False)
+
+    with (
+        mock.patch("runners.run_component_pytest.prepare_kubeconfig_auth_for_tests"),
+        mock.patch("runners.run_component_pytest.cluster_smoke_infra_blocked_reason", return_value=""),
+        mock.patch("runners.run_component_pytest.load_shift_left_env_from_mount"),
+        mock.patch("runners.run_component_pytest.apply_cluster_router_ca_from_kubeconfig"),
+        mock.patch("runners.orchestrator.stage_git_for_prereqs"),
+        mock.patch("runners.run_component_pytest.run_pooled_external_smoke_prep") as pooled,
+        mock.patch("runners.run_component_pytest.prepare_component_for_smoke") as full_prep,
+        mock.patch("runners.run_component_pytest.run_single_pytest", return_value=0),
+    ):
+        assert run_component_pytest.main() == 0
+
+    pooled.assert_called_once_with("kuberay")
+    full_prep.assert_not_called()
+
 
 def test_maas_billing_passes_htpasswd_overlay_to_pytest(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -216,6 +288,7 @@ def test_maas_billing_passes_htpasswd_overlay_to_pytest(
 
     with (
         mock.patch("runners.run_component_pytest.prepare_kubeconfig_auth_for_tests"),
+        mock.patch("runners.run_component_pytest.cluster_smoke_infra_blocked_reason", return_value=""),
         mock.patch("runners.run_component_pytest.load_shift_left_env_from_mount"),
         mock.patch("runners.run_component_pytest.promote_shift_left_aws_env"),
         mock.patch("runners.run_component_pytest.apply_cluster_router_ca_from_kubeconfig"),
