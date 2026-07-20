@@ -213,6 +213,9 @@
   "training-operator": {
     "odh-training-operator-ci": "opendatahub/training-operator"
   },
+  "trustyai-explainability": {
+    "odh-trustyai-service-ci": "opendatahub/odh-trustyai-service"
+  },
   "trustyai-service": {
     "odh-trustyai-service-ci": "opendatahub/odh-trustyai-service"
   },
