@@ -753,7 +753,7 @@ spec:
 
             # Retry loop: concurrent builds writing to different digest dirs
             # can race on git push. Rebase is safe because paths never overlap.
-            MAX_RETRIES=5
+            MAX_RETRIES=10
             for attempt in $(seq 1 $MAX_RETRIES); do
               if git push; then
                 echo "Push succeeded (attempt ${attempt})"
