@@ -92,6 +92,57 @@ def _copy_tls_secret_to_gateway_ns(name: str, *, src_ns: str) -> bool:
     return True
 
 
+_OPENSHIFT_DEFAULT_GATEWAY_CLASS = "openshift-default"
+_OPENSHIFT_GATEWAY_CONTROLLER = "openshift.io/gateway-controller/v1"
+
+
+def ensure_openshift_default_gateway_class() -> None:
+    """Ensure GatewayClass openshift-default exists (Jenkins configure-maas-gateway parity)."""
+    r = oc_run(
+        [
+            "get",
+            "gatewayclass",
+            _OPENSHIFT_DEFAULT_GATEWAY_CLASS,
+            "-o",
+            "jsonpath={.status.conditions[?(@.type==\"Accepted\")].status}",
+        ],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    if r.returncode == 0 and (r.stdout or "").strip() == "True":
+        print(
+            f"✓ GatewayClass {_OPENSHIFT_DEFAULT_GATEWAY_CLASS} Accepted=True",
+            flush=True,
+        )
+        return
+    yaml_doc = f"""\
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: {_OPENSHIFT_DEFAULT_GATEWAY_CLASS}
+spec:
+  controllerName: "{_OPENSHIFT_GATEWAY_CONTROLLER}"
+"""
+    print(f"Applying GatewayClass {_OPENSHIFT_DEFAULT_GATEWAY_CLASS}...", flush=True)
+    apply = oc_run(
+        ["apply", "-f", "-"],
+        stdin_text=yaml_doc,
+        check=False,
+        capture_output=True,
+        timeout=60,
+    )
+    if apply.returncode != 0:
+        err = (apply.stderr or apply.stdout or "").strip()
+        print(
+            f"WARN: could not apply GatewayClass {_OPENSHIFT_DEFAULT_GATEWAY_CLASS}: "
+            f"{err[:200]}",
+            flush=True,
+        )
+        return
+    print(f"✓ GatewayClass {_OPENSHIFT_DEFAULT_GATEWAY_CLASS} applied", flush=True)
+
+
 def ensure_maas_gateway_ingress_tls_secret() -> None:
     """Ensure the Gateway HTTPS listener certificateRef exists in openshift-ingress."""
     cert_name = _ingress_tls_secret_name()
@@ -298,10 +349,104 @@ def ensure_maas_api_auth_policy() -> None:
     print(f"✓ MaaS API AuthPolicy {_MAAS_APPS_NS}/{_MAAS_AUTH_POLICY} applied", flush=True)
 
 
+def ensure_maas_gateway_https_service_clusterip() -> bool:
+    """On EaaS/HyperShift, create gateway-owned HTTPS ClusterIP when controller never Programs.
+
+    OpenShift Gateway controller may leave Programmed=Unknown without creating the
+    ``maas-default-gateway-openshift-default`` Service (LB provisioning gap). maas-api
+    only needs a resolvable HTTPS ClusterIP + Route passthrough.
+    """
+    from components.maas_billing.common import _maas_gateway_https_service_ready
+    from install.gateway_config import cluster_source_is_eaas
+    from install.rosa_hcp_pull_setup import is_hypershift_managed_cluster
+
+    if not (cluster_source_is_eaas() or is_hypershift_managed_cluster()):
+        return False
+    ready, detail = _maas_gateway_https_service_ready()
+    if ready:
+        return True
+    pods = oc_run(
+        [
+            "get",
+            "pods",
+            "-n",
+            _GATEWAY_NS,
+            "-l",
+            f"gateway.networking.k8s.io/gateway-name={_GATEWAY_NAME}",
+            "-o",
+            "jsonpath={.items[*].metadata.name}",
+        ],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    if pods.returncode != 0 or not (pods.stdout or "").strip():
+        print(
+            f"NOTE: no gateway pods labeled for {_GATEWAY_NAME}; "
+            "cannot synthesize HTTPS ClusterIP yet",
+            flush=True,
+        )
+        return False
+    yaml_doc = f"""\
+apiVersion: v1
+kind: Service
+metadata:
+  name: {_GATEWAY_SVC}
+  namespace: {_GATEWAY_NS}
+  labels:
+    gateway.networking.k8s.io/gateway-name: {_GATEWAY_NAME}
+    app.kubernetes.io/name: maas
+    app.kubernetes.io/instance: {_GATEWAY_NAME}
+    app.kubernetes.io/component: gateway
+    opendatahub.io/managed: "false"
+spec:
+  type: ClusterIP
+  selector:
+    gateway.networking.k8s.io/gateway-name: {_GATEWAY_NAME}
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+    - name: https
+      port: 443
+      targetPort: 8443
+      protocol: TCP
+"""
+    print(
+        f"Applying EaaS fallback HTTPS ClusterIP {_GATEWAY_NS}/{_GATEWAY_SVC}...",
+        flush=True,
+    )
+    apply = oc_run(
+        ["apply", "-f", "-"],
+        stdin_text=yaml_doc,
+        check=False,
+        capture_output=True,
+        timeout=60,
+    )
+    if apply.returncode != 0:
+        err = (apply.stderr or apply.stdout or "").strip()
+        print(
+            f"WARN: could not apply EaaS HTTPS ClusterIP: {err[:200]}",
+            flush=True,
+        )
+        return False
+    ready, detail = _maas_gateway_https_service_ready()
+    if ready:
+        print(f"✓ EaaS HTTPS ClusterIP ready ({detail})", flush=True)
+        return True
+    print(
+        f"WARN: EaaS HTTPS ClusterIP applied but still not ready ({detail[:120]})",
+        flush=True,
+    )
+    return False
+
+
 def ensure_maas_gateway() -> None:
     """Ensure maas-default-gateway exists with MaaS-required annotations (olminstall configure-maas-gateway)."""
     from components.maas_billing.common import _maas_gateway_annotations_ready
 
+    ensure_openshift_default_gateway_class()
     r = oc_run(
         ["get", "gateway", _GATEWAY_NAME, "-n", _GATEWAY_NS],
         check=False,

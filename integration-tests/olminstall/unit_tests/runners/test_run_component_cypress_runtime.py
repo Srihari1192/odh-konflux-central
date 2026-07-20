@@ -949,19 +949,38 @@ class DashboardCypressRuntimeTest(unittest.TestCase):
         with mock.patch(
             "install.ldap._cluster_is_byoidc",
             return_value=False,
+        ), mock.patch(
+            "install.ldap.cluster_has_ldap_identity",
+            return_value=False,
+        ), mock.patch(
+            "install.ldap.cluster_has_htpasswd_identity",
+            return_value=False,
         ):
             extra = eaas_bearer_extra_cypress_skip_tags(odh_dashboard_url=eaas_url)
-        self.assertIn("@ModelTrainingCI", extra)
-        self.assertIn("@HardwareProfilesCI", extra)
-        self.assertIn("@ODS-1877", extra)
-        self.assertIn("@NonConcurrent", extra)
-        self.assertIn("@ModelRegistryCI", extra)
+        self.assertEqual(extra, "")
         self.assertEqual(
             eaas_bearer_extra_cypress_skip_tags(
                 odh_dashboard_url="https://rh-ai.apps.rosa.example.com",
             ),
             "",
         )
+
+    def test_htpasswd_skips_not_applied_on_eaas_bearer(self) -> None:
+        eaas_url = "https://rh-ai.apps.abc123.prod.konfluxeaas.com"
+        with mock.patch(
+            "install.ldap._cluster_is_byoidc",
+            return_value=False,
+        ), mock.patch(
+            "install.ldap.cluster_has_ldap_identity",
+            return_value=False,
+        ), mock.patch(
+            "install.ldap.cluster_has_htpasswd_identity",
+            return_value=False,
+        ):
+            extra = cypress_extra_skip_tags(odh_dashboard_url=eaas_url)
+        self.assertNotIn("@ModelServingCI", extra)
+        self.assertNotIn("@ProjectsCI", extra)
+        self.assertNotIn("@ModelTrainingCI", extra)
 
     def test_cypress_extra_skip_tags_merges_byoidc_and_konflux(self) -> None:
         with mock.patch(

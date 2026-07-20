@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 from pathlib import Path
 from unittest import mock
 
@@ -17,7 +18,7 @@ def test_eaas_pytest_extra_args_skip_image_validation() -> None:
             run_component_pytest._apply_cluster_source_pytest_extra_args(
                 "--tc use_unprivileged_client:False"
             )
-            == "--tc use_unprivileged_client:False -k 'not image_validation'"
+            == "--tc use_unprivileged_client:False -k 'not image_validation and not verify_images'"
         )
         workbenches_extra = (
             "--tc use_unprivileged_client:False "
@@ -77,7 +78,7 @@ def test_external_existing_pytest_extra_args_skip_rhoai_cluster_sanity() -> None
             run_component_pytest._apply_cluster_source_pytest_extra_args(
                 "--tc use_unprivileged_client:False"
             )
-            == "--tc use_unprivileged_client:False -k 'not image_validation' --cluster-sanity-skip-rhoai-check"
+            == "--tc use_unprivileged_client:False -k 'not image_validation and not verify_images' --cluster-sanity-skip-rhoai-check"
         )
 
 
@@ -314,6 +315,30 @@ def test_ogx_forces_rh_dev_distribution_after_shift_left(monkeypatch: pytest.Mon
     assert "distribution_name:rh-dev" in extra
     assert "-p ogx_ea_distribution_plugin" in extra
     assert os.environ["distribution_name"] == "rh-dev"
+
+
+def test_ogx_eaas_keeps_vector_stores_in_k_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Smoke+not pgvector already narrows to vector_stores; extra skip empties the suite."""
+    monkeypatch.setenv("CLUSTER_SOURCE", "EAAS")
+    monkeypatch.setenv("distribution_name", "rh-dev")
+    extra = run_component_pytest._apply_ogx_pytest_extra_args("-k 'not pgvector'")
+    assert "vector_stores" not in extra
+    assert "not pgvector" in extra
+
+
+def test_ogx_external_keeps_vector_stores_in_k_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CLUSTER_SOURCE", "EXTERNAL")
+    monkeypatch.setenv("distribution_name", "rh-dev")
+    extra = run_component_pytest._apply_ogx_pytest_extra_args("-k 'not pgvector'")
+    assert "vector_stores" not in extra
+
+
+def test_ogx_unset_cluster_keeps_vector_stores(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CLUSTER_SOURCE", raising=False)
+    monkeypatch.setenv("distribution_name", "rh-dev")
+    extra = run_component_pytest._apply_ogx_pytest_extra_args("-k 'not pgvector'")
+    assert "vector_stores" not in extra
+
 
 
 def test_ensure_olminstall_on_pythonpath(monkeypatch: pytest.MonkeyPatch) -> None:

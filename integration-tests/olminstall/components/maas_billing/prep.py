@@ -64,8 +64,15 @@ def _restart_maas_api_after_gateway() -> None:
 def ensure_maas_gateway_before_models_as_service(*, https_wait_sec: int | None = None) -> None:
     """Gateway HTTPS service must exist before modelsAsService enables maas-api."""
     from components.maas_billing.auth import recover_kuadrant_after_gateway_api_provider
+    from components.maas_billing.gateway import ensure_openshift_default_gateway_class
+    from helpers.hypershift_admission_webhooks import (
+        neutralize_broken_hypershift_admission_webhooks,
+    )
     from steps.cluster_prep_state import maas_gateway_https_blocked_reason
 
+    # HyperShift stub webhooks fail-closed and can block gateway Service / Deployments.
+    neutralize_broken_hypershift_admission_webhooks()
+    ensure_openshift_default_gateway_class()
     # cleanup+reinstall: Kuadrant often stuck MissingDependency until GatewayClass exists;
     # restart operator once provider is present so MaaS smoke can run.
     recover_kuadrant_after_gateway_api_provider()

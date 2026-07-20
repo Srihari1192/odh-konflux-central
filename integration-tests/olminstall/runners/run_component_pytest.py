@@ -66,7 +66,11 @@ from steps.tekton_util import (
 )
 from suite.its_trigger_params import CLUSTER_SOURCE_EAAS, is_external_cluster_source
 
-_EAAS_SKIP_IMAGE_VALIDATION = "-k 'not image_validation'"
+# EaaS/HCP quay mirrors fail registry.redhat.io-only checks (nodeids vary by suite).
+_EAAS_SKIP_IMAGE_VALIDATION = "-k 'not image_validation and not verify_images'"
+# Do not add `-k 'not vector_stores'` here: under smoke+`not pgvector` that empties the
+# suite (A2 kbbjt: 35 deselected / 0 selected → JP4 hollow fail). Keep Jenkins catalog
+# baseline only; vector_stores client-ready hangs stay FailureIgnored until embeddings fix.
 _CLUSTER_SANITY_SKIP_RHOAI = "--cluster-sanity-skip-rhoai-check"
 
 
@@ -314,8 +318,33 @@ def _return_infra_junit_failure(
 
 
 def _ensure_timeout_junit(comp: dict[str, str], artifacts_dir: Path, timeout_seconds: float | None) -> None:
-    """If timeout killed pytest before writing xUnit, write a synthetic suite for imports."""
+    """If timeout killed pytest before writing xUnit, write a synthetic suite for imports.
+
+    Prefer keeping a partial JUnit that already has real testcases (timeout mid-suite).
+    Else salvage PASSED/FAILED/ERROR lines from the component console log.
+    """
     if timeout_seconds is None:
+        return
+    # artifact_prefix already ends in -smoke (e.g. ogx-smoke); do not append another -smoke.
+    prefix = (comp.get("artifact_prefix") or "").strip()
+    for candidate in (
+        artifacts_dir / f"{comp.get('id', 'unknown')}-smoke.xml",
+        artifacts_dir / f"{prefix}.xml" if prefix else None,
+    ):
+        if candidate is None or not candidate.is_file() or not candidate.name.endswith(".xml"):
+            continue
+        try:
+            text = candidate.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if "<testcase" in text and 'name="timeout"' not in text:
+            print(
+                f"NOTE: keeping partial JUnit after timeout ({candidate.name}); "
+                "not overwriting with synthetic failure",
+                flush=True,
+            )
+            return
+    if prefix and _salvage_junit_from_console_log(comp, artifacts_dir, prefix):
         return
     cid = comp.get("id", "unknown")
     tests_subdir = comp.get("tests_subdir", "")
@@ -331,6 +360,86 @@ def _ensure_timeout_junit(comp: dict[str, str], artifacts_dir: Path, timeout_sec
         ),
         time_seconds=timeout_seconds,
     )
+
+
+_TEST_STATUS_RE = re.compile(
+    r"TEST:\s+(\S+)\s+STATUS:\s+(?:\x1b\[[0-9;]*m)*\s*(PASSED|FAILED|ERROR|SKIPPED)",
+    re.IGNORECASE,
+)
+
+
+def _salvage_junit_from_console_log(
+    comp: dict[str, str], artifacts_dir: Path, prefix: str
+) -> bool:
+    """Build JUnit from pytest console STATUS lines when session XML was never flushed."""
+    log_path = artifacts_dir / f"{prefix}.console.log"
+    if not log_path.is_file():
+        # Some runners only tee to stdout; also try pytest-tests.log under results/
+        for alt in (
+            artifacts_dir / "pytest-tests.log",
+            artifacts_dir / "results" / "pytest-tests.log",
+        ):
+            if alt.is_file():
+                log_path = alt
+                break
+        else:
+            return False
+    try:
+        text = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    # Strip ANSI for matching
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", text)
+    # Keep last status per test name (console logs often reprint the same TEST: line).
+    status_by_test: dict[str, str] = {}
+    for match in _TEST_STATUS_RE.finditer(plain):
+        status_by_test[match.group(1)] = match.group(2).upper()
+    if not status_by_test:
+        return False
+    cid = comp.get("id", "unknown")
+    failures = sum(1 for st in status_by_test.values() if st == "FAILED")
+    errors = sum(1 for st in status_by_test.values() if st == "ERROR")
+    skipped = sum(1 for st in status_by_test.values() if st == "SKIPPED")
+    cases: list[str] = []
+    for name, status in status_by_test.items():
+        name_attr = quoteattr(name)
+        if status == "PASSED":
+            cases.append(f'  <testcase classname={quoteattr(cid)} name={name_attr} time="1"/>\n')
+        elif status == "SKIPPED":
+            cases.append(
+                f'  <testcase classname={quoteattr(cid)} name={name_attr} time="0">\n'
+                f'    <skipped message="salvaged from console after timeout"/>\n'
+                f"  </testcase>\n"
+            )
+        elif status == "ERROR":
+            cases.append(
+                f'  <testcase classname={quoteattr(cid)} name={name_attr} time="1">\n'
+                f'    <error message="salvaged from console after timeout"/>\n'
+                f"  </testcase>\n"
+            )
+        else:
+            cases.append(
+                f'  <testcase classname={quoteattr(cid)} name={name_attr} time="1">\n'
+                f'    <failure message="salvaged from console after timeout"/>\n'
+                f"  </testcase>\n"
+            )
+    junit_path = artifacts_dir / f"{prefix}.xml"
+    passed = len(status_by_test) - failures - errors - skipped
+    xml = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        f'<testsuite name={quoteattr(cid)} tests="{len(status_by_test)}" failures="{failures}" '
+        f'errors="{errors}" skipped="{skipped}" time="0" '
+        f'timestamp="{time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}">\n'
+        f"{''.join(cases)}"
+        "</testsuite>\n"
+    )
+    junit_path.write_text(xml, encoding="utf-8")
+    print(
+        f"NOTE: salvaged {len(status_by_test)} testcase(s) from {log_path.name} after timeout "
+        f"({passed} passed, {failures} failed, {errors} errors)",
+        flush=True,
+    )
+    return True
 
 
 def _apply_non_blocking_timeout(comp: dict[str, str], ec: int, raw_ec: int) -> int:
@@ -744,6 +853,20 @@ def _run_one_component(
         if apply_ogx_ea_distribution_patch():
             print("✓ Patched tests.ogx.server_config for rh-dev (EA.2)", flush=True)
     raw_ec = run_single_pytest(extra_env=pytest_extra_env or None)
+    if not collect_only and cid == "ogx":
+        from components.ogx.platform_smoke import ensure_ogx_junit_after_pytest
+
+        try:
+            ensure_ogx_junit_after_pytest(
+                artifacts_dir,
+                prefix=comp.get("artifact_prefix", "ogx-smoke") or "ogx-smoke",
+            )
+        except Exception as exc:  # noqa: BLE001 - never let post-processing mask the real result
+            print(
+                f"WARN: ensure_ogx_junit_after_pytest failed ({exc}); keeping raw pytest result",
+                file=sys.stderr,
+                flush=True,
+            )
     if not collect_only and cid == "maas_billing":
         from steps.tekton_util import OLMINSTALL_HTPASSWD_KUBECONFIG_ENV
 
@@ -756,9 +879,12 @@ def _run_one_component(
         raw_ec=raw_ec,
         artifacts_dir=artifacts_dir,
     )
-    strict_ec = _apply_non_blocking_timeout(comp, strict_ec, raw_ec)
-    if raw_ec == 124 and strict_ec == 0:
-        tekton_ec = 0
+    if raw_ec == 124:
+        # Keep timeout red even when partial JUnit pass rate would green the component;
+        # nonBlockingOnTimeout may still downgrade to 0.
+        timeout_strict = 124 if strict_ec == 0 else strict_ec
+        strict_ec = _apply_non_blocking_timeout(comp, timeout_strict, raw_ec)
+        tekton_ec = 0 if strict_ec == 0 else strict_ec
     if _filter_component_id():
         _accumulate_exit_file(strict_ec)
     prefix_by_id[cid] = comp["artifact_prefix"]

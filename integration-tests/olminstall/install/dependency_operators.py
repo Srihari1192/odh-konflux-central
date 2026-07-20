@@ -683,6 +683,16 @@ def finalize_dependency_operators_after_setup_script(olm_dir: Path, setup_rc: in
                 file=sys.stderr,
                 flush=True,
             )
+            # Still ensure JobSet/LWS CRs after CLEANUP — early return used to skip this and
+            # leave TrainerReady=False (JobSetOperator/cluster missing) on product reinstall.
+            try:
+                ensure_jobset_and_lws_operator_crs(olm_dir=olm_dir)
+            except Exception as exc:  # noqa: BLE001 - oc timeouts must not crash finalize
+                print(
+                    f"ERROR: JobSet/LWS operator CR ensure failed ({exc})",
+                    file=sys.stderr,
+                    flush=True,
+                )
             return rc
         print(
             f"WARN: dependency setup exited {rc} but Authorino CRD is available; continuing",
@@ -695,7 +705,7 @@ def finalize_dependency_operators_after_setup_script(olm_dir: Path, setup_rc: in
 
     try:
         ensure_jobset_and_lws_operator_crs(olm_dir=olm_dir)
-    except RuntimeError as exc:
+    except Exception as exc:  # noqa: BLE001 - oc timeouts must not crash finalize
         print(f"ERROR: JobSet/LWS operator CR ensure failed ({exc})", file=sys.stderr)
         return 1
 

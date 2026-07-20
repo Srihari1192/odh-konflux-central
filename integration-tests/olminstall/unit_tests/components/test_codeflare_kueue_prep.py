@@ -45,9 +45,9 @@ class CodeflareKueuePrepTest(unittest.TestCase):
         ):
             self.assertEqual(_kueue_dsc_management_state(), "Unmanaged")
 
-    def test_ensure_codeflare_kueue_ready_skips_when_api_up(self) -> None:
+    def test_ensure_codeflare_kueue_ready_skips_when_smoke_ready(self) -> None:
         with mock.patch(
-            "components.codeflare_sdk.kueue_prep._kueue_api_available",
+            "components.codeflare_sdk.kueue_prep._kueue_smoke_ready",
             return_value=True,
         ):
             with mock.patch(
@@ -56,7 +56,7 @@ class CodeflareKueuePrepTest(unittest.TestCase):
                 ensure_codeflare_kueue_ready()
         patch_state.assert_not_called()
 
-    def test_ensure_codeflare_kueue_ready_waits_for_api(self) -> None:
+    def test_ensure_codeflare_kueue_ready_waits_for_api_and_webhook(self) -> None:
         with mock.patch(
             "components.codeflare_sdk.kueue_prep._kueue_dsc_management_state",
             return_value="Unmanaged",
@@ -68,11 +68,25 @@ class CodeflareKueuePrepTest(unittest.TestCase):
                     "components.codeflare_sdk.kueue_prep._clear_stuck_openshift_kueue_cluster"
                 ):
                     with mock.patch(
-                        "components.codeflare_sdk.kueue_prep._kueue_api_available",
+                        "components.codeflare_sdk.kueue_prep._kueue_smoke_ready",
                         side_effect=[False, True],
                     ):
-                        with mock.patch("components.codeflare_sdk.kueue_prep.time.sleep"):
-                            ensure_codeflare_kueue_ready(timeout_sec=30)
+                        with mock.patch(
+                            "components.codeflare_sdk.kueue_prep._kueue_api_available",
+                            return_value=True,
+                        ):
+                            with mock.patch(
+                                "components.codeflare_sdk.kueue_prep._kueue_webhook_ready",
+                                return_value=False,
+                            ):
+                                with mock.patch(
+                                    "components.codeflare_sdk.kueue_prep._dsc_condition",
+                                    return_value=("False", "Progressing", ""),
+                                ):
+                                    with mock.patch(
+                                        "components.codeflare_sdk.kueue_prep.time.sleep"
+                                    ):
+                                        ensure_codeflare_kueue_ready(timeout_sec=30)
         patch_state.assert_called_once_with("kueue", "Unmanaged")
 
 if __name__ == "__main__":

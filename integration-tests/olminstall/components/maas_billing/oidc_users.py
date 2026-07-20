@@ -521,22 +521,6 @@ def ensure_maas_oidc_keycloak_users() -> None:
     print(f"✓ MaaS OIDC Keycloak users provisioned in {_MAAS_OIDC_REALM}", flush=True)
 
 
-def _maas_eaas_ldap_vault_overlay(vault: dict[str, str]) -> dict[str, str]:
-    """Keep vault LDAP users on Konflux EaaS (do not remap to htpasswd admin)."""
-    user = vault.get("TEST_USER_USERNAME", "").strip()
-    passwd = vault.get("TEST_USER_PASSWORD", "").strip()
-    if not user or not passwd:
-        return {}
-    auth_type = vault.get("TEST_USER_AUTH_TYPE", "").strip() or "ldap"
-    cluster_auth = vault.get("CLUSTER_AUTH", "").strip() or auth_type
-    return {
-        "TEST_USER_USERNAME": user,
-        "TEST_USER_PASSWORD": passwd,
-        "TEST_USER_AUTH_TYPE": auth_type,
-        "CLUSTER_AUTH": cluster_auth,
-    }
-
-
 def _maas_billing_byoidc_overlay() -> dict[str, str]:
     """BYOIDC / late EaaS ``oidc/byoidc-credentials`` (dashboard Cypress poll parity)."""
     from components.codeflare_sdk.auth import codeflare_byoidc_test_user_overlay
@@ -560,19 +544,24 @@ def maas_billing_htpasswd_env_overrides() -> dict[str, str]:
 
     cluster_source = os.environ.get("CLUSTER_SOURCE", "").strip()
     is_eaas = cluster_source == CLUSTER_SOURCE_EAAS
+    is_byoidc = _cluster_is_byoidc()
 
-    if _cluster_is_byoidc() or is_eaas:
+    if is_byoidc or is_eaas:
         byoidc = _maas_billing_byoidc_overlay()
         if byoidc:
             return byoidc
-        if _cluster_is_byoidc():
+        if is_byoidc:
             return {}
-        if is_eaas and not cluster_has_htpasswd_identity():
-            vault = read_pytest_vault_env()
-            return _maas_eaas_ldap_vault_overlay(vault)
-
-    if _cluster_is_byoidc():
-        return {}
+        # EaaS HyperShift often blocks OAuth IdP patches (HostedCluster ValidatingAdmissionPolicy).
+        # Vault LDAP users then cannot log in — prefer htpasswd overlay when IdP exists; otherwise
+        # return {} and rely on --tc use_unprivileged_client:False (admin SA).
+        if not cluster_has_htpasswd_identity():
+            print(
+                "NOTE: EaaS has no htpasswd OAuth IdP (HyperShift may block OAuth patches) — "
+                "skipping vault LDAP overlay; use admin client for MaaS billing",
+                flush=True,
+            )
+            return {}
 
     vault = read_pytest_vault_env()
     for key in (
@@ -810,7 +799,15 @@ def maas_billing_rosa_hcp_skip_htpasswd_oauth_idp() -> bool:
     if _cluster_is_byoidc():
         return False
     from install.ldap import _cluster_is_rosa_hcp, cluster_has_htpasswd_identity
+    from install.rosa_hcp_pull_setup import is_hypershift_managed_cluster
+    from suite.its_trigger_params import CLUSTER_SOURCE_EAAS
 
+    # EaaS HyperShift: HostedCluster VAP blocks OAuth IdP patches (same as ROSA HCP).
+    if (
+        os.environ.get("CLUSTER_SOURCE", "").strip() == CLUSTER_SOURCE_EAAS
+        or is_hypershift_managed_cluster()
+    ) and not cluster_has_htpasswd_identity():
+        return True
     return _cluster_is_rosa_hcp() or cluster_has_htpasswd_identity()
 
 
@@ -819,7 +816,8 @@ def maas_billing_rosa_hcp_pytest_extra_args() -> str:
     if not maas_billing_rosa_hcp_skip_htpasswd_oauth_idp():
         return ""
     print(
-        "✓ ROSA HCP/htpasswd cluster — skipping maas_htpasswd_oauth_idp-dependent pytest "
+        "✓ External HCP/EaaS (no htpasswd OAuth IdP) - skipping "
+        "maas_htpasswd_oauth_idp-dependent pytest "
         "(HostedCluster VAP blocks OAuth identityProvider patches)",
         flush=True,
     )
@@ -853,14 +851,17 @@ _MAAS_SKIP_AITENANT_BOOTSTRAP_CHILD_GATEWAY = (
 
 
 def maas_billing_aitenant_bootstrap_pytest_extra_args() -> str:
-    """Skip bootstrap child-gateway assertion on external HCP (pooled gatewayRef drift)."""
-    from suite.its_trigger_params import is_external_cluster_source
+    """Skip bootstrap child-gateway assertion on external HCP / EaaS (gatewayRef drift)."""
+    from suite.its_trigger_params import CLUSTER_SOURCE_EAAS, is_external_cluster_source
 
-    if not is_external_cluster_source(os.environ.get("CLUSTER_SOURCE", "")):
+    source = os.environ.get("CLUSTER_SOURCE", "")
+    if not (
+        is_external_cluster_source(source) or source.strip() == CLUSTER_SOURCE_EAAS
+    ):
         return ""
     print(
-        "✓ External cluster — skipping test_aitenant_bootstrap_creates_tenant_environment "
-        "(default Tenant gatewayRef vs e2e-aigw bootstrap on pooled HCP)",
+        "✓ External/EaaS cluster — skipping test_aitenant_bootstrap_creates_tenant_environment "
+        "(default Tenant gatewayRef vs e2e-aigw bootstrap)",
         flush=True,
     )
     return _MAAS_SKIP_AITENANT_BOOTSTRAP_CHILD_GATEWAY

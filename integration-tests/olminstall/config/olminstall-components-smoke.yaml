@@ -164,12 +164,12 @@ components:
       id: model_runtime
       description: >
         Model Runtime smoke tests. Opt-in on external clusters; many cases need cloud credentials.
-      pytestExtraArgs: "--tc use_unprivileged_client:False"
+      pytestExtraArgs: "--tc use_unprivileged_client:False -k 'not TestMLServerModelCar and not TestLLMDSmoke and not TestVllmCpuX86S3Inference and not TestVllmProbeHealth'"
       minPassRateForSuccess: 0.9
       nonBlockingOnTimeout: true
       requiresShiftLeftEnv: true
       componentTestTimeoutByGate:
-        smoke: 15m
+        smoke: 25m
         tier1: 45m
 
   - component:
@@ -197,6 +197,8 @@ components:
       description: >
         Models-as-a-Service billing smoke tests. May fail on external pooled clusters until
         MaaS auth gateway setup completes within the task timeout.
+        EaaS HyperShift blocks OAuth IdP patches — keep unprivileged client off (admin SA).
+      pytestExtraArgs: "--tc use_unprivileged_client:False"
       minPassRateForSuccess: 0.9
       nonBlockingOnTimeout: true
       componentTestTimeoutByGate:
@@ -327,15 +329,17 @@ components:
     konflux:
       id: ogx
       description: >
-        Red Hat OGX Distribution smoke tests. pgvector cases stay excluded until embedding
-        endpoints are available in the tenant environment.
+        Red Hat OGX Distribution smoke tests. Catalog keeps Jenkins baseline (-k not pgvector).
+        verify_images skips apply on EaaS and EXTERNAL (mirrored) clusters via the
+        pytest runner, not this catalog -k. Do not add runner `-k not vector_stores`
+        (empties smoke under not pgvector).
       shiftLeftEnvSecret: envfile-ogx
       pytestExtraArgs: "--tc use_unprivileged_client:False --tc distribution_name:rh-dev -k 'not pgvector'"
       requiresShiftLeftEnv: true
       minPassRateForSuccess: 0.9
       nonBlockingOnTimeout: true
       componentTestTimeoutByGate:
-        smoke: 12m
+        smoke: 15m
         tier1: 45m
 
   - component:

@@ -16,6 +16,8 @@ from suite.component_version_gate import (
 
 _KUEUE_API_GROUP = "kueue.x-k8s.io"
 _OPENSHIFT_KUEUE_CLUSTER = "cluster"
+_KUEUE_WEBHOOK_NS = "openshift-kueue-operator"
+_KUEUE_WEBHOOK_SVC = "kueue-webhook-service"
 _DEFAULT_TIMEOUT_SEC = 600
 _POLL_SEC = 15
 
@@ -42,6 +44,40 @@ def _kueue_api_available() -> bool:
     if proc.returncode != 0:
         return False
     return "resourceflavor" in (proc.stdout or "").lower()
+
+
+def _kueue_webhook_ready() -> bool:
+    """Conversion webhook Service must exist with endpoints (ClusterQueue create fails otherwise)."""
+    svc = oc_run(
+        ["get", "svc", _KUEUE_WEBHOOK_SVC, "-n", _KUEUE_WEBHOOK_NS, "-o", "name"],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    if svc.returncode != 0:
+        return False
+    eps = oc_run(
+        ["get", "endpoints", _KUEUE_WEBHOOK_SVC, "-n", _KUEUE_WEBHOOK_NS, "-o", "json"],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    if eps.returncode != 0:
+        return False
+    try:
+        doc = json.loads(eps.stdout or "{}")
+    except json.JSONDecodeError:
+        return False
+    for subset in doc.get("subsets") or []:
+        if not isinstance(subset, dict):
+            continue
+        if subset.get("addresses"):
+            return True
+    return False
+
+
+def _kueue_smoke_ready() -> bool:
+    return _kueue_api_available() and _kueue_webhook_ready()
 
 
 def _clear_stuck_openshift_kueue_cluster() -> None:
@@ -83,13 +119,13 @@ def _clear_stuck_openshift_kueue_cluster() -> None:
 
 
 def ensure_codeflare_kueue_ready(timeout_sec: int | None = None) -> None:
-    """Enable DSC Kueue and wait until RayJob smoke can use kueue.x-k8s.io APIs."""
-    if _kueue_api_available():
-        print("✓ Kueue API (kueue.x-k8s.io/resourceflavors) already available", flush=True)
-        return
-    ready_status, _, _ = _dsc_condition("KueueReady")
-    if ready_status == "True":
-        print("✓ DataScienceCluster KueueReady=True", flush=True)
+    """Enable DSC Kueue and wait until RayJob smoke can use kueue.x-k8s.io + conversion webhook."""
+    if _kueue_smoke_ready():
+        print(
+            "✓ Kueue API + webhook "
+            f"({_KUEUE_WEBHOOK_NS}/{_KUEUE_WEBHOOK_SVC}) already ready",
+            flush=True,
+        )
         return
 
     timeout = timeout_sec or int(
@@ -100,18 +136,26 @@ def ensure_codeflare_kueue_ready(timeout_sec: int | None = None) -> None:
     _clear_stuck_openshift_kueue_cluster()
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if _kueue_api_available():
-            print("✓ Kueue API (kueue.x-k8s.io/resourceflavors) available", flush=True)
+        if _kueue_smoke_ready():
+            print(
+                "✓ Kueue API + webhook "
+                f"({_KUEUE_WEBHOOK_NS}/{_KUEUE_WEBHOOK_SVC}) ready",
+                flush=True,
+            )
             return
+        api_ok = _kueue_api_available()
+        wh_ok = _kueue_webhook_ready()
         status, reason, message = _dsc_condition("KueueReady")
-        if status == "True":
-            print("✓ DataScienceCluster KueueReady=True", flush=True)
-            return
-        detail = f"status={status or '?'} reason={reason or '?'}"
+        detail = (
+            f"api={'ok' if api_ok else 'missing'} "
+            f"webhook={'ok' if wh_ok else 'missing'} "
+            f"KueueReady={status or '?'} reason={reason or '?'}"
+        )
         if message:
             detail = f"{detail}: {message[:120]}"
         print(f"Waiting for Kueue ({detail})...", flush=True)
         time.sleep(_POLL_SEC)
     raise RuntimeError(
-        f"Kueue not ready after {timeout}s (expected KueueReady or {_KUEUE_API_GROUP} CRDs)"
+        f"Kueue not ready after {timeout}s "
+        f"(need {_KUEUE_API_GROUP} CRDs and {_KUEUE_WEBHOOK_NS}/{_KUEUE_WEBHOOK_SVC} endpoints)"
     )

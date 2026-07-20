@@ -1,20 +1,20 @@
 ---
-# EaaS smoke slice A: auto on rhoai-fbc-fragment-ocp-421 (pairs with ocp422 = B: cypress+platform).
-# COMPONENTS match playpen-a (all smoke except dashboard_cypress + platform).
-# Debug: --run-its rhoai-e2e-eaas-ocp421 --konflux-app testops-playpen
-#   (or --run-its rhoai-e2e-eaas-playpen-a). Re-apply on FBC only after upstream merge.
+# EaaS smoke slice B: auto on rhoai-fbc-fragment-ocp-422 (pairs with ocp421 = A).
+# COMPONENTS match playpen-b: dashboard_cypress + platform only.
+# Debug: --run-its rhoai-e2e-eaas-ocp422 --konflux-app testops-playpen
+#   (or --run-its rhoai-e2e-eaas-playpen-b). Enable on FBC only after upstream merge.
 apiVersion: appstudio.redhat.com/v1beta2
 kind: IntegrationTestScenario
 metadata:
   labels:
     test.appstudio.openshift.io/optional: "true"
-  name: rhoai-e2e-eaas-ocp421
+  name: rhoai-e2e-eaas-ocp422
   namespace: rhoai-tenant
 spec:
-  application: rhoai-fbc-fragment-ocp-421
+  application: rhoai-fbc-fragment-ocp-422
   contexts:
-    - description: RHOAI EaaS smoke slice A when rhoai-fbc-fragment-ocp-421 builds
-      name: component_rhoai-fbc-fragment-ocp-421
+    - description: RHOAI EaaS smoke slice B when rhoai-fbc-fragment-ocp-422 builds
+      name: component_rhoai-fbc-fragment-ocp-422
   params:
     - name: CLUSTER_SOURCE
       value: "EAAS"
@@ -29,7 +29,7 @@ spec:
     - name: OPERATOR_NAME
       value: "rhods-operator"
     - name: RHOAI_FBC_NAME
-      value: "rhoai-fbc-fragment-ocp-421"
+      value: "rhoai-fbc-fragment-ocp-422"
     - name: RHOAI_FBC_IMAGE
       value: "unspecified (default)"
     - name: MIN_RHOAI_VERSION
@@ -37,7 +37,7 @@ spec:
     - name: TEST_GATES
       value: "bvt,smoke"
     - name: COMPONENTS
-      value: "workbenches,model_registry,model_server,model_runtime,maas_billing,ai_pipelines,kuberay,mlflow,ogx,ai_safety,ai_safety_evalhub,ai_safety_guardrails,ai_safety_lmeval,ai_safety_trustyai_operator,ai_safety_trustyai_service,llama_stack,trainer,distributed_workloads,spark_operator,workbench_images,codeflare_sdk"
+      value: "dashboard_cypress,platform"
     - name: QUAY_PULL_SECRET_NAME
       value: "rhoai-quay-secret"
     - name: SCRIPTS_REPO_URL
