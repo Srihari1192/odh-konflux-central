@@ -6,10 +6,10 @@ metadata:
   name: olminstall-component-maas-billing
 spec:
   description: |
-    Models-as-a-Service billing smoke tests. May fail on external pooled clusters until MaaS auth gateway setup completes within the task timeout.
+    Models-as-a-Service billing smoke tests. May fail on external pooled clusters until MaaS auth gateway setup completes within the task timeout. EaaS HyperShift blocks OAuth IdP patches — keep unprivileged client off (admin SA).
 
     - Test framework: opendatahub-tests (pytest).
-    - Command: pytest tests/model_serving/maas_billing -m 'smoke' -svv -o junit_suite_name=maas_billing.
+    - Command: pytest tests/model_serving/maas_billing -m 'smoke' -svv -o junit_suite_name=maas_billing --tc use_unprivileged_client:False.
     - Requires tenant credentials supplied by the pipeline.
     - Timeouts: smoke 20m, tier1 45m.
     - Version gate: minRhoai 3.3.

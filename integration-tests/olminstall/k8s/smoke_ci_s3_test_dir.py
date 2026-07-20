@@ -27,6 +27,7 @@ _MODEL_RUNTIME_MARKERS: tuple[tuple[str, str], ...] = (
     ("triton/model_repository/inceptiongraphdef", f"{_OVMS_VERSION}/model.graphdef"),
     ("opt-125m", "config.json"),
 )
+_VLLM_CPU_SMOKE_TESTS = ("TestVllmCpuX86S3Inference", "TestVllmProbeHealth")
 
 
 def _resolve_ci_bucket() -> tuple[str, str, str | None, str, str]:
@@ -144,11 +145,40 @@ def log_model_runtime_ci_s3_layout() -> None:
     _log_ci_s3_layout(component="model_runtime", markers=_MODEL_RUNTIME_MARKERS)
 
 
+def _skip_vllm_on_eaas_or_hypershift() -> list[str]:
+    """EaaS/HyperShift workers cannot schedule vLLM CPU (8 CPU / 10Gi); suites hang until timeout."""
+    from suite.its_trigger_params import CLUSTER_SOURCE_EAAS
+
+    if os.environ.get("CLUSTER_SOURCE", "").strip() == CLUSTER_SOURCE_EAAS:
+        return list(_VLLM_CPU_SMOKE_TESTS)
+    try:
+        from install.rosa_hcp_pull_setup import is_hypershift_managed_cluster
+
+        if is_hypershift_managed_cluster():
+            return list(_VLLM_CPU_SMOKE_TESTS)
+    except Exception as exc:
+        print(
+            f"WARN: HyperShift detection failed ({exc}); "
+            "relying on catalog model_runtime -k for vLLM skips",
+            flush=True,
+        )
+    return []
+
+
 def model_runtime_pytest_extra_args(*, skip_s3_probe: bool = False) -> str:
     """Skip model_runtime smoke tests when required S3 objects are missing."""
+    skips: list[str] = _skip_vllm_on_eaas_or_hypershift()
+    if skips:
+        print(
+            "✓ EaaS/HyperShift — skipping vLLM CPU smoke "
+            f"({', '.join(skips)}; unschedulable resource requests)",
+            flush=True,
+        )
     if skip_s3_probe:
-        return ""
-    skips: list[str] = []
+        if not skips:
+            return ""
+        expr = " or ".join(dict.fromkeys(skips))
+        return f"-k 'not ({expr})'"
     try:
         bucket, region, endpoint, access_key, secret_key = _resolve_ci_bucket()
         client = _s3_client(
@@ -182,6 +212,6 @@ def model_runtime_pytest_extra_args(*, skip_s3_probe: bool = False) -> str:
         )
     if not skips:
         return ""
-    expr = " or ".join(skips)
+    expr = " or ".join(dict.fromkeys(skips))
     print(f"✓ model_runtime pytest skip filter: not ({expr})", flush=True)
     return f"-k 'not ({expr})'"

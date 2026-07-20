@@ -24,6 +24,7 @@ from __future__ import annotations
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -258,12 +259,17 @@ def _run_with_tee(
                 f"ERROR: command timed out after {timeout_s}s ({COMPONENT_TEST_TIMEOUT_SECS_ENV}): {' '.join(cmd)}",
                 file=sys.stderr,
             )
-            proc.terminate()
+            # Prefer SIGINT so pytest can flush junitxml before hard kill.
             try:
-                proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=30)
+                proc.send_signal(signal.SIGINT)
+                proc.wait(timeout=60)
+            except (subprocess.TimeoutExpired, OSError, ValueError):
+                proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=30)
             reader.join(timeout=5)
             return 124
         reader.join()

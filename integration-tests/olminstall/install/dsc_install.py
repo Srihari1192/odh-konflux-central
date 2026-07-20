@@ -834,6 +834,19 @@ def _dsc_condition_status(cond_type: str) -> str:
 def wait_dsc_ready(timeout_s: int = 600) -> bool:
     """Poll until DataScienceCluster/default-dsc has Ready==True (and TrainerReady when selected)."""
     need_trainer = _trainer_selected_for_gate()
+    if need_trainer:
+        # After CLEANUP, JobSetOperator/cluster is often missing until post-install; ensure
+        # again here once CRDs exist (dep-operators may have skipped when setup exited ≠0).
+        try:
+            from install.dependency_operators import ensure_jobset_and_lws_operator_crs
+
+            ensure_jobset_and_lws_operator_crs()
+        except Exception as exc:
+            print(
+                f"WARN: JobSet/LWS ensure before DSC wait failed ({exc}); continuing poll",
+                file=sys.stderr,
+                flush=True,
+            )
     print(
         f"Waiting for DataScienceCluster/default-dsc Ready"
         f"{' + TrainerReady' if need_trainer else ''} (up to {timeout_s}s)...",

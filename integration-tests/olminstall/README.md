@@ -136,7 +136,10 @@ Skipped nodes are normal: EaaS vs external vs `PRODUCT=existing`, Conforma **ski
 | [`runners/report/send_notification.py`](runners/report/send_notification.py) | Tekton step: Slack notification summarising pipeline run results |
 | [`install/patch_cluster_pull_secret.py`](install/patch_cluster_pull_secret.py) | Tekton step: injects `quay.io/rhoai` credentials into the [EaaS](../../doc/contributing-konflux-testing-rhoai.md#eaas) cluster at all required levels |
 | [`tekton/its/its-olminstall-open-data-hub-tenant.yaml`](tekton/its/its-olminstall-open-data-hub-tenant.yaml) | [ITS](../../doc/contributing-konflux-testing-rhoai.md#its) `odh-olminstall` for [ODH](../../doc/contributing-konflux-testing-rhoai.md#odh) (`open-data-hub-tenant`, `odh-operator-catalog` component) |
-| [`tekton/its/its-rhoai-e2e-eaas-ocp421.yaml`](tekton/its/its-rhoai-e2e-eaas-ocp421.yaml) | [ITS](../../doc/contributing-konflux-testing-rhoai.md#its) `rhoai-e2e-eaas-ocp421` — EaaS on **`rhoai-fbc-fragment-ocp-421`** (`CLUSTER_SOURCE=EAAS`, `component_rhoai-fbc-fragment-ocp-421`) |
+| [`tekton/its/its-rhoai-e2e-eaas-ocp421.yaml`](tekton/its/its-rhoai-e2e-eaas-ocp421.yaml) | [ITS](../../doc/contributing-konflux-testing-rhoai.md#its) `rhoai-e2e-eaas-ocp421` - EaaS **slice A** on **`rhoai-fbc-fragment-ocp-421`** (in-tree; enable after upstream merge) |
+| [`tekton/its/its-rhoai-e2e-eaas-ocp422.yaml`](tekton/its/its-rhoai-e2e-eaas-ocp422.yaml) | [ITS](../../doc/contributing-konflux-testing-rhoai.md#its) `rhoai-e2e-eaas-ocp422` - EaaS **slice B** on **`rhoai-fbc-fragment-ocp-422`** (in-tree; enable after upstream merge) |
+| [`tekton/its/its-rhoai-e2e-eaas-playpen-a.yaml`](tekton/its/its-rhoai-e2e-eaas-playpen-a.yaml) | Playpen debug **slice A** (all smoke except platform + Cypress) |
+| [`tekton/its/its-rhoai-e2e-eaas-playpen-b.yaml`](tekton/its/its-rhoai-e2e-eaas-playpen-b.yaml) | Playpen debug **slice B** (`dashboard_cypress` + `platform` only) |
 | [`tekton/its/its-rhoai-e2e-rh-nightly-pm-ocp420.yaml`](tekton/its/its-rhoai-e2e-rh-nightly-pm-ocp420.yaml) | Auto [ITS](../../doc/contributing-konflux-testing-rhoai.md#its) on **`rhoai-fbc-fragment-ocp-420`** for external rh-nightly cluster (`optional: true`) |
 | [`config/test-snapshot-rh-nightly.yaml`](config/test-snapshot-rh-nightly.yaml) | Offline FBC pin for `--run-its` when Konflux lookup fails (rh-nightly ITS) |
 | [`suite/its_registry.py`](suite/its_registry.py) | Resolve in-tree ITS YAML by `metadata.name` for `--enable-its` / `--disable-its` |
@@ -166,7 +169,7 @@ Konflux Tekton does **not** support nested `pipelineRef` pipelines. The runnable
 | `pipeline-run-summary-step` | Dispatch `steps.pipeline_run_summary_steps` |
 | `write-konflux-task-summary-finally` | Per-task `TASK_MESSAGE` via `tekton/scripts/run_write_task_message.sh` (standalone Tasks use `finally:`; inline pipeline `taskSpec`s use a last step  -  Konflux rejects nested `taskSpec.finally`) |
 
-ITS objects ([`its-rhoai-e2e-eaas-ocp421.yaml`](tekton/its/its-rhoai-e2e-eaas-ocp421.yaml), [`its-rhoai-e2e-rh-nightly-pm-ocp420.yaml`](tekton/its/its-rhoai-e2e-rh-nightly-pm-ocp420.yaml), [`its-olminstall-open-data-hub-tenant.yaml`](tekton/its/its-olminstall-open-data-hub-tenant.yaml)) point at the monolithic pipeline via `resolverRef`, not at snippets.
+ITS objects ([`its-rhoai-e2e-eaas-ocp421.yaml`](tekton/its/its-rhoai-e2e-eaas-ocp421.yaml), [`its-rhoai-e2e-eaas-ocp422.yaml`](tekton/its/its-rhoai-e2e-eaas-ocp422.yaml), [`its-rhoai-e2e-eaas-playpen-a.yaml`](tekton/its/its-rhoai-e2e-eaas-playpen-a.yaml), [`its-rhoai-e2e-eaas-playpen-b.yaml`](tekton/its/its-rhoai-e2e-eaas-playpen-b.yaml), [`its-rhoai-e2e-rh-nightly-pm-ocp420.yaml`](tekton/its/its-rhoai-e2e-rh-nightly-pm-ocp420.yaml), [`its-olminstall-open-data-hub-tenant.yaml`](tekton/its/its-olminstall-open-data-hub-tenant.yaml)) point at the monolithic pipeline via `resolverRef`, not at snippets.
 
 ### Konflux UI (reading a PipelineRun)
 
@@ -179,7 +182,7 @@ The [Pipeline flow](#pipeline-flow) diagram is the expected DAG. In the UI:
 
 [`its-olminstall-open-data-hub-tenant.yaml`](tekton/its/its-olminstall-open-data-hub-tenant.yaml) targets **`open-data-hub-tenant`**, application **`opendatahub-builds`**, context `component_odh-operator-catalog`, triggering on [ODH](../../doc/contributing-konflux-testing-rhoai.md#odh) [FBCF](../../doc/contributing-konflux-testing-rhoai.md#fbc--fbcf) builds.
 
-[`its-rhoai-e2e-eaas-ocp421.yaml`](tekton/its/its-rhoai-e2e-eaas-ocp421.yaml) targets **`rhoai-tenant`**, application **`rhoai-fbc-fragment-ocp-421`**, auto-triggering EaaS E2E on upstream FBC component builds (OCP 4.21). Use **`--konflux-app testops-playpen`** only for sandbox debug on manual Snapshots.
+[`its-rhoai-e2e-eaas-ocp421.yaml`](tekton/its/its-rhoai-e2e-eaas-ocp421.yaml) targets **`rhoai-tenant`**, application **`rhoai-fbc-fragment-ocp-421`**, with EaaS **slice A** `COMPONENTS` (pairs with [`its-rhoai-e2e-eaas-ocp422.yaml`](tekton/its/its-rhoai-e2e-eaas-ocp422.yaml) = slice B on ocp-422). Keep both in-tree until after upstream merge; debug with playpen ITS or `--run-its … --konflux-app testops-playpen`. Re-applying `ocp421` on the FBC app cuts that app over from the previous full matrix to slice A.
 
 **Why extra PipelineRuns appear:** A Konflux [Snapshot](../../doc/contributing-konflux-testing-rhoai.md#snapshot) for an **Application** starts **one `PipelineRun` per `IntegrationTestScenario`** that matches that app. Old scenarios still **on the cluster** (for example `rhoai-test` → `testops-e2e-test`) are **not** removed when you update git; they keep firing until deleted. **`testops-playpen-enterprise-contract-*`** runs are **Enterprise Contract** policy checks  -  separate from olminstall; tune or disable them in Konflux application / release / EC settings for your tenant, not via `tekton/pipelines/olminstall-pipeline.yaml`.
 
@@ -218,7 +221,8 @@ This is the **official [HyperShift](../../doc/contributing-konflux-testing-rhoai
 - **Manual (`oc` only):** After [logging in](../../doc/contributing-konflux-testing-rhoai.md#log-in-and-pick-a-namespace) to the tenant namespace, apply an [ITS](../../doc/contributing-konflux-testing-rhoai.md#its), then create a [Snapshot](../../doc/contributing-konflux-testing-rhoai.md#snapshot) (pinned file or latest image for your app label). Example for the [RHOAI](../../doc/contributing-konflux-testing-rhoai.md#rhoai) sandbox [ITS](../../doc/contributing-konflux-testing-rhoai.md#its) and `rhoai-fbc-fragment-ocp-421`:
 
 ```bash
-oc apply -n rhoai-tenant -f integration-tests/olminstall/tekton/its/its-rhoai-e2e-eaas-ocp421.yaml
+# Prefer playpen debug until after upstream merge; applying ocp421 on FBC cuts over to slice A:
+# oc apply -n rhoai-tenant -f integration-tests/olminstall/tekton/its/its-rhoai-e2e-eaas-ocp421.yaml
 oc create -n rhoai-tenant -f integration-tests/olminstall/config/test-snapshot.yaml
 # Or substitute the latest snapshot image (adjust -l / jsonpath for your application):
 LATEST=$(oc get snapshots -n rhoai-tenant \
@@ -235,12 +239,15 @@ For generic Konflux testing (login, namespaces, [PipelineRun](../../doc/contribu
 
 ### IntegrationTestScenario admin (`--enable-its` / `--disable-its` / `--run-its`)
 
-Rh-nightly and EaaS olminstall ITS live on the **FBC fragment Applications** (native Konflux auto-trigger on component build Snapshots), not on `testops-playpen`.
+Rh-nightly stays on **FBC ocp-420** (full matrix, external cluster). EaaS smoke is split across FBC apps: **ocp-421 = slice A** (all smoke except Cypress/platform), **ocp-422 = slice B** (`dashboard_cypress` + `platform` only; same `COMPONENTS` as playpen-a/b). Debug on **`testops-playpen`** via `--run-its rhoai-e2e-eaas-playpen-*` (or FBC ITS names + `--konflux-app testops-playpen`). Do **not** `--enable-its` for `rhoai-e2e-eaas-ocp421` / `ocp422` on FBC apps until after this PR merges upstream; re-applying `ocp421` cuts that app over from full matrix to slice A.
 
-| ITS name | Konflux Application | Cluster | `CLUSTER_SOURCE` | Auto-trigger context | ITS PipelineRun prefix |
-|----------|---------------------|---------|------------------|----------------------|-------------------------|
-| `rhoai-e2e-rh-nightly-pm-ocp420` | **`rhoai-fbc-fragment-ocp-420`** | rh-nightly-pm (external) | `olminstall-kubeconfig-rh-nightly-pm` | `component_rhoai-fbc-fragment-ocp-420` | `e2e-its-rh-nightly-pm-bvt-smoke-*` |
-| `rhoai-e2e-eaas-ocp421` | **`rhoai-fbc-fragment-ocp-421`** | EaaS (ephemeral) | `EAAS` | `component_rhoai-fbc-fragment-ocp-421` | `e2e-its-eaas-bvt-smoke-*` |
+| ITS name | Konflux Application | Cluster | `CLUSTER_SOURCE` | Auto-trigger context | Smoke | ITS PipelineRun prefix |
+|----------|---------------------|---------|------------------|----------------------|-------|-------------------------|
+| `rhoai-e2e-rh-nightly-pm-ocp420` | **`rhoai-fbc-fragment-ocp-420`** | rh-nightly-pm (external) | `olminstall-kubeconfig-rh-nightly-pm` | `component_rhoai-fbc-fragment-ocp-420` | full | `e2e-its-rh-nightly-pm-bvt-smoke-*` |
+| `rhoai-e2e-eaas-ocp421` | **`rhoai-fbc-fragment-ocp-421`** | EaaS (ephemeral) | `EAAS` | `component_rhoai-fbc-fragment-ocp-421` | **slice A** | `e2e-its-eaas-bvt-smoke-*` |
+| `rhoai-e2e-eaas-ocp422` | **`rhoai-fbc-fragment-ocp-422`** | EaaS (ephemeral) | `EAAS` | `component_rhoai-fbc-fragment-ocp-422` | **slice B** | `e2e-its-eaas-bvt-smoke-*` |
+| `rhoai-e2e-eaas-playpen-a` | **`testops-playpen`** | EaaS (ephemeral) | `EAAS` | `push` (manual) | **slice A** | `e2e-its-eaas-bvt-smoke-*` |
+| `rhoai-e2e-eaas-playpen-b` | **`testops-playpen`** | EaaS (ephemeral) | `EAAS` | `push` (manual) | **slice B** | `e2e-its-eaas-bvt-smoke-*` |
 
 Use [`olm_pipeline.py`](olm_pipeline.py) to apply or remove in-tree [ITS](../../doc/contributing-konflux-testing-rhoai.md#its) manifests by **`metadata.name`**, **olminstall-relative path** (preferred, e.g. `tekton/its/its-rhoai-e2e-rh-nightly-pm-ocp420.yaml`), **repo-relative path** (e.g. `integration-tests/olminstall/tekton/its/…`), or **absolute path** under the repository root. **`--enable-its`** applies the ITS only (launch-and-forget); only Konflux rollout flags are allowed (`--konflux-repo`, `--konflux-branch`, `--konflux-app`). **`--run-its`** creates a one-shot direct CLI PipelineRun (`e2e-cli-*`, Konflux **Incoming**) without applying ITS; cluster and test overrides (`--components`, `--tests`, `--external-kubeconfig`, etc.) are allowed.
 
@@ -254,14 +261,24 @@ python3 integration-tests/olminstall/olm_pipeline.py \
   --konflux-repo https://github.com/<you>/odh-konflux-central.git \
   --konflux-branch <branch> \
   --konflux-namespace rhoai-tenant
+```
+
+**After this PR merges upstream** (EaaS slice A on 421 + slice B on 422):
+
+```bash
 python3 integration-tests/olminstall/olm_pipeline.py \
   --enable-its rhoai-e2e-eaas-ocp421 \
   --konflux-repo https://github.com/<you>/odh-konflux-central.git \
-  --konflux-branch <branch> \
+  --konflux-branch main \
+  --konflux-namespace rhoai-tenant
+python3 integration-tests/olminstall/olm_pipeline.py \
+  --enable-its rhoai-e2e-eaas-ocp422 \
+  --konflux-repo https://github.com/<you>/odh-konflux-central.git \
+  --konflux-branch main \
   --konflux-namespace rhoai-tenant
 ```
 
-Tenant secret **`olminstall-kubeconfig-rh-nightly-pm`** must exist before rh-nightly runs. Both ITS use `optional: true` so failures do not block FBC release.
+Tenant secret **`olminstall-kubeconfig-rh-nightly-pm`** must exist before rh-nightly runs. All three ITS use `optional: true` so failures do not block FBC release.
 
 **Autonomous external login (RHOAIENG-57718):** store durable htpasswd credentials in tenant Secret **`olminstall-external-rh-nightly-pm-credentials`** (`HTPASSWD_USER`, `HTPASSWD_PASS`, `API_SERVER`). The pipeline step **`refresh-external-kubeconfig`** (in **`external-cluster-ready`**) logs in with those credentials, refreshes the bearer token, writes the kubeconfig back to **`CLUSTER_SOURCE`** (step fails if write-back fails), and stages it for downstream tasks.
 
@@ -272,8 +289,12 @@ Tenant secret **`olminstall-kubeconfig-rh-nightly-pm`** must exist before rh-nig
 | Enable rh-nightly ITS (FBC app, auto on upstream builds) | `--enable-its rhoai-e2e-rh-nightly-pm-ocp420` (manifest app) |
 | Debug rh-nightly ITS on playpen (manual Snapshots only) | `--enable-its rhoai-e2e-rh-nightly-pm-ocp420 --konflux-app testops-playpen` |
 | Debug rh-nightly ITS cluster on playpen | add `--external-kubeconfig ~/.kube/<cluster>` to **`--run-its`** |
-| Enable EaaS ITS (421 FBC app, auto on upstream builds) | `--enable-its rhoai-e2e-eaas-ocp421` |
+| Enable EaaS slice A (421 FBC) after upstream merge | `--enable-its rhoai-e2e-eaas-ocp421` |
+| Enable EaaS slice B (422 FBC) after upstream merge | `--enable-its rhoai-e2e-eaas-ocp422` |
 | Debug EaaS ITS on playpen (manual Snapshots only) | `--enable-its rhoai-e2e-eaas-ocp421 --konflux-app testops-playpen` |
+| Enable playpen EaaS smoke slice A/B (not FBC) | `--enable-its rhoai-e2e-eaas-playpen-a` / `…-playpen-b` |
+| Run playpen EaaS slice now | `--run-its rhoai-e2e-eaas-playpen-a` (or `-b`) |
+| Debug FBC A/B ITS on playpen | `--run-its rhoai-e2e-eaas-ocp421 --konflux-app testops-playpen` (same for `ocp422`) |
 | Run rh-nightly now (direct CLI PR, streams logs) | `--run-its rhoai-e2e-rh-nightly-pm-ocp420` |
 | Scoped smoke debug | `--run-its rhoai-e2e-rh-nightly-pm-ocp420 --tests smoke --components dashboard_cypress` |
 | Disable a profile | `--disable-its NAME` |

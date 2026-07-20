@@ -170,7 +170,60 @@ def test_resolve_unknown_manifest() -> None:
 def test_list_manifests_includes_playpen_its() -> None:
     names = list_integration_test_scenario_manifests(_ROOT)
     assert "rhoai-e2e-eaas-ocp421" in names
+    assert "rhoai-e2e-eaas-ocp422" in names
     assert "rhoai-e2e-rh-nightly-pm-ocp420" in names
+    assert "rhoai-e2e-eaas-playpen-a" in names
+    assert "rhoai-e2e-eaas-playpen-b" in names
+    assert "rhoai-e2e-eaas-ocp420-a" not in names
+    assert "rhoai-e2e-eaas-ocp420-b" not in names
+    assert "rhoai-e2e-eaas-ocp422-a" not in names
+    assert "rhoai-e2e-eaas-ocp422-b" not in names
+
+
+def test_resolve_eaas_playpen_slice_manifests() -> None:
+    path_a = resolve_integration_test_scenario_manifest(_ROOT, "rhoai-e2e-eaas-playpen-a")
+    path_b = resolve_integration_test_scenario_manifest(_ROOT, "rhoai-e2e-eaas-playpen-b")
+    assert path_a.name == "its-rhoai-e2e-eaas-playpen-a.yaml"
+    assert path_b.name == "its-rhoai-e2e-eaas-playpen-b.yaml"
+    assert integration_test_scenario_application(path_a) == "testops-playpen"
+    assert integration_test_scenario_application(path_b) == "testops-playpen"
+    from suite.its_registry import its_manifest_param
+
+    comps_a = its_manifest_param(path_a, "COMPONENTS")
+    comps_b = its_manifest_param(path_b, "COMPONENTS")
+    assert comps_b.split(",") == ["dashboard_cypress", "platform"]
+    assert "ogx" in comps_a.split(",")
+    assert "codeflare_sdk" in comps_a.split(",")
+    assert "ai_safety" in comps_a.split(",")
+    assert "platform" not in comps_a.split(",")
+    assert "dashboard_cypress" not in comps_a.split(",")
+    assert integration_test_scenario_default_konflux_app("rhoai-e2e-eaas-playpen-a") == ""
+
+
+def test_resolve_eaas_fbc_slice_a_on_421_b_on_422() -> None:
+    from suite.its_registry import its_manifest_param
+
+    path_a = resolve_integration_test_scenario_manifest(_ROOT, "rhoai-e2e-eaas-ocp421")
+    path_b = resolve_integration_test_scenario_manifest(_ROOT, "rhoai-e2e-eaas-ocp422")
+    assert integration_test_scenario_application(path_a) == "rhoai-fbc-fragment-ocp-421"
+    assert integration_test_scenario_application(path_b) == "rhoai-fbc-fragment-ocp-422"
+    assert its_manifest_param(path_a, "RHOAI_FBC_NAME") == "rhoai-fbc-fragment-ocp-421"
+    assert its_manifest_param(path_b, "RHOAI_FBC_NAME") == "rhoai-fbc-fragment-ocp-422"
+    playpen_a = resolve_integration_test_scenario_manifest(_ROOT, "rhoai-e2e-eaas-playpen-a")
+    playpen_b = resolve_integration_test_scenario_manifest(_ROOT, "rhoai-e2e-eaas-playpen-b")
+    assert its_manifest_param(path_a, "COMPONENTS") == its_manifest_param(playpen_a, "COMPONENTS")
+    assert its_manifest_param(path_b, "COMPONENTS") == its_manifest_param(playpen_b, "COMPONENTS")
+    assert its_manifest_param(path_b, "COMPONENTS") == "dashboard_cypress,platform"
+    assert "ogx" in its_manifest_param(path_a, "COMPONENTS").split(",")
+    assert "dashboard_cypress" in its_manifest_param(path_b, "COMPONENTS").split(",")
+    assert "dashboard_cypress" not in its_manifest_param(path_a, "COMPONENTS").split(",")
+    assert "platform" not in its_manifest_param(path_a, "COMPONENTS").split(",")
+    assert integration_test_scenario_default_konflux_app("rhoai-e2e-eaas-ocp421") == (
+        "rhoai-fbc-fragment-ocp-421"
+    )
+    assert integration_test_scenario_default_konflux_app("rhoai-e2e-eaas-ocp422") == (
+        "rhoai-fbc-fragment-ocp-422"
+    )
 
 
 def test_eaas_pipelinerun_wrapper_prefix() -> None:

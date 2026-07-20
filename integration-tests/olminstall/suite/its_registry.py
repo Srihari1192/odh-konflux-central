@@ -18,6 +18,7 @@ _ITS_RUN_ITS_SNAPSHOT_BY_NAME: dict[str, str] = {
 _ITS_DEFAULT_KONFLUX_APP_BY_NAME: dict[str, str] = {
     "rhoai-e2e-rh-nightly-pm-ocp420": "rhoai-fbc-fragment-ocp-420",
     "rhoai-e2e-eaas-ocp421": "rhoai-fbc-fragment-ocp-421",
+    "rhoai-e2e-eaas-ocp422": "rhoai-fbc-fragment-ocp-422",
 }
 
 

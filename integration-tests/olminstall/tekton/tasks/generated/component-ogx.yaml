@@ -6,12 +6,12 @@ metadata:
   name: olminstall-component-ogx
 spec:
   description: |
-    Red Hat OGX Distribution smoke tests. pgvector cases stay excluded until embedding endpoints are available in the tenant environment.
+    Red Hat OGX Distribution smoke tests. Catalog keeps Jenkins baseline (-k not pgvector). verify_images skips apply on EaaS and EXTERNAL (mirrored) clusters via the pytest runner, not this catalog -k. Do not add runner `-k not vector_stores` (empties smoke under not pgvector).
 
     - Test framework: opendatahub-tests (pytest).
     - Command: pytest tests/ogx -m 'smoke' -svv -o junit_suite_name=ogx --tc use_unprivileged_client:False --tc distribution_name:rh-dev -k 'not pgvector'.
     - Requires tenant credentials supplied by the pipeline.
-    - Timeouts: smoke 12m, tier1 45m.
+    - Timeouts: smoke 15m, tier1 45m.
     - Version gate: minRhoai 3.5.
     - Non-blocking on pytest timeout (records failure without failing Tekton when configured).
   params:

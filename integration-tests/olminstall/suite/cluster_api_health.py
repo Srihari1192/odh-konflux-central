@@ -206,5 +206,8 @@ def is_definitive_infra_error(message: str) -> bool:
         "kuadrant/authorino dependency operators are missing",
         "webhook has no endpoints",
         "openshift console unavailable",
+        "broken hypershift admission webhook",
+        "xxx-invalid-service-xxx",
+        "block-resources.hypershift.openshift.io",
     )
     return any(m in lower for m in markers)

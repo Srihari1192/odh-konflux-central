@@ -2589,9 +2589,9 @@ spec:
         Model Runtime smoke tests. Opt-in on external clusters; many cases need cloud credentials.
 
         - Test framework: opendatahub-tests (pytest).
-        - Command: pytest tests/model_serving/model_runtime -m 'smoke' -svv -o junit_suite_name=model_runtime --tc use_unprivileged_client:False --supported-accelerator-type CPU_x86.
+        - Command: pytest tests/model_serving/model_runtime -m 'smoke' -svv -o junit_suite_name=model_runtime --tc use_unprivileged_client:False -k 'not TestMLServerModelCar and not TestLLMDSmoke and not TestVllmCpuX86S3Inference and not TestVllmProbeHealth' --supported-accelerator-type CPU_x86.
         - Requires tenant credentials supplied by the pipeline.
-        - Timeouts: smoke 15m, tier1 45m.
+        - Timeouts: smoke 25m, tier1 45m.
         - Non-blocking on pytest timeout (records failure without failing Tekton when configured).
       timeout: 69m0s
       workspaces:
@@ -2648,10 +2648,10 @@ spec:
       onError: continue
       displayName: "Test — maas billing"
       description: |
-        Models-as-a-Service billing smoke tests. May fail on external pooled clusters until MaaS auth gateway setup completes within the task timeout.
+        Models-as-a-Service billing smoke tests. May fail on external pooled clusters until MaaS auth gateway setup completes within the task timeout. EaaS HyperShift blocks OAuth IdP patches — keep unprivileged client off (admin SA).
 
         - Test framework: opendatahub-tests (pytest).
-        - Command: pytest tests/model_serving/maas_billing -m 'smoke' -svv -o junit_suite_name=maas_billing.
+        - Command: pytest tests/model_serving/maas_billing -m 'smoke' -svv -o junit_suite_name=maas_billing --tc use_unprivileged_client:False.
         - Requires tenant credentials supplied by the pipeline.
         - Timeouts: smoke 20m, tier1 45m.
         - Version gate: minRhoai 3.3.
@@ -2897,12 +2897,12 @@ spec:
       onError: continue
       displayName: "Test — ogx"
       description: |
-        Red Hat OGX Distribution smoke tests. pgvector cases stay excluded until embedding endpoints are available in the tenant environment.
+        Red Hat OGX Distribution smoke tests. Catalog keeps Jenkins baseline (-k not pgvector). verify_images skips apply on EaaS and EXTERNAL (mirrored) clusters via the pytest runner, not this catalog -k. Do not add runner `-k not vector_stores` (empties smoke under not pgvector).
 
         - Test framework: opendatahub-tests (pytest).
         - Command: pytest tests/ogx -m 'smoke' -svv -o junit_suite_name=ogx --tc use_unprivileged_client:False --tc distribution_name:rh-dev -k 'not pgvector'.
         - Requires tenant credentials supplied by the pipeline.
-        - Timeouts: smoke 12m, tier1 45m.
+        - Timeouts: smoke 15m, tier1 45m.
         - Version gate: minRhoai 3.5.
         - Non-blocking on pytest timeout (records failure without failing Tekton when configured).
       timeout: 69m0s

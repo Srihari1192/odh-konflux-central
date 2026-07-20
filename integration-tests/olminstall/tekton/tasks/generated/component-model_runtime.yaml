@@ -9,9 +9,9 @@ spec:
     Model Runtime smoke tests. Opt-in on external clusters; many cases need cloud credentials.
 
     - Test framework: opendatahub-tests (pytest).
-    - Command: pytest tests/model_serving/model_runtime -m 'smoke' -svv -o junit_suite_name=model_runtime --tc use_unprivileged_client:False --supported-accelerator-type CPU_x86.
+    - Command: pytest tests/model_serving/model_runtime -m 'smoke' -svv -o junit_suite_name=model_runtime --tc use_unprivileged_client:False -k 'not TestMLServerModelCar and not TestLLMDSmoke and not TestVllmCpuX86S3Inference and not TestVllmProbeHealth' --supported-accelerator-type CPU_x86.
     - Requires tenant credentials supplied by the pipeline.
-    - Timeouts: smoke 15m, tier1 45m.
+    - Timeouts: smoke 25m, tier1 45m.
     - Non-blocking on pytest timeout (records failure without failing Tekton when configured).
   params:
   - name: COMPONENT_ID

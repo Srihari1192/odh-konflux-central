@@ -95,12 +95,59 @@ def _nudge_maas_gateway_reconcile() -> None:
     from components.maas_billing.auth import ensure_authorino_tls
     from components.maas_billing.gateway import (
         ensure_maas_gateway,
+        ensure_maas_gateway_https_service_clusterip,
         ensure_maas_gateway_ingress_tls_secret,
+        ensure_openshift_default_gateway_class,
     )
 
+    ensure_openshift_default_gateway_class()
     ensure_maas_gateway_ingress_tls_secret()
     ensure_authorino_tls()
     ensure_maas_gateway()
+    ensure_maas_gateway_https_service_clusterip()
+
+
+def _dump_maas_gateway_https_diagnostics() -> None:
+    """Best-effort cluster dump when HTTPS Service wait fails (EaaS Programmed gaps)."""
+    cmds = (
+        ["get", "gatewayclass", "-o", "wide"],
+        ["get", "gateway", _GATEWAY_NAME, "-n", _GATEWAY_NS, "-o", "yaml"],
+        [
+            "get",
+            "svc",
+            "-n",
+            _GATEWAY_NS,
+            "-l",
+            f"gateway.networking.k8s.io/gateway-name={_GATEWAY_NAME}",
+            "-o",
+            "wide",
+        ],
+        [
+            "get",
+            "pods",
+            "-n",
+            _GATEWAY_NS,
+            "-l",
+            f"gateway.networking.k8s.io/gateway-name={_GATEWAY_NAME}",
+            "-o",
+            "wide",
+        ],
+        [
+            "get",
+            "deploy",
+            "-n",
+            _GATEWAY_NS,
+            "-o",
+            "wide",
+        ],
+    )
+    for args in cmds:
+        r = oc_run(args, check=False, capture_output=True, timeout=45)
+        out = (r.stdout or r.stderr or "").strip()
+        print(
+            f"DIAG maas-gateway [{' '.join(args)}]:\n{out[:4000]}",
+            flush=True,
+        )
 
 
 def _wait_maas_gateway_https_service(*, timeout_sec: int) -> None:
@@ -170,6 +217,10 @@ def _wait_maas_gateway_https_for_models_as_service(*, timeout_sec: int) -> None:
         time.sleep(12)
     _, svc_detail = _maas_gateway_https_service_ready()
     msg = f"MaaS gateway HTTPS service not ready after {timeout_sec}s — {svc_detail[:300]}"
+    try:
+        _dump_maas_gateway_https_diagnostics()
+    except Exception as exc:
+        print(f"WARN: MaaS gateway HTTPS diagnostics failed: {exc}", file=sys.stderr, flush=True)
     mark_maas_gateway_https_failed(msg)
     raise RuntimeError(msg)
 

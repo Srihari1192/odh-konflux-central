@@ -80,6 +80,38 @@ class FinalizeDependencyOperatorsTest(unittest.TestCase):
             self.assertEqual(reconcile.call_count, 2)
             authorino.assert_called_once()
 
+    def test_product_install_hard_fail_still_ensures_jobset_crs(self) -> None:
+        """After CLEANUP, setup-dependencies often exits ≠0; JobSet CR must still be ensured."""
+        with tempfile.TemporaryDirectory() as tmp:
+            olm_dir = Path(tmp) / "olminstall"
+            olm_dir.mkdir()
+            (olm_dir / "odh-gitops").mkdir()
+            with (
+                patch("install.dependency_operators.ensure_setup_dependency_namespaces_ready"),
+                patch(
+                    "install.dependency_operators._reconcile_rhcl_after_gitops_with_warning",
+                    return_value=False,
+                ),
+                patch(
+                    "install.dependency_operators._run_odh_gitops_make",
+                    return_value=2,
+                ),
+                patch(
+                    "install.dependency_operators._authorino_crd_available",
+                    return_value=True,
+                ),
+                patch(
+                    "install.dependency_operators.product_install_path",
+                    return_value=True,
+                ),
+                patch(
+                    "install.dependency_operators.ensure_jobset_and_lws_operator_crs",
+                ) as ensure_js,
+            ):
+                rc = finalize_dependency_operators_after_setup_script(olm_dir, 2)
+            self.assertEqual(rc, 2)
+            ensure_js.assert_called_once_with(olm_dir=olm_dir)
+
     def test_partial_failure_reconciles_rhcl_before_gitops_retry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             olm_dir = Path(tmp) / "olminstall"

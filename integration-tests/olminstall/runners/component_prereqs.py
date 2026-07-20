@@ -516,6 +516,19 @@ def prepare_components_for_smoke(component_ids: set[str]) -> bool:
         )
         return True
     try:
+        from helpers.hypershift_admission_webhooks import (
+            neutralize_broken_hypershift_admission_webhooks,
+        )
+
+        neutralize_broken_hypershift_admission_webhooks()
+    except Exception as exc:
+        print(
+            f"WARN: HyperShift admission webhook neutralize failed ({exc}); "
+            "OGX/Deployment creates may fail on stub webhooks",
+            file=sys.stderr,
+            flush=True,
+        )
+    try:
         _ensure_maas_database_before_smoke_prep(component_ids)
     except Exception as exc:
         print(
