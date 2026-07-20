@@ -30,3 +30,5 @@ config:
       early-gate-enabled: true
     odh-dashboard:
       early-gate-enabled: true
+    opendatahub-operator:
+      early-gate-enabled: true
