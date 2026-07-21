@@ -194,6 +194,9 @@
     "odh-autorag-ci": "opendatahub/odh-autorag",
     "odh-pipelines-components-ci": "opendatahub/odh-pipelines-components"
   },
+  "ray-module-operator": {
+    "odh-ray-module-operator-ci": "opendatahub/odh-ray-module-operator"
+  },
   "rhaii-cluster-validation": {
     "odh-rhaii-cluster-validator-ci": "opendatahub/odh-rhaii-cluster-validator",
     "odh-rhaii-validator-tools-ci": "opendatahub/odh-rhaii-validator-tools"
