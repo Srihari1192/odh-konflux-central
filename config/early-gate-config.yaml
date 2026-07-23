@@ -30,5 +30,7 @@ config:
       early-gate-enabled: true
     odh-dashboard:
       early-gate-enabled: true
+      additional-branches:
+        - eg-test
     opendatahub-operator:
       early-gate-enabled: true
