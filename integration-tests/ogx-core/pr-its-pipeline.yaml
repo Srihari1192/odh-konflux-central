@@ -417,7 +417,7 @@ spec:
               python3 -c "
               import xml.etree.ElementTree as ET, json, glob, datetime
               total = failures = errors = skipped = 0
-              for f in glob.glob('reports/*.xml') + glob.glob('${ARTIFACT_DIR}/*.xml'):
+              for f in glob.glob('reports/*.xml'):
                   try:
                       for ts in ET.parse(f).iter('testsuite'):
                           total += int(ts.get('tests', 0))
