@@ -205,7 +205,7 @@ spec:
               - "--max-model-len"
               - "8192"
               - "--gpu-memory-utilization"
-              - "0.10"
+              - "0.5"
             readinessProbe:
               httpGet:
                 path: /health
