@@ -724,6 +724,10 @@ spec:
       operator: in
       values:
       - "true"
+    - input: $(params.pipeline-type)
+      operator: in
+      values:
+      - "pull-request"
   - name: trigger-operator-build
     workspaces:
     - name: basic-auth
