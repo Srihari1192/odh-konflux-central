@@ -892,6 +892,10 @@ spec:
       operator: in
       values:
       - "true"
+    - input: $(params.pipeline-type)
+      operator: in
+      values:
+      - "pull-request"
   workspaces:
   - name: git-auth
     optional: true
