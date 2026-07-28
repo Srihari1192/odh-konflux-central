@@ -30,6 +30,10 @@ spec:
     value: .
   - name: hermetic
     value: "true"
+  - name: build-platforms
+    value:
+    - linux-m2xlarge/amd64
+    - linux-m2xlarge/arm64
   - name: prefetch-input
     value: |
       [
