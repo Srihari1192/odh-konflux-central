@@ -188,10 +188,8 @@
     "odh-operator-ci": "opendatahub/opendatahub-operator"
   },
   "openshell": {
-    "odh-gateway-ci": "opendatahub/odh-gateway",
     "odh-openshell-gateway-ci": "opendatahub/odh-openshell-gateway",
-    "odh-openshell-supervisor-ci": "opendatahub/odh-openshell-supervisor",
-    "odh-supervisor-ci": "opendatahub/odh-supervisor"
+    "odh-openshell-supervisor-ci": "opendatahub/odh-openshell-supervisor"
   },
   "openvino_model_server": {
     "openvino-model-server-ci": "opendatahub/openvino_model_server"
