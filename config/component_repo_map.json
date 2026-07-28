@@ -189,6 +189,7 @@
   },
   "openshell": {
     "odh-gateway-ci": "opendatahub/odh-gateway",
+    "odh-openshell-supervisor-ci": "opendatahub/odh-openshell-supervisor",
     "odh-supervisor-ci": "opendatahub/odh-supervisor"
   },
   "openvino_model_server": {
