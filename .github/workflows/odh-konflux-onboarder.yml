@@ -69,7 +69,6 @@ on:
           - spark-operator
           - text-generation-inference
           - trainer
-          - training-operator
           - trustyai-explainability
           - trustyai-service-operator
           - vllm-orchestrator-gateway
