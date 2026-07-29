@@ -5,10 +5,7 @@ metadata:
   name: ogx-core-functional-tests
 spec:
   description: |
-    Container-level functional tests for OGX Core. Runs Bruno CRUD + Jupyter
-    notebook tests against the just-built OGX image using Tekton sidecars
-    (PostgreSQL + vLLM inference + vLLM embedding + OGX). No OpenShift
-    cluster provisioning needed.
+    Container-level functional tests for OGX Core.
   params:
     - description: Snapshot of the application
       name: SNAPSHOT
@@ -25,6 +22,9 @@ spec:
     - name: embedding-model
       default: 'ibm-granite/granite-embedding-125m-english'
       description: Embedding model served by vLLM.
+    - name: embedding-dimension
+      default: '768'
+      description: Embedding dimension for the embedding model (768 for Granite, 1536 for OpenAI).
     - name: test-runner-image
       default: 'quay.io/rh-ee-ahladenk/ogx-test-runner:latest'
       description: Pre-built image with test dependencies (curl, uv, Node.js).
@@ -143,6 +143,8 @@ spec:
           value: "$(params.inference-model)"
         - name: embedding-model
           value: "$(params.embedding-model)"
+        - name: embedding-dimension
+          value: "$(params.embedding-dimension)"
         - name: test-runner-image
           value: "$(params.test-runner-image)"
       taskSpec:
@@ -156,6 +158,8 @@ spec:
           - name: inference-model
             type: string
           - name: embedding-model
+            type: string
+          - name: embedding-dimension
             type: string
           - name: test-runner-image
             type: string
@@ -337,6 +341,12 @@ spec:
             env:
               - name: BASE_URL
                 value: "http://127.0.0.1:8321"
+              - name: MCP_HOST
+                value: "127.0.0.1"
+              - name: MCP_HTTP_PORT
+                value: "8322"
+              - name: MCP_SSE_PORT
+                value: "8323"
               - name: HEALTH_CHECK_TIMEOUT
                 value: "600"
               - name: ARTIFACT_DIR
@@ -345,6 +355,8 @@ spec:
                 value: "vllm-inference/$(params.inference-model)"
               - name: EMBEDDING_MODEL
                 value: "vllm-embedding/$(params.embedding-model)"
+              - name: EMBEDDING_DIMENSION
+                value: "$(params.embedding-dimension)"
             script: |
               #!/bin/bash
               set -euo pipefail
