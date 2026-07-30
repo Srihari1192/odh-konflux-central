@@ -43,6 +43,9 @@ spec:
         {"type": "rpm", "path": "deploy/konflux/gateway"},
         {"type": "generic", "path": "deploy/konflux/gateway", "lockfile": "generic-fetcher.yaml"}
       ]
+  - name: build-args
+    value:
+    - "OPENSHELL_VERSION={{git_tag}}"
   pipelineRef:
     resolver: git
     params:
