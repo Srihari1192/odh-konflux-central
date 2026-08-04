@@ -27,7 +27,7 @@ spec:
   - name: dockerfile
     value: Dockerfile
   - name: path-context
-    value: .
+    value: images/universal/training/th-torch-cuda-py312
   #add these additional params
   - name: additional-tags
     value:
