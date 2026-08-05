@@ -82,6 +82,7 @@ on:
           - rhoai-mcp
           - ray-module-operator
           - openshell
+          - data-connect-hub
       pr_target_branch:
         description: 'Target branch for the PR (e.g. main)'
         required: true
