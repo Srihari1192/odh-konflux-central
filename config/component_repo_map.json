@@ -227,7 +227,8 @@
     "odh-trustyai-service-ci": "opendatahub/odh-trustyai-service"
   },
   "trustyai-service": {
-    "odh-trustyai-service-ci": "opendatahub/odh-trustyai-service"
+    "odh-trustyai-service-ci": "opendatahub/odh-trustyai-service",
+    "odh-trustyai-service-py-ci": "opendatahub/odh-trustyai-service-py"
   },
   "trustyai-service-operator": {
     "odh-trustyai-service-operator-ci": "opendatahub/trustyai-service-operator",
