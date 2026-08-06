@@ -473,7 +473,7 @@ jobs:
 
           fi
 
-          git commit -F commit_message.txt
+          git commit --signoff -F commit_message.txt
           git push --set-upstream origin "$branch_name"
 
           echo "commit=true" >> $GITHUB_ENV
