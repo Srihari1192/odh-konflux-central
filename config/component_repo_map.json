@@ -27,7 +27,8 @@
     "odh-llm-d-batch-gateway-processor-ci": "opendatahub/odh-llm-d-batch-gateway-processor"
   },
   "data-connect-hub": {
-    "odh-data-connect-hub-flight-ci": "opendatahub/odh-data-connect-hub-flight"
+    "odh-data-connect-hub-flight-ci": "opendatahub/odh-data-connect-hub-flight",
+    "odh-data-connect-hub-rest-ci": "opendatahub/odh-data-connect-hub-rest"
   },
   "data-science-pipelines": {
     "odh-ml-pipelines-api-server-v2-ci": "opendatahub/ds-pipelines-api-server",
