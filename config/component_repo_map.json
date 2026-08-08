@@ -136,6 +136,7 @@
     "odh-pipeline-runtime-pytorch-rocm-py312-ubi9-ci": "opendatahub/odh-pipeline-runtime-pytorch-rocm-py312-ubi9",
     "odh-pipeline-runtime-tensorflow-cuda-py312-ubi9-ci": "opendatahub/odh-pipeline-runtime-tensorflow-cuda-py312-ubi9",
     "odh-pipeline-runtime-tensorflow-rocm-py312-ubi9-ci": "opendatahub/odh-pipeline-runtime-tensorflow-rocm-py312-ubi9",
+    "odh-workbench-codeserver-baseline-cpu-py312-c9s-ci": "opendatahub/odh-workbench-codeserver-baseline-cpu-py312-c9s",
     "odh-workbench-codeserver-datascience-cpu-py312-ubi9-ci": "opendatahub/odh-workbench-codeserver-datascience-cpu-py312-ubi9",
     "odh-workbench-jupyter-datascience-cpu-py312-ubi9-ci": "opendatahub/odh-workbench-jupyter-datascience-cpu-py312-ubi9",
     "odh-workbench-jupyter-minimal-cpu-py312-ubi9-ci": "opendatahub/odh-workbench-jupyter-minimal-cpu-py312-ubi9",
