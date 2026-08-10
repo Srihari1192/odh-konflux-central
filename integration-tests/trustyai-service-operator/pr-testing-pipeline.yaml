@@ -1,6 +1,6 @@
 ---
 apiVersion: tekton.dev/v1
-kind: PipelineRun
+kind: Pipeline
 metadata:
   name: odh-pr-test-trustyai-service-operator
   annotations:
