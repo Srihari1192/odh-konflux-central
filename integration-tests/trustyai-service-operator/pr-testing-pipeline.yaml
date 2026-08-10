@@ -1,374 +1,370 @@
----
 apiVersion: tekton.dev/v1
-kind: PipelineRun
+kind: Pipeline
 metadata:
   name: odh-pr-test-trustyai-service-operator
   annotations:
     pipelinesascode.tekton.dev/on-event: "[pull_request]"
     pipelinesascode.tekton.dev/on-target-branch: "[main]"
 spec:
-  timeouts:
-    pipeline: 3h
-  pipelineSpec:
-    description: |
-      An integration test which provisions an ephemeral Hypershift cluster, deploys opendatahub-operator
-      with the TrustyAI Service Operator from the PR image, and runs the opendatahub-operator e2e tests.
-    params:
-      - description: Snapshot of the application
-        name: SNAPSHOT
-        type: string
-      - name: ODH_OPERATOR_REPO
-        type: string
-        default: "https://github.com/opendatahub-io/opendatahub-operator.git"
-      - name: ODH_OPERATOR_REVISION
-        type: string
-        default: "main"
-      - name: OPERATOR_NAMESPACE
-        type: string
-        default: opendatahub-operator-system
-      - name: oci-artifacts-repo
-        default: 'quay.io/opendatahub/odh-ci-artifacts'
-        description: The OCI container used to store all test artifacts.
-      - name: artifact-browser-url
-        default: 'https://app-artifact-browser.apps.rosa.konflux-qe.zmr9.p3.openshiftapps.com'
-        description: The URL for browsing test artifacts.
-    tasks:
-      - name: audit-snapshot
+  description: |
+    An integration test which provisions an ephemeral Hypershift cluster, deploys opendatahub-operator
+    with the TrustyAI Service Operator from the PR image, and runs the opendatahub-operator e2e tests.
+  params:
+    - description: Snapshot of the application
+      name: SNAPSHOT
+      type: string
+    - name: ODH_OPERATOR_REPO
+      type: string
+      default: "https://github.com/opendatahub-io/opendatahub-operator.git"
+    - name: ODH_OPERATOR_REVISION
+      type: string
+      default: "main"
+    - name: OPERATOR_NAMESPACE
+      type: string
+      default: opendatahub-operator-system
+    - name: oci-artifacts-repo
+      default: 'quay.io/opendatahub/odh-ci-artifacts'
+      description: The OCI container used to store all test artifacts.
+    - name: artifact-browser-url
+      default: 'https://app-artifact-browser.apps.rosa.konflux-qe.zmr9.p3.openshiftapps.com'
+      description: The URL for browsing test artifacts.
+  tasks:
+    - name: audit-snapshot
+      params:
+        - name: SNAPSHOT
+          value: $(params.SNAPSHOT)
+      taskSpec:
         params:
           - name: SNAPSHOT
-            value: $(params.SNAPSHOT)
-        taskSpec:
-          params:
-            - name: SNAPSHOT
-              description: Snapshot of the application
-          results:
-          - name: trustyai-operator-image
-          - name: pull-request-author
-          - name: pull-request-number
-          - name: git-repo
-          - name: git-org
-          - name: git-revision
-          steps:
-            - name: audit-snapshot
-              image: quay.io/konflux-ci/konflux-test:stable
-              workingDir: /workspace
-              env:
-                - name: SNAPSHOT
-                  value: $(params.SNAPSHOT)
-                - name: PR_AUTHOR
-                  valueFrom:
-                    fieldRef:
-                      fieldPath: metadata.annotations['pac.test.appstudio.openshift.io/sender']
-                - name: PR_NUMBER
-                  valueFrom:
-                    fieldRef:
-                      fieldPath: metadata.labels['pac.test.appstudio.openshift.io/pull-request']
-                - name: GIT_REPO
-                  valueFrom:
-                    fieldRef:
-                      fieldPath: metadata.annotations['pac.test.appstudio.openshift.io/url-repository']
-                - name: GIT_ORG
-                  valueFrom:
-                    fieldRef:
-                      fieldPath: metadata.annotations['pac.test.appstudio.openshift.io/url-org']
-                - name: GIT_REVISION
-                  valueFrom:
-                    fieldRef:
-                      fieldPath: metadata.annotations['pac.test.appstudio.openshift.io/sha']
-              script: |
-                #!/bin/bash
-                set -e
-                echo "SNAPSHOT=${SNAPSHOT}"
-
-                # Extract TrustyAI operator image from snapshot
-                TRUSTYAI_OPERATOR_IMAGE=""
-                while IFS= read -r row; do
-                    COMPONENT_NAME=$(echo "$row" | base64 -d | jq -r '.name')
-                    IMAGE=$(echo "$row" | base64 -d | jq -r '.containerImage')
-                    GIT_COMMIT=$(echo "$row" | base64 -d | jq -r '.source.git.revision')
-                    GIT_URL=$(echo "$row" | base64 -d | jq -r '.source.git.url')
-
-                    if echo "${GIT_URL}" | grep -q "trustyai-service-operator"; then
-                      TRUSTYAI_OPERATOR_IMAGE="${IMAGE}"
-                    fi
-                    echo "${COMPONENT_NAME} IMAGE: ${IMAGE} GIT_COMMIT: ${GIT_COMMIT}"
-                done < <(echo "$SNAPSHOT" | jq -r '.components[] | @base64')
-
-                if [ -z "$TRUSTYAI_OPERATOR_IMAGE" ]; then
-                  echo "ERROR: TrustyAI operator image not found in snapshot"
-                  exit 1
-                fi
-
-                echo "TRUSTYAI_OPERATOR_IMAGE: ${TRUSTYAI_OPERATOR_IMAGE}"
-                echo -n "${TRUSTYAI_OPERATOR_IMAGE}" > "$(results.trustyai-operator-image.path)"
-                echo -n "${PR_AUTHOR}" > "$(results.pull-request-author.path)"
-                echo -n "${PR_NUMBER}" > "$(results.pull-request-number.path)"
-                echo -n "${GIT_REPO}" > "$(results.git-repo.path)"
-                echo -n "${GIT_ORG}" > "$(results.git-org.path)"
-                echo -n "${GIT_REVISION}" > "$(results.git-revision.path)"
-
-      - name: provision-eaas-space
-        runAfter:
-          - audit-snapshot
-        taskRef:
-          resolver: git
-          params:
-            - name: url
-              value: https://github.com/konflux-ci/build-definitions.git
-            - name: revision
-              value: main
-            - name: pathInRepo
-              value: task/eaas-provision-space/0.1/eaas-provision-space.yaml
-        params:
-          - name: ownerName
-            value: $(context.pipelineRun.name)
-          - name: ownerUid
-            value: $(context.pipelineRun.uid)
-
-      - name: provision-cluster
-        runAfter:
-          - provision-eaas-space
-        taskSpec:
-          results:
-            - name: clusterName
-              value: "$(steps.create-cluster.results.clusterName)"
-          steps:
-            - name: get-supported-versions
-              ref:
-                resolver: git
-                params:
-                  - name: url
-                    value: https://github.com/konflux-ci/build-definitions.git
-                  - name: revision
-                    value: main
-                  - name: pathInRepo
-                    value: stepactions/eaas-get-supported-ephemeral-cluster-versions/0.1/eaas-get-supported-ephemeral-cluster-versions.yaml
-              params:
-                - name: eaasSpaceSecretRef
-                  value: $(tasks.provision-eaas-space.results.secretRef)
-            - name: pick-version
-              ref:
-                resolver: git
-                params:
-                  - name: url
-                    value: https://github.com/konflux-ci/build-definitions.git
-                  - name: revision
-                    value: main
-                  - name: pathInRepo
-                    value: stepactions/eaas-get-latest-openshift-version-by-prefix/0.1/eaas-get-latest-openshift-version-by-prefix.yaml
-              params:
-                - name: prefix
-                  value: "$(steps.get-supported-versions.results.versions[0])."
-            - name: create-cluster
-              ref:
-                resolver: git
-                params:
-                  - name: url
-                    value: https://github.com/konflux-ci/build-definitions.git
-                  - name: revision
-                    value: main
-                  - name: pathInRepo
-                    value: stepactions/eaas-create-ephemeral-cluster-hypershift-aws/0.1/eaas-create-ephemeral-cluster-hypershift-aws.yaml
-              params:
-                - name: eaasSpaceSecretRef
-                  value: $(tasks.provision-eaas-space.results.secretRef)
-                - name: version
-                  value: "$(steps.pick-version.results.version)"
-                - name: instanceType
-                  value: m5.2xlarge
-
-      - name: deploy-and-test
-        timeout: 120m
-        runAfter:
-          - provision-cluster
-        params:
+            description: Snapshot of the application
+        results:
         - name: trustyai-operator-image
-          value: "$(tasks.audit-snapshot.results.trustyai-operator-image)"
-        - name: odh-operator-repo
-          value: "$(params.ODH_OPERATOR_REPO)"
-        - name: odh-operator-revision
-          value: "$(params.ODH_OPERATOR_REVISION)"
-        - name: operator-namespace
-          value: "$(params.OPERATOR_NAMESPACE)"
-        taskSpec:
-          params:
-            - name: trustyai-operator-image
-              type: string
-            - name: odh-operator-repo
-              type: string
-            - name: odh-operator-revision
-              type: string
-            - name: operator-namespace
-              type: string
-          volumes:
-            - name: credentials
-              emptyDir: {}
-            - name: test-status
-              emptyDir: {}
-          steps:
-            - name: get-kubeconfig
-              ref:
-                resolver: git
-                params:
-                  - name: url
-                    value: https://github.com/konflux-ci/build-definitions.git
-                  - name: revision
-                    value: main
-                  - name: pathInRepo
-                    value: stepactions/eaas-get-ephemeral-cluster-credentials/0.1/eaas-get-ephemeral-cluster-credentials.yaml
+        - name: pull-request-author
+        - name: pull-request-number
+        - name: git-repo
+        - name: git-org
+        - name: git-revision
+        steps:
+          - name: audit-snapshot
+            image: quay.io/konflux-ci/konflux-test:stable
+            workingDir: /workspace
+            env:
+              - name: SNAPSHOT
+                value: $(params.SNAPSHOT)
+              - name: PR_AUTHOR
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.annotations['pac.test.appstudio.openshift.io/sender']
+              - name: PR_NUMBER
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.labels['pac.test.appstudio.openshift.io/pull-request']
+              - name: GIT_REPO
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.annotations['pac.test.appstudio.openshift.io/url-repository']
+              - name: GIT_ORG
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.annotations['pac.test.appstudio.openshift.io/url-org']
+              - name: GIT_REVISION
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.annotations['pac.test.appstudio.openshift.io/sha']
+            script: |
+              #!/bin/bash
+              set -e
+              echo "SNAPSHOT=${SNAPSHOT}"
+
+              # Extract TrustyAI operator image from snapshot
+              TRUSTYAI_OPERATOR_IMAGE=""
+              while IFS= read -r row; do
+                  COMPONENT_NAME=$(echo "$row" | base64 -d | jq -r '.name')
+                  IMAGE=$(echo "$row" | base64 -d | jq -r '.containerImage')
+                  GIT_COMMIT=$(echo "$row" | base64 -d | jq -r '.source.git.revision')
+                  GIT_URL=$(echo "$row" | base64 -d | jq -r '.source.git.url')
+
+                  if echo "${GIT_URL}" | grep -q "trustyai-service-operator"; then
+                    TRUSTYAI_OPERATOR_IMAGE="${IMAGE}"
+                  fi
+                  echo "${COMPONENT_NAME} IMAGE: ${IMAGE} GIT_COMMIT: ${GIT_COMMIT}"
+              done < <(echo "$SNAPSHOT" | jq -r '.components[] | @base64')
+
+              if [ -z "$TRUSTYAI_OPERATOR_IMAGE" ]; then
+                echo "ERROR: TrustyAI operator image not found in snapshot"
+                exit 1
+              fi
+
+              echo "TRUSTYAI_OPERATOR_IMAGE: ${TRUSTYAI_OPERATOR_IMAGE}"
+              echo -n "${TRUSTYAI_OPERATOR_IMAGE}" > "$(results.trustyai-operator-image.path)"
+              echo -n "${PR_AUTHOR}" > "$(results.pull-request-author.path)"
+              echo -n "${PR_NUMBER}" > "$(results.pull-request-number.path)"
+              echo -n "${GIT_REPO}" > "$(results.git-repo.path)"
+              echo -n "${GIT_ORG}" > "$(results.git-org.path)"
+              echo -n "${GIT_REVISION}" > "$(results.git-revision.path)"
+
+    - name: provision-eaas-space
+      runAfter:
+        - audit-snapshot
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/konflux-ci/build-definitions.git
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: task/eaas-provision-space/0.1/eaas-provision-space.yaml
+      params:
+        - name: ownerName
+          value: $(context.pipelineRun.name)
+        - name: ownerUid
+          value: $(context.pipelineRun.uid)
+
+    - name: provision-cluster
+      runAfter:
+        - provision-eaas-space
+      taskSpec:
+        results:
+          - name: clusterName
+            value: "$(steps.create-cluster.results.clusterName)"
+        steps:
+          - name: get-supported-versions
+            ref:
+              resolver: git
               params:
-                - name: eaasSpaceSecretRef
-                  value: $(tasks.provision-eaas-space.results.secretRef)
-                - name: clusterName
-                  value: "$(tasks.provision-cluster.results.clusterName)"
-                - name: credentials
-                  value: credentials
-
-            - name: clone-odh-operator
-              image: alpine/git
-              script: |
-                echo "Cloning opendatahub-operator from $(params.odh-operator-repo) at $(params.odh-operator-revision)"
-                git config --global --add safe.directory /workspace/source
-                git init /workspace/source
-                git -C /workspace/source fetch --depth 1 $(params.odh-operator-repo) $(params.odh-operator-revision)
-                git -C /workspace/source checkout FETCH_HEAD
-
-            - name: deploy-and-e2e
-              image: quay.io/rhoai/rhoai-task-toolset:operator
-              imagePullPolicy: Always
-              onError: continue
-              computeResources:
-                requests:
-                  memory: "16Gi"
-                  cpu: "4"
-                limits:
-                  memory: "24Gi"
-                  cpu: "6"
-              env:
-                - name: KUBECONFIG
-                  value: "/credentials/$(steps.get-kubeconfig.results.kubeconfig)"
-                - name: GOMEMLIMIT
-                  value: "10GiB"
-                - name: TRUSTYAI_OPERATOR_IMAGE
-                  value: $(params.trustyai-operator-image)
-                - name: ARTIFACT_DIR
-                  value: /workspace/artifacts-dir
-              workingDir: /workspace/source
-              volumeMounts:
-                - name: credentials
-                  mountPath: /credentials
-                - name: test-status
-                  mountPath: /test-status
-              script: |
-                set -ex
-                STATUS_FILE="/test-status/deploy-and-e2e-status"
-                echo "failed" > "$STATUS_FILE"
-
-                git config --global --add safe.directory /workspace/source
-                echo "=== Latest commit ==="
-                git log -1 --format="Commit: %H%nAuthor: %an%nDate:   %ci%nMessage: %s"
-
-                echo "=== TrustyAI Operator Image from PR ==="
-                echo "TRUSTYAI_OPERATOR_IMAGE: ${TRUSTYAI_OPERATOR_IMAGE}"
-
-                # Install kubectl
-                curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-                chmod +x kubectl
-                mv kubectl /tmp/kubectl
-
-                oc whoami
-                oc get nodes
-
-                # Deploy the opendatahub-operator
-                echo "Deploying opendatahub-operator..."
-                make deploy OPERATOR_NAMESPACE=$(params.operator-namespace)
-
-                # Wait for operator to be ready
-                echo "Waiting for opendatahub-operator to be ready..."
-                /tmp/kubectl wait --for=condition=available --timeout=300s deployment/opendatahub-operator-controller-manager -n $(params.operator-namespace)
-
-                # Create DataScienceCluster with TrustyAI enabled and using the PR image
-                echo "Creating DataScienceCluster with TrustyAI using PR image..."
-                cat <<EOF | oc apply -f -
-                apiVersion: datasciencecluster.opendatahub.io/v1
-                kind: DataScienceCluster
-                metadata:
-                  name: default-dsc
-                spec:
-                  components:
-                    trustyai:
-                      managementState: Managed
-                      devFlags:
-                        manifests:
-                          - uri: https://github.com/opendatahub-io/trustyai-service-operator/tarball/main
-                            contextDir: config
-                            sourcePath: ""
-                      trustyaiserviceoperator:
-                        image: ${TRUSTYAI_OPERATOR_IMAGE}
-                EOF
-
-                # Wait for TrustyAI operator to be deployed
-                echo "Waiting for TrustyAI operator deployment..."
-                sleep 30
-                /tmp/kubectl get deployments -A | grep trustyai || true
-
-                mkdir -p "${ARTIFACT_DIR}"
-
-                # Run e2e tests
-                echo "Running opendatahub-operator e2e tests..."
-                make e2e-test -e E2E_TEST_OPERATOR_NAMESPACE=$(params.operator-namespace) 2>&1 | tee "${ARTIFACT_DIR}/e2e-tests.log" || {
-                  EXIT_CODE=$?
-                  echo "============================================"
-                  echo "E2E tests failed with exit code: $EXIT_CODE"
-                  echo "Pods in namespace $(params.operator-namespace):"
-                  /tmp/kubectl get pods -n $(params.operator-namespace) || true
-                  echo "Operator logs:"
-                  /tmp/kubectl logs -n $(params.operator-namespace) -l control-plane=controller-manager --tail=100 || true
-                  echo "TrustyAI resources:"
-                  /tmp/kubectl get trustyaiservices -A || true
-                  exit $EXIT_CODE
-                }
-
-                echo "success" > "$STATUS_FILE"
-
-            - name: git-push-artifacts
-              ref:
-                resolver: git
-                params:
-                  - name: url
-                    value: https://github.com/red-hat-data-services/rhoai-konflux-tasks.git
-                  - name: revision
-                    value: main
-                  - name: pathInRepo
-                    value: stepactions/secure-git-push/0.1/secure-git-push.yaml
+                - name: url
+                  value: https://github.com/konflux-ci/build-definitions.git
+                - name: revision
+                  value: main
+                - name: pathInRepo
+                  value: stepactions/eaas-get-supported-ephemeral-cluster-versions/0.1/eaas-get-supported-ephemeral-cluster-versions.yaml
+            params:
+              - name: eaasSpaceSecretRef
+                value: $(tasks.provision-eaas-space.results.secretRef)
+          - name: pick-version
+            ref:
+              resolver: git
               params:
-                - name: source-path
-                  value: /workspace/artifacts-dir
-                - name: repo-path
-                  value: 'opendatahub-io/odh-build-metadata'
-                - name: repo-branch
-                  value: 'ci-artifacts'
-                - name: sparse-file-path
-                  value: 'test-artifacts/docs'
-                - name: dest-path
-                  value: 'test-artifacts/$(context.pipelineRun.name)'
-                - name: pipelinerun-name
-                  value: $(context.pipelineRun.name)
+                - name: url
+                  value: https://github.com/konflux-ci/build-definitions.git
+                - name: revision
+                  value: main
+                - name: pathInRepo
+                  value: stepactions/eaas-get-latest-openshift-version-by-prefix/0.1/eaas-get-latest-openshift-version-by-prefix.yaml
+            params:
+              - name: prefix
+                value: "$(steps.get-supported-versions.results.versions[0])."
+          - name: create-cluster
+            ref:
+              resolver: git
+              params:
+                - name: url
+                  value: https://github.com/konflux-ci/build-definitions.git
+                - name: revision
+                  value: main
+                - name: pathInRepo
+                  value: stepactions/eaas-create-ephemeral-cluster-hypershift-aws/0.1/eaas-create-ephemeral-cluster-hypershift-aws.yaml
+            params:
+              - name: eaasSpaceSecretRef
+                value: $(tasks.provision-eaas-space.results.secretRef)
+              - name: version
+                value: "$(steps.pick-version.results.version)"
+              - name: instanceType
+                value: m5.2xlarge
 
-            - name: check-test-exit-code
-              image: quay.io/rhoai-konflux/alpine:latest
-              volumeMounts:
-                - name: test-status
-                  mountPath: /test-status
-              script: |
-                STATUS_FILE="/test-status/deploy-and-e2e-status"
-                if ! [ -f "$STATUS_FILE" ] || [ "$(cat "$STATUS_FILE")" != "success" ]; then
-                  echo "Failing pipeline because deploy-and-e2e step failed"
-                  exit 1
-                fi
-                echo "deploy-and-e2e step succeeded"
+    - name: deploy-and-test
+      timeout: 120m
+      runAfter:
+        - provision-cluster
+      params:
+      - name: trustyai-operator-image
+        value: "$(tasks.audit-snapshot.results.trustyai-operator-image)"
+      - name: odh-operator-repo
+        value: "$(params.ODH_OPERATOR_REPO)"
+      - name: odh-operator-revision
+        value: "$(params.ODH_OPERATOR_REVISION)"
+      - name: operator-namespace
+        value: "$(params.OPERATOR_NAMESPACE)"
+      taskSpec:
+        params:
+          - name: trustyai-operator-image
+            type: string
+          - name: odh-operator-repo
+            type: string
+          - name: odh-operator-revision
+            type: string
+          - name: operator-namespace
+            type: string
+        volumes:
+          - name: credentials
+            emptyDir: {}
+          - name: test-status
+            emptyDir: {}
+        steps:
+          - name: get-kubeconfig
+            ref:
+              resolver: git
+              params:
+                - name: url
+                  value: https://github.com/konflux-ci/build-definitions.git
+                - name: revision
+                  value: main
+                - name: pathInRepo
+                  value: stepactions/eaas-get-ephemeral-cluster-credentials/0.1/eaas-get-ephemeral-cluster-credentials.yaml
+            params:
+              - name: eaasSpaceSecretRef
+                value: $(tasks.provision-eaas-space.results.secretRef)
+              - name: clusterName
+                value: "$(tasks.provision-cluster.results.clusterName)"
+              - name: credentials
+                value: credentials
 
-    finally:
+          - name: clone-odh-operator
+            image: alpine/git
+            script: |
+              echo "Cloning opendatahub-operator from $(params.odh-operator-repo) at $(params.odh-operator-revision)"
+              git config --global --add safe.directory /workspace/source
+              git init /workspace/source
+              git -C /workspace/source fetch --depth 1 $(params.odh-operator-repo) $(params.odh-operator-revision)
+              git -C /workspace/source checkout FETCH_HEAD
+
+          - name: deploy-and-e2e
+            image: quay.io/rhoai/rhoai-task-toolset:operator
+            imagePullPolicy: Always
+            onError: continue
+            computeResources:
+              requests:
+                memory: "16Gi"
+                cpu: "4"
+              limits:
+                memory: "24Gi"
+                cpu: "6"
+            env:
+              - name: KUBECONFIG
+                value: "/credentials/$(steps.get-kubeconfig.results.kubeconfig)"
+              - name: GOMEMLIMIT
+                value: "10GiB"
+              - name: TRUSTYAI_OPERATOR_IMAGE
+                value: $(params.trustyai-operator-image)
+              - name: ARTIFACT_DIR
+                value: /workspace/artifacts-dir
+            workingDir: /workspace/source
+            volumeMounts:
+              - name: credentials
+                mountPath: /credentials
+              - name: test-status
+                mountPath: /test-status
+            script: |
+              set -ex
+              STATUS_FILE="/test-status/deploy-and-e2e-status"
+              echo "failed" > "$STATUS_FILE"
+
+              git config --global --add safe.directory /workspace/source
+              echo "=== Latest commit ==="
+              git log -1 --format="Commit: %H%nAuthor: %an%nDate:   %ci%nMessage: %s"
+
+              echo "=== TrustyAI Operator Image from PR ==="
+              echo "TRUSTYAI_OPERATOR_IMAGE: ${TRUSTYAI_OPERATOR_IMAGE}"
+
+              # Install kubectl
+              curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+              chmod +x kubectl
+              mv kubectl /tmp/kubectl
+
+              oc whoami
+              oc get nodes
+
+              # Deploy the opendatahub-operator
+              echo "Deploying opendatahub-operator..."
+              make deploy OPERATOR_NAMESPACE=$(params.operator-namespace)
+
+              # Wait for operator to be ready
+              echo "Waiting for opendatahub-operator to be ready..."
+              /tmp/kubectl wait --for=condition=available --timeout=300s deployment/opendatahub-operator-controller-manager -n $(params.operator-namespace)
+
+              # Create DataScienceCluster with TrustyAI enabled and using the PR image
+              echo "Creating DataScienceCluster with TrustyAI using PR image..."
+              cat <<EOF | oc apply -f -
+              apiVersion: datasciencecluster.opendatahub.io/v1
+              kind: DataScienceCluster
+              metadata:
+                name: default-dsc
+              spec:
+                components:
+                  trustyai:
+                    managementState: Managed
+                    devFlags:
+                      manifests:
+                        - uri: https://github.com/opendatahub-io/trustyai-service-operator/tarball/main
+                          contextDir: config
+                          sourcePath: ""
+                    trustyaiserviceoperator:
+                      image: ${TRUSTYAI_OPERATOR_IMAGE}
+              EOF
+
+              # Wait for TrustyAI operator to be deployed
+              echo "Waiting for TrustyAI operator deployment..."
+              sleep 30
+              /tmp/kubectl get deployments -A | grep trustyai || true
+
+              mkdir -p "${ARTIFACT_DIR}"
+
+              # Run e2e tests
+              echo "Running opendatahub-operator e2e tests..."
+              make e2e-test -e E2E_TEST_OPERATOR_NAMESPACE=$(params.operator-namespace) 2>&1 | tee "${ARTIFACT_DIR}/e2e-tests.log" || {
+                EXIT_CODE=$?
+                echo "============================================"
+                echo "E2E tests failed with exit code: $EXIT_CODE"
+                echo "Pods in namespace $(params.operator-namespace):"
+                /tmp/kubectl get pods -n $(params.operator-namespace) || true
+                echo "Operator logs:"
+                /tmp/kubectl logs -n $(params.operator-namespace) -l control-plane=controller-manager --tail=100 || true
+                echo "TrustyAI resources:"
+                /tmp/kubectl get trustyaiservices -A || true
+                exit $EXIT_CODE
+              }
+
+              echo "success" > "$STATUS_FILE"
+
+          - name: git-push-artifacts
+            ref:
+              resolver: git
+              params:
+                - name: url
+                  value: https://github.com/red-hat-data-services/rhoai-konflux-tasks.git
+                - name: revision
+                  value: main
+                - name: pathInRepo
+                  value: stepactions/secure-git-push/0.1/secure-git-push.yaml
+            params:
+              - name: source-path
+                value: /workspace/artifacts-dir
+              - name: repo-path
+                value: 'opendatahub-io/odh-build-metadata'
+              - name: repo-branch
+                value: 'ci-artifacts'
+              - name: sparse-file-path
+                value: 'test-artifacts/docs'
+              - name: dest-path
+                value: 'test-artifacts/$(context.pipelineRun.name)'
+              - name: pipelinerun-name
+                value: $(context.pipelineRun.name)
+
+          - name: check-test-exit-code
+            image: quay.io/rhoai-konflux/alpine:latest
+            volumeMounts:
+              - name: test-status
+                mountPath: /test-status
+            script: |
+              STATUS_FILE="/test-status/deploy-and-e2e-status"
+              if ! [ -f "$STATUS_FILE" ] || [ "$(cat "$STATUS_FILE")" != "success" ]; then
+                echo "Failing pipeline because deploy-and-e2e step failed"
+                exit 1
+              fi
+              echo "deploy-and-e2e step succeeded"
+
+  finally:
     - name: push-ci-artifacts-and-update-pr
       params:
         - name: oci-artifacts-repo
