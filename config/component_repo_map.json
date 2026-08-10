@@ -198,6 +198,7 @@
     "odh-operator-ci": "opendatahub/opendatahub-operator"
   },
   "openshell": {
+    "odh-openshell-cli-ci": "opendatahub/odh-openshell-cli",
     "odh-openshell-gateway-ci": "opendatahub/odh-openshell-gateway",
     "odh-openshell-supervisor-ci": "opendatahub/odh-openshell-supervisor"
   },
