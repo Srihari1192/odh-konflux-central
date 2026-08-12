@@ -83,6 +83,7 @@ on:
           - ray-module-operator
           - openshell
           - data-connect-hub
+          - praxis-extproc
       pr_target_branch:
         description: 'Target branch for the PR (e.g. main)'
         required: true
