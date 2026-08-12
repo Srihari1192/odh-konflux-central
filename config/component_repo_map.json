@@ -213,6 +213,9 @@
     "odh-autorag-ci": "opendatahub/odh-autorag",
     "odh-pipelines-components-ci": "opendatahub/odh-pipelines-components"
   },
+  "praxis-extproc": {
+    "odh-praxis-extproc-ci": "opendatahub/odh-praxis-extproc"
+  },
   "ray-module-operator": {
     "odh-ray-module-operator-ci": "opendatahub/odh-ray-module-operator"
   },
