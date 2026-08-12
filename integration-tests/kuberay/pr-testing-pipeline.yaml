@@ -202,6 +202,8 @@ spec:
                   value: $(params.SNAPSHOT)
                 - name: ARTIFACT_DIR
                   value: /workspace/artifacts-dir
+                - name: GOTOOLCHAIN
+                  value: "auto"
               workingDir: /tmp
               volumeMounts:
                 - name: credentials
