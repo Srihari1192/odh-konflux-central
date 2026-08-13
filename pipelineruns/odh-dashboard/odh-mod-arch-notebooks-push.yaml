@@ -26,9 +26,9 @@ spec:
   - name: output-image
     value: quay.io/opendatahub/odh-mod-arch-notebooks:$$OUTPUT_IMAGE_TAG$$
   - name: dockerfile
-    value: Dockerfile.workspace
+    value: packages/notebooks/Dockerfile.workspace
   - name: path-context
-    value: packages/notebooks/
+    value: .
   pipelineRef:
     resolver: git
     params:
