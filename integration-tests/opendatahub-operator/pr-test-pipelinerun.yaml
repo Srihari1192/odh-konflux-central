@@ -284,6 +284,8 @@ spec:
                   value: "/credentials/$(steps.get-kubeconfig.results.kubeconfig)"
                 - name: GOMEMLIMIT
                   value: "10GiB"
+                - name: GOTOOLCHAIN
+                  value: "auto"
               workingDir: /workspace/source
               volumeMounts:
                 - name: credentials
