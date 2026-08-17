@@ -45,7 +45,7 @@ def run_oc(
 
 
 def extract_quay_auth(auths: dict[str, Any]) -> str | None:
-    for key in ("quay.io", "quay.io/rhoai", "quay.io/rhoai/rhoai-fbc-fragment"):
+    for key in ("quay.io/rhoai", "quay.io/rhoai/rhoai-fbc-fragment"):
         ent = auths.get(key) or {}
         auth = ent.get("auth")
         if auth:
@@ -53,7 +53,25 @@ def extract_quay_auth(auths: dict[str, Any]) -> str | None:
     for k, v in auths.items():
         if k.startswith("quay.io/rhoai/") and isinstance(v, dict) and v.get("auth"):
             return str(v["auth"])
+    ent = auths.get("quay.io") or {}
+    auth = ent.get("auth")
+    if auth:
+        return str(auth)
     return None
+
+
+def rhoai_scoped_dockerconfig(quay: dict[str, Any]) -> dict[str, Any]:
+    """Return dockerconfig with only quay.io/rhoai* auths (never bare quay.io)."""
+    auths = quay.get("auths") or {}
+    rhoai_entries = {
+        k: v
+        for k, v in auths.items()
+        if k == "quay.io/rhoai" or k.startswith("quay.io/rhoai/")
+    }
+    quay_auth = extract_quay_auth(auths)
+    if quay_auth:
+        rhoai_entries.setdefault("quay.io/rhoai", {"auth": quay_auth})
+    return {"auths": rhoai_entries}
 
 
 def merge_docker_auths(existing: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
@@ -88,14 +106,26 @@ def main() -> int:
         print(f"❌ No quay.io/rhoai auth token found in {QUAY_SECRET_PATH}")
         return 1
 
-    quay = merge_docker_auths(quay, {"auths": {"quay.io": {"auth": quay_auth}}})
+    # NOTE: do not also inject `quay_auth` under a bare "quay.io" key here. The
+    # RHOAI robot account is scoped to quay.io/rhoai only; writing it under the
+    # unqualified "quay.io" host key into the cluster's global pull secret
+    # clobbers whatever broader credential previously covered that key,
+    # breaking pulls of *other* quay.io images (e.g. the OLM bundle-unpack
+    # utility image quay.io/openshift-release-dev/ocp-v4.0-art-dev), which
+    # then makes every bundle-unpack Job fail with BundleUnpackFailed.
 
     print("Patching cluster global pull secret with quay.io/rhoai credentials...")
     raw = run_oc(["get", "secret/pull-secret", "-n", "openshift-config", "-o", "json"]).stdout
     pull_data = json.loads(raw)
     b64 = pull_data["data"][".dockerconfigjson"]
     existing = json.loads(base64.standard_b64decode(b64))
-    merged = merge_docker_auths(existing, quay)
+    # Never merge bare quay.io from the RHOAI robot secret — that clobbers
+    # openshift-release-dev credentials needed for OLM bundle-unpack util images.
+    overlay = rhoai_scoped_dockerconfig(quay)
+    if not overlay.get("auths"):
+        print("❌ No quay.io/rhoai credentials to merge into global pull secret")
+        return 1
+    merged = merge_docker_auths(existing, overlay)
     merged_raw = json.dumps(merged, separators=(",", ":")).encode()
     patch_b64 = base64.standard_b64encode(merged_raw).decode("ascii")
     obj = dict(pull_data)

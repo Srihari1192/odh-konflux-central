@@ -1,6 +1,7 @@
 {
   "MLServer": {
-    "mlserver-ci": "opendatahub/mlserver"
+    "mlserver-ci": "opendatahub/mlserver",
+    "odh-mlserver-cuda-ci": "opendatahub/odh-mlserver-cuda"
   },
   "NeMo-Guardrails": {
     "odh-trustyai-nemo-guardrails-serve-ci": "opendatahub/odh-trustyai-nemo-guardrails-server"
@@ -25,6 +26,11 @@
     "odh-llm-d-batch-gateway-gc-ci": "opendatahub/odh-llm-d-batch-gateway-gc",
     "odh-llm-d-batch-gateway-processor-ci": "opendatahub/odh-llm-d-batch-gateway-processor"
   },
+  "data-connect-hub": {
+    "odh-data-connect-hub-controller-ci": "opendatahub/odh-data-connect-hub-controller",
+    "odh-data-connect-hub-flight-ci": "opendatahub/odh-data-connect-hub-flight",
+    "odh-data-connect-hub-rest-ci": "opendatahub/odh-data-connect-hub-rest"
+  },
   "data-science-pipelines": {
     "odh-ml-pipelines-api-server-v2-ci": "opendatahub/ds-pipelines-api-server",
     "odh-ml-pipelines-driver-ci": "opendatahub/ds-pipelines-driver",
@@ -35,12 +41,20 @@
   "data-science-pipelines-operator": {
     "odh-data-science-pipelines-operator-controller-ci": "opendatahub/data-science-pipelines-operator"
   },
+  "distributed-workloads": {
+    "odh-th-torch-cpu-py312-ci": "opendatahub/odh-th-torch-cpu-py312",
+    "odh-th-torch-cuda-py312-ci": "opendatahub/odh-th-torch-cuda-py312",
+    "odh-th-torch-rocm-py312-ci": "opendatahub/odh-th-torch-rocm-py312"
+  },
   "eval-hub": {
     "eval-hub": "opendatahub/odh-eval-hub"
   },
   "feast": {
     "odh-feast-operator-ci": "opendatahub/feast-operator",
     "odh-feature-server-ci": "opendatahub/feature-server"
+  },
+  "feast-module-operator": {
+    "odh-feast-module-operator-ci": "opendatahub/odh-feast-module-operator"
   },
   "fms-guardrails-orchestrator": {
     "fms-guardrails-orchestrator-ci": "opendatahub/ta-guardrails-orchestrator"
@@ -57,13 +71,11 @@
     "kserve-controller-ci": "opendatahub/kserve-controller",
     "kserve-router-ci": "opendatahub/kserve-router",
     "kserve-storage-initializer-ci": "opendatahub/kserve-storage-initializer",
+    "odh-kserve-autogluon-server-ci": "opendatahub/odh-kserve-autogluon-server",
     "odh-kserve-llmisvc-controller-ci": "opendatahub/odh-kserve-llmisvc-controller",
     "odh-kserve-localmodel-controller-ci": "opendatahub/odh-kserve-localmodel-controller",
     "odh-kserve-localmodelnode-agent-ci": "opendatahub/odh-kserve-localmodelnode-agent",
     "odh-kserve-module-operator-ci": "opendatahub/odh-kserve-module-operator"
-  },
-  "kserve-autogluon-server": {
-    "odh-kserve-autogluon-server-ci": "opendatahub/odh-kserve-autogluon-server"
   },
   "kube-auth-proxy": {
     "kube-auth-proxy-ci": "opendatahub/odh-kube-auth-proxy"
@@ -93,9 +105,6 @@
   "llm-d-batch-gateway-operator": {
     "odh-batch-gateway-operator-ci": "opendatahub/odh-batch-gateway-operator"
   },
-  "llm-d-kv-cache": {
-    "odh-llm-d-kv-cache": "opendatahub/llm-d-kv-cache"
-  },
   "llm-d-latency-predictor": {
     "odh-latency-predictor-prediction-ci": "opendatahub/odh-latency-predictor-prediction",
     "odh-latency-predictor-test-ci": "opendatahub/odh-latency-predictor-test",
@@ -107,6 +116,13 @@
   },
   "lm-evaluation-harness": {
     "ta-lmes-job-ci": "opendatahub/ta-lmes-job"
+  },
+  "mcp-lifecycle-module-operator": {
+    "odh-mcp-lifecycle-module-operator-ci": "opendatahub/odh-mcp-lifecycle-module-operator"
+  },
+  "mcp-lifecycle-operator": {
+    "odh-mcp-lifecycle-operator-ci": "opendatahub/odh-mcp-lifecycle-operator",
+    "odh-mcp-lifecycle-operator-e2e-ci": "opendatahub/odh-mcp-lifecycle-operator-e2e"
   },
   "ml-metadata": {
     "odh-mlmd-grpc-server-ci": "opendatahub/mlmd-grpc-server"
@@ -152,6 +168,7 @@
   },
   "odh-dashboard": {
     "mod-arch-maas": "opendatahub/mod-arch-maas",
+    "odh-core-bff-ci": "opendatahub/odh-core-bff",
     "odh-dashboard-ci": "opendatahub/odh-dashboard",
     "odh-dashboard-operator-ci": "opendatahub/odh-dashboard-operator",
     "odh-mod-arch-agent-ops-ci": "opendatahub/odh-mod-arch-agent-ops",
@@ -160,7 +177,8 @@
     "odh-mod-arch-eval-hub": "opendatahub/odh-mod-arch-eval-hub",
     "odh-mod-arch-gen-ai-ci": "opendatahub/odh-mod-arch-gen-ai",
     "odh-mod-arch-mlflow": "opendatahub/odh-mod-arch-mlflow",
-    "odh-mod-arch-modular-architecture-ci": "opendatahub/odh-mod-arch-modular-architecture"
+    "odh-mod-arch-modular-architecture-ci": "opendatahub/odh-mod-arch-modular-architecture",
+    "odh-mod-arch-notebooks-ci": "opendatahub/odh-mod-arch-notebooks"
   },
   "odh-model-controller": {
     "odh-model-controller-ci": "opendatahub/odh-model-controller",
@@ -176,10 +194,16 @@
     "odh-ogx-core-ci": "opendatahub/odh-ogx-core"
   },
   "ogx-k8s-operator": {
-    "odh-ogx-k8s-operator-ci": "opendatahub/odh-ogx-k8s-operator"
+    "odh-ogx-k8s-operator-ci": "opendatahub/odh-ogx-k8s-operator",
+    "odh-ogx-module-operator-ci": "opendatahub/odh-ogx-module-operator"
   },
   "opendatahub-operator": {
     "odh-operator-ci": "opendatahub/opendatahub-operator"
+  },
+  "openshell": {
+    "odh-openshell-cli-ci": "opendatahub/odh-openshell-cli",
+    "odh-openshell-gateway-ci": "opendatahub/odh-openshell-gateway",
+    "odh-openshell-supervisor-ci": "opendatahub/odh-openshell-supervisor"
   },
   "openvino_model_server": {
     "openvino-model-server-ci": "opendatahub/openvino_model_server"
@@ -189,20 +213,37 @@
     "odh-autorag-ci": "opendatahub/odh-autorag",
     "odh-pipelines-components-ci": "opendatahub/odh-pipelines-components"
   },
+  "praxis-extproc": {
+    "odh-praxis-extproc-ci": "opendatahub/odh-praxis-extproc"
+  },
+  "ray-module-operator": {
+    "odh-ray-module-operator-ci": "opendatahub/odh-ray-module-operator"
+  },
   "rhaii-cluster-validation": {
     "odh-rhaii-cluster-validator-ci": "opendatahub/odh-rhaii-cluster-validator",
     "odh-rhaii-validator-tools-ci": "opendatahub/odh-rhaii-validator-tools"
   },
+  "rhoai-mcp": {
+    "odh-rhoai-mcp-ci": "opendatahub/odh-rhoai-mcp"
+  },
+  "spark-operator": {
+    "odh-spark-operator-module-ci": "opendatahub/odh-spark-operator-module"
+  },
   "trainer": {
     "trainer-ci": "opendatahub/trainer"
   },
-  "training-operator": {
-    "odh-training-operator-ci": "opendatahub/training-operator"
+  "trainer-operator": {
+    "odh-trainer-operator-ci": "opendatahub/odh-trainer-operator"
   },
   "trustyai-explainability": {
-    "odh-trustyai-service-ci": "opendatahub/trustyai-service"
+    "odh-trustyai-service-ci": "opendatahub/odh-trustyai-service"
+  },
+  "trustyai-service": {
+    "odh-trustyai-service-ci": "opendatahub/odh-trustyai-service",
+    "odh-trustyai-service-py-ci": "opendatahub/odh-trustyai-service-py"
   },
   "trustyai-service-operator": {
+    "odh-trustyai-module-operator-ci": "opendatahub/odh-trustyai-module-operator",
     "odh-trustyai-service-operator-ci": "opendatahub/trustyai-service-operator",
     "ta-lmes-driver-ci": "opendatahub/ta-lmes-driver"
   },

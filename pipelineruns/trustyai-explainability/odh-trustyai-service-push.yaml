@@ -1,5 +1,6 @@
 apiVersion: tekton.dev/v1
 kind: PipelineRun
+#
 metadata:
   annotations:
     build.appstudio.openshift.io/repo: https://github.com/opendatahub-io/trustyai-explainability?rev={{revision}}
@@ -23,7 +24,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/trustyai-service:odh-stable
+    value: quay.io/opendatahub/odh-trustyai-service:$$OUTPUT_IMAGE_TAG$$
   - name: dockerfile
     value: Dockerfile
   - name: path-context
@@ -38,7 +39,7 @@ spec:
     - name: pathInRepo
       value: pipeline/multi-arch-container-build.yaml
   taskRunTemplate:
-    serviceAccountName: build-pipeline-odh-trustyai-service
+    serviceAccountName: build-pipeline-odh-trustyai-service-ci
   workspaces:
   - name: git-auth
     secret:

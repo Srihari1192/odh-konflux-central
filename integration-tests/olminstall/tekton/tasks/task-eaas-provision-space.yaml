@@ -1,0 +1,126 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: eaas-provision-space
+  labels:
+    app.kubernetes.io/version: "0.1"
+spec:
+  description: >-
+    Reserve a Konflux EaaS namespace for this pipeline run and return a secret
+    reference containing kubeconfig credentials for the provisioned space.
+  params:
+    - name: ownerKind
+      type: string
+      default: PipelineRun
+      description: >-
+        The type of resource that should own the generated namespace claim.
+        Deletion of this resource will trigger deletion of the SpaceRequest.
+        Supported values: `PipelineRun`, `TaskRun`.
+    - name: ownerName
+      type: string
+      description: >-
+        The name of the resource that should own the generated namespace claim.
+        This should either be passed the value of `$(context.pipelineRun.name)`
+        or `$(context.taskRun.name)` depending on the value of `ownerKind`.
+    - name: ownerUid
+      type: string
+      description: >-
+        The uid of the resource that should own the generated namespace claim.
+        This should either be passed the value of `$(context.pipelineRun.uid)`
+        or `$(context.taskRun.uid)` depending on the value of `ownerKind`.
+    - name: SCRIPTS_REPO_URL
+      type: string
+      default: "https://github.com/opendatahub-io/odh-konflux-central.git"
+      description: Scripts repo for Konflux task summary finally step (TASK_MESSAGE result)
+    - name: SCRIPTS_REPO_REVISION
+      type: string
+      default: "main"
+      description: Git revision for Konflux task summary finally step
+  results:
+    - name: secretRef
+      description: Name of the Secret with kubeconfig for the provisioned EaaS space
+      type: string
+    - name: TASK_MESSAGE
+      description: Pass/fail summary for Konflux task Results panel
+  steps:
+    - name: request-space
+      displayName: Request EaaS namespace
+      image: registry.redhat.io/openshift4/ose-cli:4.13@sha256:73df37794ffff7de1101016c23dc623e4990810390ebdabcbbfa065214352c7c
+      computeResources:
+        limits:
+          memory: 128Mi
+          cpu: 10m
+        requests:
+          memory: 128Mi
+          cpu: 10m
+      env:
+        - name: NAMESPACE
+          value: $(context.taskRun.namespace)
+        - name: OWNER_KIND
+          value: $(params.ownerKind)
+        - name: OWNER_NAME
+          value: $(params.ownerName)
+        - name: OWNER_UID
+          value: $(params.ownerUid)
+        - name: CLAIM_NAME
+          value: $(context.taskRun.name)
+        - name: SECRET
+          value: $(context.taskRun.name)-secret
+      script: |
+        #!/bin/bash
+        set -eo pipefail
+
+        case "$OWNER_KIND" in
+          PipelineRun|TaskRun)
+            ;;
+          *)
+            echo "Unsupported value for ownerKind param"
+            exit 1
+            ;;
+        esac
+
+        CLAIM_FILE="/tmp/namespace_claim.yaml"
+        cat <<EOF > "$CLAIM_FILE"
+        apiVersion: eaas.konflux-ci.dev/v1alpha1
+        kind: Namespace
+        metadata:
+          name: $CLAIM_NAME
+          namespace: $NAMESPACE
+          ownerReferences:
+          - apiVersion: tekton.dev/v1
+            kind: $OWNER_KIND
+            name: $OWNER_NAME
+            uid: $OWNER_UID
+        spec:
+          writeConnectionSecretToRef:
+            name: $SECRET
+        EOF
+
+        NAME=$(oc create -f "$CLAIM_FILE" -o=jsonpath='{.metadata.name}')
+
+        if oc wait namespaces.eaas.konflux-ci.dev "$NAME" --for=condition=Ready --timeout=5m; then
+          echo "SecretRef: $SECRET"
+          echo -n "$SECRET" > "$(results.secretRef.path)"
+        else
+          exit 1
+        fi
+    - name: write-konflux-task-summary
+      displayName: Write Konflux task summary
+      onError: continue
+      image: quay.io/konflux-ci/konflux-test:stable@sha256:09328e5f47da168ffe951ec9c4242cd6761e61e0a235df1bba3f5158e757446d
+      env:
+        - {name: TASK_MESSAGE_PATH, value: $(results.TASK_MESSAGE.path)}
+        - name: PIPELINE_TASK
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['tekton.dev/pipelineTask']
+        - {name: SCRIPTS_REPO_URL, value: $(params.SCRIPTS_REPO_URL)}
+        - {name: SCRIPTS_REPO_REVISION, value: $(params.SCRIPTS_REPO_REVISION)}
+      script: |
+        set -euo pipefail
+        d="/tmp/olminstall-write-$$"
+        rm -rf "$d" && mkdir -p "$d" && cd "$d"
+        git init -q && git remote add origin "${SCRIPTS_REPO_URL}"
+        git fetch --depth=1 origin "${SCRIPTS_REPO_REVISION}" && git checkout -q FETCH_HEAD
+        export SCRIPTS_REPO_ROOT="$d/integration-tests/olminstall"
+        exec bash "${SCRIPTS_REPO_ROOT}/tekton/scripts/run_write_task_message.sh"

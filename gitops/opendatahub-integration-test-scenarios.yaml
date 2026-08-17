@@ -44,3 +44,26 @@ spec:
         value: integration-tests/opendatahub-operator/e2e-test.yaml
     resolver: git
     resourceKind: pipeline
+---
+apiVersion: appstudio.redhat.com/v1beta2
+kind: IntegrationTestScenario
+metadata:
+  labels:
+    test.appstudio.openshift.io/optional: "true"
+  name: ogx-core-functional-its
+  namespace: open-data-hub-tenant
+spec:
+  application: opendatahub-builds
+  contexts:
+    - description: execute functional tests when odh-ogx-core component updates
+      name: component_odh-ogx-core-ci
+  resolverRef:
+    params:
+      - name: url
+        value: https://github.com/opendatahub-io/odh-konflux-central.git
+      - name: revision
+        value: main
+      - name: pathInRepo
+        value: integration-tests/ogx-core/pr-its-pipeline.yaml
+    resolver: git
+    resourceKind: pipeline

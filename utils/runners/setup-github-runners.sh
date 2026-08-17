@@ -29,7 +29,7 @@ HOST_NAME="${HOST_NAME:-devops-ci-host-1}"
 RUNNER_NAME_PREFIX="${RUNNER_NAME_PREFIX:-${HOST_NAME}}"
 RUNNER_COUNT="${RUNNER_COUNT:-2}"
 RUNNER_EPHEMERAL="${RUNNER_EPHEMERAL:-false}"
-RUNNER_VERSION="${RUNNER_VERSION:-2.334.0}"
+RUNNER_VERSION="${RUNNER_VERSION:-2.335.1}"
 
 CONTAINER_IMAGE="${CONTAINER_IMAGE:-github-runner:${RUNNER_VERSION}}"
 CONTAINER_NAME_PREFIX="${CONTAINER_NAME_PREFIX:-gha-runner}"
@@ -237,23 +237,6 @@ build_runner_image() {
 
 start_runners() {
   build_runner_image
-
-  # Docker-in-Docker externals fix: the runner creates job containers via the
-  # host Docker socket, passing -v "/home/runner/actions-runner/externals":"/__e":ro.
-  # That path is inside the runner container, not on the host. Docker resolves
-  # bind-mount sources on the HOST, so the externals must exist there too.
-  # Extract them from the image once; they're version-locked and shared safely.
-  local host_externals="/home/runner/actions-runner/externals"
-  if [[ ! -d "${host_externals}/node20" ]]; then
-    log "Populating host externals at ${host_externals} (one-time)..."
-    sudo mkdir -p "${host_externals}"
-    local tmp_ctr="tmp-externals-copy-$$"
-    docker create --name "${tmp_ctr}" "${CONTAINER_IMAGE}" >/dev/null 2>&1
-    sudo docker cp "${tmp_ctr}:/home/runner/actions-runner/externals/." "${host_externals}/"
-    docker rm "${tmp_ctr}" >/dev/null 2>&1
-    sudo chown -R 1001:1001 "${host_externals}"
-    log "Host externals populated: $(ls "${host_externals}" | tr '\n' ' ')"
-  fi
 
   log "Obtaining registration token..."
   local reg_token
