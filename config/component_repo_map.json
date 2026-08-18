@@ -145,6 +145,7 @@
     "odh-maas-controller-ci": "opendatahub/maas-controller"
   },
   "notebooks": {
+    "odh-pipeline-runtime-baseline-cpu-py312-c9s-ci": "opendatahub/odh-pipeline-runtime-baseline-cpu-py312-c9s",
     "odh-pipeline-runtime-datascience-cpu-py312-ubi9-ci": "opendatahub/odh-pipeline-runtime-datascience-cpu-py312-ubi9",
     "odh-pipeline-runtime-minimal-cpu-py312-ubi9-ci": "opendatahub/odh-pipeline-runtime-minimal-cpu-py312-ubi9",
     "odh-pipeline-runtime-pytorch-cuda-py312-ubi9-ci": "opendatahub/odh-pipeline-runtime-pytorch-cuda-py312-ubi9",
