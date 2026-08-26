@@ -145,7 +145,6 @@
     "odh-maas-controller-ci": "opendatahub/maas-controller"
   },
   "notebooks": {
-    "odh-pipeline-runtime-baseline-cpu-py312-c9s-ci": "opendatahub/odh-pipeline-runtime-baseline-cpu-py312-c9s",
     "odh-pipeline-runtime-datascience-cpu-py312-ubi9-ci": "opendatahub/odh-pipeline-runtime-datascience-cpu-py312-ubi9",
     "odh-pipeline-runtime-minimal-cpu-py312-ubi9-ci": "opendatahub/odh-pipeline-runtime-minimal-cpu-py312-ubi9",
     "odh-pipeline-runtime-pytorch-cuda-py312-ubi9-ci": "opendatahub/odh-pipeline-runtime-pytorch-cuda-py312-ubi9",
@@ -153,9 +152,6 @@
     "odh-pipeline-runtime-pytorch-rocm-py312-ubi9-ci": "opendatahub/odh-pipeline-runtime-pytorch-rocm-py312-ubi9",
     "odh-pipeline-runtime-tensorflow-cuda-py312-ubi9-ci": "opendatahub/odh-pipeline-runtime-tensorflow-cuda-py312-ubi9",
     "odh-pipeline-runtime-tensorflow-rocm-py312-ubi9-ci": "opendatahub/odh-pipeline-runtime-tensorflow-rocm-py312-ubi9",
-    "odh-workbench-codeserver-baseline-cpu-py312-c9s-ci": "opendatahub/odh-workbench-codeserver-baseline-cpu-py312-c9s",
-    "odh-workbench-codeserver-datascience-cpu-py312-ubi9-ci": "opendatahub/odh-workbench-codeserver-datascience-cpu-py312-ubi9",
-    "odh-workbench-jupyter-baseline-cpu-py312-c9s-ci": "opendatahub/odh-workbench-jupyter-baseline-cpu-py312-c9s",
     "odh-workbench-jupyter-datascience-cpu-py312-ubi9-ci": "opendatahub/odh-workbench-jupyter-datascience-cpu-py312-ubi9",
     "odh-workbench-jupyter-minimal-cpu-py312-ubi9-ci": "opendatahub/odh-workbench-jupyter-minimal-cpu-py312-ubi9",
     "odh-workbench-jupyter-minimal-cuda-py312-ubi9-ci": "opendatahub/odh-workbench-jupyter-minimal-cuda-py312-ubi9",
